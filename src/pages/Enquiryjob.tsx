@@ -6,6 +6,9 @@ import { Copy, Download, Save, Eye } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useDebounce } from 'use-debounce';
 
+// Background image (base64-encoded light abstract pattern)
+const backgroundImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJwYXR0ZXJuIiB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiPjxwYXRoIGQ9Ik0gMCA0MCAyMCAyMCA0MCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48cGF0aCBkPSJNIDQwIDAgMjAgMjAgMCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjcGF0dGVybikiLz48L3N2Zz4=';
+
 interface EnquiryDetails {
   full_name: string;
   languages_known: string;
@@ -84,6 +87,12 @@ export function Enquiryjob() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [debouncedDetails] = useDebounce(enquiryDetails, 500);
+
+  // Capitalize first letter of a string
+  const capitalizeFirstLetter = (value: string): string => {
+    if (!value) return '';
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  };
 
   // Format dollar amount
   const formatDollarAmount = (value: string): string => {
@@ -365,8 +374,14 @@ export function Enquiryjob() {
           </div>
           {enquiryDetails[field as keyof EnquiryDetails] !== undefined && (
             <div className="mt-2">
-              
-              
+              <textarea
+                id={`${field}_details`}
+                value={enquiryDetails[`${field}_details` as keyof EnquiryDetails] as string}
+                onChange={(e) => setEnquiryDetails({ ...enquiryDetails, [`${field}_details`]: capitalizeFirstLetter(e.target.value) })}
+                rows={3}
+                placeholder={placeholderMap[`${field}_details` as keyof EnquiryDetails]}
+                {...commonProps}
+              />
               {errors[`${field}_details` as keyof EnquiryDetails] && (
                 <p id={`${field}_details-error`} className="text-red-500 text-sm mt-1">
                   {errors[`${field}_details` as keyof EnquiryDetails]}
@@ -384,7 +399,7 @@ export function Enquiryjob() {
           <textarea
             id={field}
             value={enquiryDetails[field as keyof EnquiryDetails] as string}
-            onChange={(e) => setEnquiryDetails({ ...enquiryDetails, [field]: e.target.value })}
+            onChange={(e) => setEnquiryDetails({ ...enquiryDetails, [field]: capitalizeFirstLetter(e.target.value) })}
             rows={4}
             placeholder={placeholderMap[field as keyof EnquiryDetails]}
             {...commonProps}
@@ -398,6 +413,8 @@ export function Enquiryjob() {
               let value = e.target.value;
               if (field === 'expected_earnings') {
                 value = formatDollarAmount(value);
+              } else {
+                value = capitalizeFirstLetter(value);
               }
               setEnquiryDetails({ ...enquiryDetails, [field]: value });
             }}
@@ -415,17 +432,20 @@ export function Enquiryjob() {
   };
 
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? 'bg-blue-300' : 'bg-white'} transition-colors duration-300`}>
+    <div
+      className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? 'bg-blue-300' : 'bg-white'}`}
+      style={{ backgroundImage: `url(${backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+    >
       <Toaster position="top-center" />
       <motion.div
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: 'easeOut' }}
-        className={`bg-white rounded-xl shadow-2xl p-8 w-full max-w-3xl border ${isDarkMode ? 'border-blue-200' : 'border-blue-200'}`}
+        className="bg-white bg-opacity-90 rounded-xl shadow-2xl p-8 w-full max-w-3xl border border-blue-200"
       >
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-center text-blue-900">
-            Harcourts Success Job 
+            Harcourts Success 
           </h1>
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
@@ -662,7 +682,8 @@ export function Enquiryjob() {
             <motion.div
               initial={{ scale: 0.9, y: 50 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-white p-6 rounded-lg max-w-lg w-full max-h-[80vh] overflow-y-auto"
+              className="bg-white bg-opacity-90 p-6 rounded-lg max-w-lg w-full max-h-[80vh] overflow-y-auto border border-blue-200"
+              style={{ backgroundImage: `url(${backgroundImage})`, backgroundSize: 'cover' }}
             >
               <h2 className="text-2xl font-bold mb-4 text-blue-900">Submission Preview</h2>
               <div className="space-y-2">

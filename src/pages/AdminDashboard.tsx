@@ -3,37 +3,14 @@ import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Home, FileText, Activity, BarChart, Link as LinkIcon } from 'lucide-react';
+import { UserPlus, Home, FileText, Activity, BarChart, Link as LinkIcon, Eye, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateAgentModal } from './AgentManagement';
-import { Agent, Property } from '../types';
+import { EnquiryPDFPreview } from './EnquiryPDFPreview';
+import { Agent, Property, Enquiry } from '../types';
 import jsPDF from 'jspdf';
-
-interface Enquiry {
-  id: string;
-  full_name: string;
-  languages_known: string;
-  full_license: boolean;
-  full_license_details: string;
-  owns_car_and_license: boolean;
-  owns_car_and_license_details: string;
-  why_real_estate: string;
-  bought_sold_qld: boolean;
-  bought_sold_qld_details: string;
-  goal: string;
-  expected_earnings: string;
-  why_harcourts: string;
-  expectations_from_harcourts: string;
-  financial_capability: boolean;
-  financial_capability_details: string;
-  team_contribution: string;
-  real_estate_experience: boolean;
-  real_estate_experience_details: string;
-  strengths: string;
-  weaknesses: string;
-  submitted_at: string;
-}
+import 'jspdf-autotable';
 
 export function AdminDashboard() {
   const { user, profile } = useAuthStore();
@@ -44,6 +21,7 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState<'agent' | 'property' | null>(null);
+  const [showPDFModal, setShowPDFModal] = useState<string | null>(null);
   const [propertyData, setPropertyData] = useState({
     street_number: '',
     street_name: '',
@@ -63,7 +41,7 @@ export function AdminDashboard() {
   const dashboardLinks = [
     { name: 'Create New Agent', icon: UserPlus, path: '/create-agent-modal' },
     { name: 'Add Property', icon: Home, path: '/property-form' },
-    { name: 'Job Enquiries', icon: FileText, path: '/job-enquiries' },
+    { name: 'Job Enquiries', icon: FileText, path: '/enquiryjob' },
     { name: 'Create Marketing Plan', path: '/marketing-plan', icon: FileText },
     { name: 'Activity Log', path: '/activity-logger', icon: Activity },
     { name: 'Progress Report', path: '/progress-report-page', icon: BarChart },
@@ -141,47 +119,87 @@ export function AdminDashboard() {
   const generatePDF = (enquiry: Enquiry) => {
     try {
       const doc = new jsPDF();
-      doc.setFontSize(16);
-      doc.text('Harcourts Job Enquiry Details', 20, 20);
-      doc.setFontSize(12);
-      let y = 30;
+      
+      // Set document properties
+      doc.setProperties({
+        title: `Enquiry_${enquiry.full_name}_${enquiry.id}`,
+        author: 'Harcourts',
+        creator: 'Harcourts Admin Dashboard'
+      });
 
-      const fields = [
-        { label: 'Submission ID', value: enquiry.id },
-        { label: 'Submitted At', value: new Date(enquiry.submitted_at).toLocaleString() },
-        { label: 'Full Name', value: enquiry.full_name },
-        { label: 'Languages Known', value: enquiry.languages_known || 'N/A' },
-        { label: 'Full License', value: enquiry.full_license ? 'Yes' : 'No' },
-        { label: 'Full License Details', value: enquiry.full_license_details || 'N/A' },
-        { label: 'Owns Car and License', value: enquiry.owns_car_and_license ? 'Yes' : 'No' },
-        { label: 'Owns Car and License Details', value: enquiry.owns_car_and_license_details || 'N/A' },
-        { label: 'Why Real Estate', value: enquiry.why_real_estate || 'N/A' },
-        { label: 'Bought/Sold in QLD', value: enquiry.bought_sold_qld ? 'Yes' : 'No' },
-        { label: 'Bought/Sold QLD Details', value: enquiry.bought_sold_qld_details || 'N/A' },
-        { label: 'Goal', value: enquiry.goal || 'N/A' },
-        { label: 'Expected Earnings', value: enquiry.expected_earnings || 'N/A' },
-        { label: 'Why Harcourts', value: enquiry.why_harcourts || 'N/A' },
-        { label: 'Expectations from Harcourts', value: enquiry.expectations_from_harcourts || 'N/A' },
-        { label: 'Financial Capability', value: enquiry.financial_capability ? 'Yes' : 'No' },
-        { label: 'Financial Capability Details', value: enquiry.financial_capability_details || 'N/A' },
-        { label: 'Team Contribution', value: enquiry.team_contribution || 'N/A' },
-        { label: 'Real Estate Experience', value: enquiry.real_estate_experience ? 'Yes' : 'No' },
-        { label: 'Real Estate Experience Details', value: enquiry.real_estate_experience_details || 'N/A' },
-        { label: 'Strengths', value: enquiry.strengths || 'N/A' },
-        { label: 'Weaknesses', value: enquiry.weaknesses || 'N/A' },
+      // Background and header
+      doc.setFillColor(219, 234, 254); // Light blue background
+      doc.rect(0, 0, 210, 297, 'F'); // A4 size
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(30, 58, 138); // Dark blue
+      doc.text('Harcourts Job Enquiry', 105, 20, { align: 'center' });
+      
+      // Subtitle
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(29, 78, 216); // Lighter blue
+      doc.text(`Submission ID: ${enquiry.id}`, 20, 30);
+      doc.text(`Submitted: ${new Date(enquiry.submitted_at).toLocaleString()}`, 20, 38);
+
+      // Table configuration
+      const tableData = [
+        ['Full Name', enquiry.full_name],
+        ['Languages Known', enquiry.languages_known || 'N/A'],
+        ['Full License', enquiry.do_you_hold_a_full_license ? 'Yes' : 'No'],
+        ['License Details', enquiry.full_license_details || 'N/A'],
+        ['Owns Car', enquiry.do_you_own_a_car ? 'Yes' : 'No'],
+        ['Car Details', enquiry.car_details || 'N/A'],
+        ['Driver’s License', enquiry.do_you_hold_a_drivers_license ? 'Yes' : 'No'],
+        ['Driver’s License Details', enquiry.drivers_license_details || 'N/A'],
+        ['Why Real Estate', enquiry.why_real_estate || 'N/A'],
+        ['Bought/Sold in QLD', enquiry.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'],
+        ['Bought/Sold QLD Details', enquiry.bought_sold_qld_details || 'N/A'],
+        ['Goal', enquiry.whats_your_goal || 'N/A'],
+        ['Expected Earnings', enquiry.expected_earnings || 'N/A'],
+        ['Agree to RITE Values', enquiry.agree_to_rite_values ? 'Yes' : 'No'],
+        ['Why Harcourts', enquiry.why_us || 'N/A'],
+        ['Expectations from Harcourts', enquiry.what_do_you_expect_from_us || 'N/A'],
+        ['Financial Capability', enquiry.financial_capability ? 'Yes' : 'No'],
+        ['Financial Capability Details', enquiry.financial_capability_details || 'N/A'],
+        ['Team Contribution', enquiry.team_contribution || 'N/A'],
+        ['Suburbs to Prospect', enquiry.suburbs_to_prospect || 'N/A'],
+        ['Strengths', enquiry.strengths || 'N/A'],
+        ['Weaknesses', enquiry.weaknesses || 'N/A'],
       ];
 
-      fields.forEach(field => {
-        const labelText = `${field.label}: `;
-        const valueText = field.value.toString();
-        const wrappedValue = doc.splitTextToSize(valueText, 160);
-        doc.text(labelText, 20, y);
-        doc.text(wrappedValue, 60, y);
-        y += 10 + (wrappedValue.length - 1) * 5;
-        if (y > 270) {
-          doc.addPage();
-          y = 20;
-        }
+      // Use jsPDF-autotable for a professional table layout
+      (doc as any).autoTable({
+        startY: 45,
+        head: [['Field', 'Details']],
+        body: tableData,
+        theme: 'grid',
+        styles: {
+          font: 'helvetica',
+          fontSize: 10,
+          textColor: [17, 24, 39], // Dark text
+          cellPadding: 4,
+          overflow: 'linebreak',
+        },
+        headStyles: {
+          fillColor: [147, 197, 253], // Light blue header
+          textColor: [30, 58, 138], // Dark blue text
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: [241, 245, 249], // Very light blue for alternating rows
+        },
+        columnStyles: {
+          0: { cellWidth: 60, fontStyle: 'bold', textColor: [29, 78, 216] }, // Label column
+          1: { cellWidth: 120 }, // Value column
+        },
+        margin: { left: 20, right: 20 },
+        didDrawPage: () => {
+          // Add footer
+          doc.setFontSize(8);
+          doc.setTextColor(100);
+          doc.text(`Generated by Harcourts Admin Dashboard`, 105, 290, { align: 'center' });
+        },
       });
 
       doc.save(`enquiry-${enquiry.full_name}-${enquiry.id}.pdf`);
@@ -500,6 +518,17 @@ export function AdminDashboard() {
         </div>
       )}
 
+      <AnimatePresence>
+        {showPDFModal && (
+          <EnquiryPDFPreview
+            enquiry={enquiries.find(e => e.id === showPDFModal)!}
+            isOpen={!!showPDFModal}
+            onClose={() => setShowPDFModal(null)}
+            onDownload={generatePDF}
+          />
+        )}
+      </AnimatePresence>
+
       <div className="bg-white p-6 rounded-lg shadow-md mb-8 border border-blue-200">
         <h2 className="text-2xl font-semibold mb-4 flex items-center text-blue-900">
           <UserPlus className="w-6 h-6 mr-2 text-blue-300" /> Agents
@@ -702,7 +731,7 @@ export function AdminDashboard() {
 
       <div className="bg-white p-6 rounded-lg shadow-md mb-8 border border-blue-200">
         <h2 className="text-2xl font-semibold mb-4 flex items-center text-blue-900">
-          <FileText className="w-6 h-6 mr-2 text-blue-300" /> Job Enquiries
+          <FileText className="w-6 h-6 mr-2 text-blue-300" /> Wanne  Be Sales Agent
         </h2>
         {loading ? (
           <div className="text-center text-blue-900">Loading enquiries...</div>
@@ -724,11 +753,11 @@ export function AdminDashboard() {
                       <th className="py-2 px-4 text-blue-900">Submission Date</th>
                       <th className="py-2 px-4 text-blue-900">Languages Known</th>
                       <th className="py-2 px-4 text-blue-900">Full License</th>
-                      <th className="py-2 px-4 text-blue-900">Owns Car/License</th>
+                      <th className="py-2 px-4 text-blue-900">Owns Car</th>
+                      <th className="py-2 px-4 text-blue-900">Driver’s License</th>
                       <th className="py-2 px-4 text-blue-900">Bought/Sold QLD</th>
                       <th className="py-2 px-4 text-blue-900">Financial Capability</th>
-                      <th className="py-2 px-4 text-blue-900">Real Estate Experience</th>
-                      <th className="py-2 px-4 text-blue-900">Details</th>
+                      <th className="py-2 px-4 text-blue-900">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -743,17 +772,23 @@ export function AdminDashboard() {
                         <td className="py-2 px-4 text-blue-900">{enquiry.full_name}</td>
                         <td className="py-2 px-4 text-blue-900">{new Date(enquiry.submitted_at).toLocaleDateString()}</td>
                         <td className="py-2 px-4 text-blue-900">{enquiry.languages_known || '-'}</td>
-                        <td className="py-2 px-4 text-blue-900">{enquiry.full_license ? 'Yes' : 'No'}</td>
-                        <td className="py-2 px-4 text-blue-900">{enquiry.owns_car_and_license ? 'Yes' : 'No'}</td>
-                        <td className="py-2 px-4 text-blue-900">{enquiry.bought_sold_qld ? 'Yes' : 'No'}</td>
+                        <td className="py-2 px-4 text-blue-900">{enquiry.do_you_hold_a_full_license ? 'Yes' : 'No'}</td>
+                        <td className="py-2 px-4 text-blue-900">{enquiry.do_you_own_a_car ? 'Yes' : 'No'}</td>
+                        <td className="py-2 px-4 text-blue-900">{enquiry.do_you_hold_a_drivers_license ? 'Yes' : 'No'}</td>
+                        <td className="py-2 px-4 text-blue-900">{enquiry.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'}</td>
                         <td className="py-2 px-4 text-blue-900">{enquiry.financial_capability ? 'Yes' : 'No'}</td>
-                        <td className="py-2 px-4 text-blue-900">{enquiry.real_estate_experience ? 'Yes' : 'No'}</td>
-                        <td className="py-2 px-4 text-blue-900">
+                        <td className="py-2 px-4 text-blue-900 flex gap-2">
+                          <button
+                            onClick={() => setShowPDFModal(enquiry.id)}
+                            className="flex items-center text-blue-300 hover:text-blue-400 underline"
+                          >
+                            <Eye className="w-4 h-4 mr-1" /> View
+                          </button>
                           <button
                             onClick={() => generatePDF(enquiry)}
-                            className="text-blue-300 hover:text-blue-400 underline"
+                            className="flex items-center text-blue-300 hover:text-blue-400 underline"
                           >
-                            View Details
+                            <Download className="w-4 h-4 mr-1" /> Download
                           </button>
                         </td>
                       </motion.tr>

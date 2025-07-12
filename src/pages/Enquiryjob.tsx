@@ -1,11 +1,12 @@
-
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Copy, Download, Save, Eye } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useDebounce } from 'use-debounce';
+import { supabase } from '../lib/supabase'; 
+import {types} from '../types';
+// Import actual Supabase client
 
 // Background image (base64-encoded light abstract pattern)
 const backgroundImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJwYXR0ZXJuIiB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiPjxwYXRoIGQ9Ik0gMCA0MCAyMCAyMCA0MCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48cGF0aCBkPSJNIDQwIDAgMjAgMjAgMCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjcGF0dGVybikiLz48L3N2Zz4=';
@@ -82,7 +83,7 @@ const steps = [
   },
 ];
 
-export function Enquiryjob() {
+export default function Enquiryjob() {
   const [enquiryDetails, setEnquiryDetails] = useState<EnquiryDetails>({
     full_name: '',
     languages_known: '',
@@ -178,13 +179,14 @@ export function Enquiryjob() {
                             field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
                             field === 'financial_capability_details' ? 'Financial Capability Details' :
                             field === 'car_details' ? 'Car Details' :
-                            field === 'drivers_license_details' ? 'Driver’s License Details' :
+                            field === 'drivers_license_details' ? 'Driver\'s License Details' :
                             field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         newErrors[field] = `${displayField} is required when selecting Yes`;
       } else if (!field.endsWith('_details') && typeof value === 'string' && !value.trim()) {
         const displayField = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
                             field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
                             field === 'team_contribution' ? 'Your Contribution' :
+                            field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
                             field === 'whats_your_goal' ? 'What’s Your Goal' :
                             field === 'do_you_own_a_car' ? 'Do You Own a Car' :
                             field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
@@ -236,13 +238,14 @@ export function Enquiryjob() {
                               field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
                               field === 'financial_capability_details' ? 'Financial Capability Details' :
                               field === 'car_details' ? 'Car Details' :
-                              field === 'drivers_license_details' ? 'Driver’s License Details' :
+                              field === 'drivers_license_details' ? 'Driver\'s License Details' :
                               field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
           newErrors[field] = `${displayField} is required when selecting Yes`;
         } else if (requiredTextFields.includes(field) && typeof value === 'string' && !value.trim()) {
           const displayField = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
                               field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
                               field === 'team_contribution' ? 'Your Contribution' :
+                              field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
                               field === 'whats_your_goal' ? 'What’s Your Goal' :
                               field === 'do_you_own_a_car' ? 'Do You Own a Car' :
                               field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
@@ -259,16 +262,16 @@ export function Enquiryjob() {
       const submissionId = uuidv4();
       const submittedAt = new Date().toISOString();
 
-      // Explicitly map fields to ensure correct column names for database
+      // Map fields to match Supabase table schema
       const supabaseData = {
         id: submissionId,
         full_name: enquiryDetails.full_name,
         languages_known: enquiryDetails.languages_known || null,
         do_you_hold_a_full_license: enquiryDetails.do_you_hold_a_full_license,
         full_license_details: enquiryDetails.full_license_details || null,
-        owns_car: enquiryDetails.do_you_own_a_car, // Updated to match assumed database column
-        vehicle_details: enquiryDetails.car_details || null,
-        has_drivers_license: enquiryDetails.do_you_hold_a_drivers_license,
+        do_you_own_a_car: enquiryDetails.do_you_own_a_car, // Changed from owns_car
+        car_details: enquiryDetails.car_details || null, // Changed from vehicle_details
+        do_you_hold_a_drivers_license: enquiryDetails.do_you_hold_a_drivers_license, // Changed from has_drivers_license
         drivers_license_details: enquiryDetails.drivers_license_details || null,
         why_real_estate: enquiryDetails.why_real_estate,
         have_you_bought_and_sold_in_qld: enquiryDetails.have_you_bought_and_sold_in_qld,
@@ -299,7 +302,7 @@ export function Enquiryjob() {
       }
 
       // Save to Supabase
-      const { error: dbError } = await supabase.from('enquiry').insert(supabaseData);
+      const { error: dbError } = await supabase.from('enquiry').insert([supabaseData]);
 
       if (dbError) {
         console.error('Supabase error:', dbError);
@@ -308,30 +311,12 @@ export function Enquiryjob() {
         } else if (dbError.code === '42703') {
           const columnMatch = dbError.message.match(/column "([^"]+)"/);
           const missingColumn = columnMatch ? columnMatch[1] : 'unknown';
-          const displayColumn = missingColumn === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                               missingColumn === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                               missingColumn === 'team_contribution' ? 'Your Contribution' :
-                               missingColumn === 'full_license_details' ? 'License Details' :
-                               missingColumn === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                               missingColumn === 'whats_your_goal' ? 'What’s Your Goal' :
-                               missingColumn === 'vehicle_details' ? 'Car Details' :
-                               missingColumn === 'owns_car' ? 'Do You Own a Car' :
-                               missingColumn === 'has_drivers_license' ? 'Do You Hold a Driver’s License' :
-                               missingColumn.replace(/_/g, ' ');
+          const displayColumn = missingColumn.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
           throw new Error(`The field "${displayColumn}" is missing in the database. Please contact the administrator to update the database schema.`);
         } else if (dbError.code === '23502') {
           const columnMatch = dbError.message.match(/column "([^"]+)"/);
           const missingColumn = columnMatch ? columnMatch[1] : 'unknown';
-          const displayColumn = missingColumn === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                               missingColumn === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                               missingColumn === 'team_contribution' ? 'Your Contribution' :
-                               missingColumn === 'full_license_details' ? 'License Details' :
-                               missingColumn === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                               missingColumn === 'whats_your_goal' ? 'What’s Your Goal' :
-                               missingColumn === 'vehicle_details' ? 'Car Details' :
-                               missingColumn === 'owns_car' ? 'Do You Own a Car' :
-                               missingColumn === 'has_drivers_license' ? 'Do You Hold a Driver’s License' :
-                               missingColumn.replace(/_/g, ' ');
+          const displayColumn = missingColumn.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
           throw new Error(`Missing required field: ${displayColumn}`);
         }
         throw new Error(`Failed to save enquiry: ${dbError.message}`);
@@ -356,11 +341,15 @@ export function Enquiryjob() {
   const handleSaveDraft = async () => {
     try {
       const draftId = uuidv4();
-      await supabase.from('drafts').insert({
+      const draftData = {
         id: draftId,
         data: enquiryDetails,
         created_at: new Date().toISOString(),
-      });
+      };
+      const { error: dbError } = await supabase.from('drafts').insert([draftData]);
+      if (dbError) {
+        throw new Error(`Failed to save draft: ${dbError.message}`);
+      }
       toast.success('Draft saved successfully!', {
         style: { background: '#BFDBFE', color: '#1E3A8A', borderRadius: '8px' },
       });
@@ -397,7 +386,7 @@ export function Enquiryjob() {
       Bought Sold Details: ${success.bought_sold_qld_details || 'N/A'}
       What’s Your Goal: ${success.whats_your_goal}
       Expected Earnings: ${success.expected_earnings}
-      Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?: ${success.agree_to_rite_values ? 'Yes' : 'No'}
+      Agree to RITE Values: ${success.agree_to_rite_values ? 'Yes' : 'No'}
       Why Us: ${success.why_us}
       What Do You Expect From Us: ${success.what_do_you_expect_from_us}
       Financial Capability Next 12 Months: ${success.financial_capability ? 'Yes' : 'No'}
@@ -504,12 +493,7 @@ export function Enquiryjob() {
         'financial_capability',
       ].includes(field)
     ) {
-      const displayLabel = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                          field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                          field === 'whats_your_goal' ? 'What’s Your Goal' :
-                          field === 'do_you_own_a_car' ? 'Do You Own a Car' :
-                          field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
-                          field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const displayLabel = field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       return (
         <div className="space-y-2">
           <div className="flex items-center gap-4">
@@ -602,7 +586,6 @@ export function Enquiryjob() {
       >
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-center text-blue-900">Harcourts Success</h1>
-          
         </div>
 
         {/* Progress Bar */}
@@ -673,16 +656,7 @@ export function Enquiryjob() {
                     <h3 className="text-lg font-semibold text-blue-900 mb-2">{step.title}</h3>
                     <div className="bg-blue-100 p-4 rounded-lg space-y-2">
                       {step.fields.map(field => {
-                        const displayField = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                                            field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                                            field === 'full_license_details' ? 'License Details' :
-                                            field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                                            field === 'team_contribution' ? 'Your Contribution' :
-                                            field === 'whats_your_goal' ? 'What’s Your Goal' :
-                                            field === 'car_details' ? 'Car Details' :
-                                            field === 'do_you_own_a_car' ? 'Do You Own a Car' :
-                                            field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
-                                            field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                        const displayField = field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
                         return (
                           <p key={field} className="text-blue-900">
                             <span className="font-semibold">{displayField}:</span>{' '}
@@ -726,16 +700,7 @@ export function Enquiryjob() {
               {steps
                 .find(step => step.id === currentStep)
                 ?.fields.map(field => {
-                  const displayLabel = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                                      field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                                      field === 'full_license_details' ? 'License Details' :
-                                      field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                                      field === 'team_contribution' ? 'Your Contribution' :
-                                      field === 'whats_your_goal' ? 'What’s Your Goal' :
-                                      field === 'car_details' ? 'Car Details' :
-                                      field === 'do_you_own_a_car' ? 'Do You Own a Car' :
-                                      field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
-                                      field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                  const displayLabel = field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
                   return (
                     <div key={field} className="mb-6">
                       <label htmlFor={field} className="block text-sm font-medium text-blue-900 mb-1">
@@ -840,16 +805,7 @@ export function Enquiryjob() {
               <h2 className="text-2xl font-bold mb-4 text-blue-900">Submission Preview</h2>
               <div className="space-y-2">
                 {Object.entries(enquiryDetails).map(([key, value]) => {
-                  const displayKey = key === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                                    key === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                                    key === 'full_license_details' ? 'License Details' :
-                                    key === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                                    key === 'team_contribution' ? 'Your Contribution' :
-                                    key === 'whats_your_goal' ? 'What’s Your Goal' :
-                                    key === 'car_details' ? 'Car Details' :
-                                    key === 'do_you_own_a_car' ? 'Do You Own a Car' :
-                                    key === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
-                                    key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                  const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
                   return (
                     <p key={key} className="text-blue-900">
                       <span className="font-semibold">{displayKey}:</span>{' '}

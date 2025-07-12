@@ -3,7 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Home, FileText, Activity, BarChart, Link as LinkIcon, Eye, Download } from 'lucide-react';
+import { UserPlus, Home, FileText, Activity, BarChart, Link as LinkIcon, Eye, Download, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateAgentModal } from './AgentManagement';
@@ -116,6 +116,33 @@ export function AdminDashboard() {
     }
   };
 
+  const deleteEnquiry = async (enquiryId: string) => {
+    if (!window.confirm('Are you sure you want to delete this enquiry?')) return;
+    
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('enquiry')
+        .delete()
+        .eq('id', enquiryId);
+        
+      if (error) throw error;
+      
+      toast.success('Enquiry deleted successfully!', {
+        style: { background: '#BFDBFE', color: '#1E3A8A', borderRadius: '8px' },
+      });
+      
+      // Refresh enquiries after deletion
+      await fetchEnquiries();
+    } catch (error: any) {
+      toast.error('Failed to delete enquiry: ' + error.message, {
+        style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const generatePDF = (enquiry: Enquiry) => {
     try {
       const doc = new jsPDF();
@@ -133,7 +160,7 @@ export function AdminDashboard() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
       doc.setTextColor(30, 58, 138); // Dark blue
-      doc.text('Harcourts Job Enquiry', 105, 20, { align: 'center' });
+      doc.text('Harcourts Sucesses', 105, 20, { align: 'center' });
       
       // Subtitle
       doc.setFontSize(12);
@@ -731,7 +758,7 @@ export function AdminDashboard() {
 
       <div className="bg-white p-6 rounded-lg shadow-md mb-8 border border-blue-200">
         <h2 className="text-2xl font-semibold mb-4 flex items-center text-blue-900">
-          <FileText className="w-6 h-6 mr-2 text-blue-300" /> Wanne  Be Sales Agent
+          <FileText className="w-6 h-6 mr-2 text-blue-300" /> Wanna Be Sales Agent
         </h2>
         {loading ? (
           <div className="text-center text-blue-900">Loading enquiries...</div>
@@ -789,6 +816,13 @@ export function AdminDashboard() {
                             className="flex items-center text-blue-300 hover:text-blue-400 underline"
                           >
                             <Download className="w-4 h-4 mr-1" /> Download
+                          </button>
+                          <button
+                            onClick={() => deleteEnquiry(enquiry.id)}
+                            className="flex items-center text-red-500 hover:text-red-600 underline"
+                            disabled={loading}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" /> Delete
                           </button>
                         </td>
                       </motion.tr>

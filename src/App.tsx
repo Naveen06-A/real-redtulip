@@ -23,19 +23,19 @@ import { ActivityLogger } from './pages/ActivityLogger';
 import { ResetPassword } from './components/ResetPassword';
 import { ProgressReportPage } from './pages/ProgressReportPage';
 import { PropertyReportPage } from './pages/PropertyReportPage';
-import  CommissionByAgency  from './pages/CommissionByAgency';
-import  Comparisons  from './pages/Comparisons';
-import  AdminCommissionByAgency  from './pages/AdminCommissionByAgency';
+import CommissionByAgency from './pages/CommissionByAgency';
+import Comparisons from './pages/Comparisons';
+import AdminCommissionByAgency from './pages/AdminCommissionByAgency';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AgentManagement } from './pages/AgentManagement';
-import AgentBusinessPlan from './pages/AgentBusinessPlan'; // Updated import (assuming default export)
-import {AgentProfilePage} from './pages/AgentProfilePage';
-import {AgentExpensesPage} from './pages/AgentExpensesPage';
+import AgentBusinessPlan from './pages/AgentBusinessPlan';
+import { AgentProfilePage } from './pages/AgentProfilePage';
+import { AgentExpensesPage } from './pages/AgentExpensesPage';
 import { LoadingOverlay } from './components/LoadingOverlay';
-import { Enquiryjob } from './pages/Enquiryjob';
-import EnquiryFormProps from './pages/EnquiryForm';
-//}
+import Enquiryjob from './pages/Enquiryjob'; // Fixed to default import
+import EnquiryForm from './pages/EnquiryForm'; // Fixed import name
+
 // Error Boundary to catch import or runtime errors
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   state = { hasError: false, error: null };
@@ -96,7 +96,7 @@ function RouteChangeTracker() {
   useEffect(() => {
     console.log('Route changed to:', location.pathname);
     setIsRouteLoading(true);
-    const timer = setTimeout(() => setIsRouteLoading(false), 500); // Reduced timeout for smoother UX
+    const timer = setTimeout(() => setIsRouteLoading(false), 500);
     return () => clearTimeout(timer);
   }, [location.pathname]);
 
@@ -116,11 +116,11 @@ const routes = [
   { path: '/admin-dashboard', element: <AdminRoute><AdminDashboard /></AdminRoute> },
   { path: '/agent-dashboard', element: <AgentRoute><AgentDashboard /></AgentRoute> },
   { path: '/agent-management', element: <AgentRoute><AgentManagement /></AgentRoute> },
-  { path: '/agent-business-plan', element: <AgentRoute><AgentBusinessPlan /></AgentRoute> }, // Updated path
+  { path: '/agent-business-plan', element: <AgentRoute><AgentBusinessPlan /></AgentRoute> },
   { path: '/agent-profile', element: <AgentRoute><AgentProfilePage /></AgentRoute> },
   { path: '/agent-reports', element: <AgentReports /> },
   { path: '/agent-dashboard/door-knocks', element: <AgentRoute><DoorKnocks /></AgentRoute> },
-  {path: '/agent-expenses', element: <AgentRoute><AgentExpensesPage /></AgentRoute>},
+  { path: '/agent-expenses', element: <AgentRoute><AgentExpensesPage /></AgentRoute> },
   { path: '/agent-dashboard/phone-calls', element: <AgentRoute><PhoneCalls /></AgentRoute> },
   { path: '/marketing-plan', element: <MarketingPlanPage /> },
   { path: '/property-report-page', element: <PropertyReportPage /> },
@@ -135,9 +135,7 @@ const routes = [
   { path: '/property-form', element: <PropertyForm /> },
   { path: '/comparisons', element: <AgentRoute><Comparisons /></AgentRoute> },
   { path: '/enquiryjob', element: <Enquiryjob /> },
-  // {path :'/enquiry-form',element:<EnquiryForm/>},
-  
-
+  { path: '/enquiry-form', element: <EnquiryForm /> }, // Uncommented and fixed
   {
     path: '/commission-by-agency',
     element: (
@@ -146,7 +144,7 @@ const routes = [
       </AgentRoute>
     ),
   },
-  { path: '*', element: <div className="text-center py-12 text-gray-600">404 - Page Not Found</div> }, // 404 route
+  { path: '*', element: <div className="text-center py-12 text-gray-600">404 - Page Not Found</div> },
 ];
 
 function App() {

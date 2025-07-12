@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "start": "vite preview",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.4",
     "@react-pdf/renderer": "^4.3.0",
+    "@react-spring/web": "^10.0.1",
     "@sendgrid/mail": "^8.1.5",
     "@supabase/supabase-js": "^2.50.5",
+    "@tailwindcss/forms": "^0.5.10",
     "@tanstack/react-table": "^8.21.3",
     "@tensorflow/tfjs": "^4.22.0",
     "@turf/turf": "^7.2.0",
@@ -22,6 +25,7 @@
     "@types/react-router-dom": "^5.3.3",
     "@types/react-select": "^5.0.0",
     "@types/uuid": "^10.0.0",
+    "canvas": "^3.1.2",
     "canvas-confetti": "^1.9.3",
     "chart.js": "^4.5.0",
     "chartjs-plugin-annotation": "^3.1.0",
@@ -59,6 +63,7 @@
     "react-error-boundary": "^5.0.0",
     "react-hot-toast": "^2.5.2",
     "react-leaflet": "^4.2.1",
+    "react-lottie-player": "^2.1.0",
     "react-qr-code": "^2.0.15",
     "react-router-dom": "^7.6.3",
     "react-select": "^5.10.1",
@@ -70,6 +75,7 @@
     "sentiment": "^5.0.2",
     "styled-components": "^6.1.18",
     "styled-jsx": "^5.1.7",
+    "use-debounce": "^10.0.5",
     "uuid": "^11.1.0",
     "xlsx": "^0.18.5",
     "zustand": "^4.5.7"

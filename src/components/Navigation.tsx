@@ -31,7 +31,7 @@ export function Navigation() {
           <div className="flex items-center space-x-4">
             {user ? (
               <>
-                <Link to="/agent-properties" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
+                <Link to="/properties" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                   <motion.div variants={iconVariants} initial="initial" whileHover="hover">
                     <Home className="w-5 h-5" />
                   </motion.div>
@@ -80,6 +80,15 @@ export function Navigation() {
                       <Users className="w-5 h-5" />
                       <span>Agents</span>
                     </Link>
+                    <Link to="/agent-profile" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
+                      <motion.div className="relative" variants={iconVariants} initial="initial" whileHover="hover">
+                        <UserCircle className="w-5 h-5" />
+                        <motion.div className="absolute -top-1 -right-1" animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1 }}>
+                          <Star className="w-3 h-3 text-blue-600" fill="#3B82F6" />
+                        </motion.div>
+                      </motion.div>
+                      <span>Profile</span>
+                    </Link>
                     
                     <a href="https://asrtovibe.netlify.app/" target="_blank" rel="noopener noreferrer" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                       <LinkIcon className="w-5 h-5" />
@@ -100,11 +109,11 @@ export function Navigation() {
               <>
                 <Link to="/enquiryjob" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                   <LogIn className="w-5 h-5" />
-                  <span>Enquiry Job</span>
+                  <span>Wanna Be Sales Agent</span>
                 </Link>
                 <Link to="/agent-login" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                   <LogIn className="w-5 h-5" />
-                  <span>Agent Login</span>
+                    <span>Agent Login</span>
                 </Link>
                 <Link to="/admin-login" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                   <LogIn className="w-5 h-5" />

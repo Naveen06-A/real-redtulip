@@ -46,6 +46,7 @@ interface SuburbProgress {
 }
 
 interface Filters {
+  [key: string]: string | string[];
   bedrooms: string;
   bathrooms: string;
   car_garage: string;
@@ -104,6 +105,7 @@ export function AgentDashboard() {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+  
 
   // Handle PDF rendering with pdf.js
   useEffect(() => {
@@ -119,6 +121,9 @@ export function AgentDashboard() {
           const isLandscape = pageWidth > pageHeight;
 
           const canvas = pdfCanvasRef.current;
+          if (!canvas) {
+          throw new Error('Canvas element not found');
+        }
           const modalWidth = window.innerWidth * 0.98;
           const modalHeight = window.innerHeight * 0.98 - 100;
           const scale = Math.min(modalWidth / pageWidth, modalHeight / pageHeight) * 2.5;

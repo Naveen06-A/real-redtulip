@@ -1,21 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Loader2, Mail, User, MessageSquare, MapPin, DollarSign, X, Video } from 'lucide-react';
+import { Loader2, MapPin, DollarSign, X, Video } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
-
-interface EnquiryFormData {
-  name: string;
-  email: string;
-  message: string;
-}
+import EnquiryForm from './EnquiryForm'; // Adjust path as needed
 
 interface Property {
   id: string;
-  street_number?: string;
-  street_name?: string;
+  name: string;
+  street_number: string; // Changed to required
+  street_name: string; // Changed to required for consistency
   suburb: string;
   postcode: string;
+  city: string;
   property_type: string;
   bedrooms: number;
   bathrooms: number;
@@ -29,7 +26,8 @@ interface Property {
   user_id: string;
   created_at: string;
   listed_date: string;
-  sold_date?: string;
+  sold_date?: string | null;
+  sale_date?: string | null; // Kept for EnquiryForm compatibility
   category: 'Listing' | 'Sold' | 'Under Offer';
   sale_type: 'Private Treaty' | 'Auction' | 'EOI';
   flood_risk?: 'Low' | 'Medium' | 'High';
@@ -53,7 +51,7 @@ interface Property {
     sale_date?: string;
     status?: 'Sold' | 'Listed' | 'Withdrawn';
     notes?: string;
-    address?:string;
+    address?: string;
   }>;
   agent_name: string;
   agency_name: string;
@@ -69,8 +67,6 @@ interface TourState {
 }
 
 export function Home() {
-  const [formData, setFormData] = useState<EnquiryFormData>({ name: '', email: '', message: '' });
-  const [formStatus, setFormStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +78,8 @@ export function Home() {
     currentPropertyIndex: 0,
     favorites: [],
   });
+  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const [isEnquiryFormOpen, setIsEnquiryFormOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -93,7 +91,16 @@ export function Home() {
           .eq('category', 'Listing')
           .order('listed_date', { ascending: false });
         if (error) throw error;
-        setProperties(data || []);
+        // Map properties to ensure EnquiryForm compatibility
+        const mappedProperties = data.map((prop: any) => ({
+          ...prop,
+          name: prop.name || `${prop.street_number || ''} ${prop.street_name || ''}, ${prop.suburb}`,
+          city: prop.city || prop.suburb,
+          street_number: prop.street_number || '', // Provide default empty string
+          street_name: prop.street_name || '', // Provide default empty string
+          sale_date: prop.sold_date || null,
+        }));
+        setProperties(mappedProperties || []);
       } catch (err: any) {
         setError('Failed to load properties.');
       } finally {
@@ -103,29 +110,18 @@ export function Home() {
     fetchProperties();
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormStatus('submitting');
-    try {
-      const response = await fetch('/api/enquiry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to submit enquiry');
-      setFormStatus('success');
-      setFormData({ name: '', email: '', message: '' });
-    } catch (error) {
-      setFormStatus('error');
-    }
-  };
-
   const handlePropertyClick = (property: Property) => {
     navigate(`/property-detail/${property.id}`);
+  };
+
+  const openEnquiryForm = (property: Property) => {
+    setSelectedProperty(property);
+    setIsEnquiryFormOpen(true);
+  };
+
+  const closeEnquiryForm = () => {
+    setIsEnquiryFormOpen(false);
+    setSelectedProperty(null);
   };
 
   const startTour = () => {
@@ -274,7 +270,7 @@ export function Home() {
               <div className="space-y-4">
                 <div className="bg-gray-100 p-4 rounded-lg transition-all">
                   <h3 className="text-lg font-semibold">
-                    {`${currentProperty.street_number || ''} ${currentProperty.street_name || ''}, ${currentProperty.suburb}`}
+                    {`${currentProperty.street_number} ${currentProperty.street_name}, ${currentProperty.suburb}`}
                   </h3>
                   <p className="text-gray-600">{formatCurrency(currentProperty.price)}</p>
                   <p className="text-gray-600">
@@ -297,6 +293,12 @@ export function Home() {
                   } hover:animate-pulse-hover active:animate-bounce-click`}
                 >
                   {favorites.includes(currentProperty.id) ? 'Remove from Favorites' : 'Add to Favorites'}
+                </button>
+                <button
+                  onClick={() => openEnquiryForm(currentProperty)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
+                >
+                  Enquire About This Property
                 </button>
                 <div className="flex justify-between mt-4">
                   <button
@@ -343,10 +345,16 @@ export function Home() {
                   const prop = properties.find((p) => p.id === id);
                   return prop ? (
                     <div key={id} className="bg-gray-50 p-3 rounded-lg mb-2 transition-all">
-                      <p>{`${prop.street_number || ''} ${prop.street_name || ''}, ${prop.suburb}`}</p>
+                      <p>{`${prop.street_number} ${prop.street_name}, ${prop.suburb}`}</p>
+                      <button
+                        onClick={() => openEnquiryForm(prop)}
+                        className="text-blue-600 hover:underline hover:animate-pulse-hover active:animate-bounce-click"
+                      >
+                        Enquire Now
+                      </button>
                       <button
                         onClick={() => navigate(`/property-detail/${id}`)}
-                        className="text-blue-600 hover:underline hover:animate-pulse-hover active:animate-bounce-click"
+                        className="ml-4 text-blue-600 hover:underline hover:animate-pulse-hover active:animate-bounce-click"
                       >
                         View Details
                       </button>
@@ -376,93 +384,7 @@ export function Home() {
   return (
     <div className="max-w-4xl mx-auto mt-12">
       <div className="bg-white p-8 rounded-lg shadow-lg mb-12 animate-fade-in">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6 text-center">Enquire About a Property</h1>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="name" className="block text-gray-700 mb-2 font-medium">
-              Name
-            </label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 transition-transform group-hover:scale-110" />
-              <input
-                id="name"
-                name="name"
-                type="text"
-                value={formData.name}
-                onChange={handleChange}
-                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all group"
-                placeholder="Your Name"
-                required
-                disabled={formStatus === 'submitting'}
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="email" className="block text-gray-700 mb-2 font-medium">
-              Email
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 transition-transform group-hover:scale-110" />
-              <input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all group"
-                placeholder="your.email@example.com"
-                required
-                disabled={formStatus === 'submitting'}
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="message" className="block text-gray-700 mb-2 font-medium">
-              Message
-            </label>
-            <div className="relative">
-              <MessageSquare className="absolute left-3 top-4 w-5 h-5 text-gray-400 transition-transform group-hover:scale-110" />
-              <textarea
-                id="message"
-                name="message"
-                value={formData.message}
-                onChange={handleChange}
-                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent h-32 resize-y transition-all group"
-                placeholder="Tell us about your property needs..."
-                required
-                disabled={formStatus === 'submitting'}
-              />
-            </div>
-          </div>
-          <button
-            type="submit"
-            className={`w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all flex items-center justify-center ${
-              formStatus === 'submitting' ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-            disabled={formStatus === 'submitting'}
-          >
-            {formStatus === 'submitting' ? 'Submitting...' : 'Send Enquiry'}
-          </button>
-          {formStatus === 'success' && (
-            <p className="text-green-600 text-center animate-fade-in">Enquiry sent successfully!</p>
-          )}
-          {formStatus === 'error' && (
-            <p className="text-red-600 text-center animate-fade-in">Failed to send enquiry. Please try again.</p>
-          )}
-        </form>
-      </div>
-
-      <div className="bg-white p-8 rounded-lg shadow-lg">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 animate-fade-in">Featured Properties</h2>
-          <button
-            onClick={startTour}
-            className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
-          >
-            <Video className="w-5 h-5 mr-2 transition-transform group-hover:rotate-12" />
-            Start Virtual Tour
-          </button>
-        </div>
+        <h1 className="text-3xl font-bold text-gray-900 mb-6 text-center">Featured Properties</h1>
         {loading ? (
           <div className="flex justify-center items-center min-h-[200px]">
             <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
@@ -478,11 +400,13 @@ export function Home() {
               <div
                 key={property.id}
                 className="bg-gray-50 p-4 rounded-lg hover:shadow-md hover:animate-scale-up transition-all cursor-pointer"
-                onClick={() => handlePropertyClick(property)}
                 style={{ animationDelay: `${index * 0.1}s`, animationFillMode: 'forwards' }}
               >
-                <h3 className="text-lg font-semibold text-gray-900 transition-colors hover:text-blue-600">
-                  {`${property.street_number || ''} ${property.street_name || ''}, ${property.suburb}`}
+                <h3
+                  className="text-lg font-semibold text-gray-900 transition-colors hover:text-blue-600"
+                  onClick={() => handlePropertyClick(property)}
+                >
+                  {`${property.street_number} ${property.street_name}, ${property.suburb}`}
                 </h3>
                 <p className="text-gray-600 flex items-center mt-1">
                   <MapPin className="w-4 h-4 mr-1 transition-transform hover:scale-110" />
@@ -498,10 +422,25 @@ export function Home() {
                 <p className="text-sm text-blue-600 mt-1 transition-transform hover:translate-x-1">
                   {property.category}
                 </p>
+                <button
+                  onClick={() => openEnquiryForm(property)}
+                  className="mt-2 w-full bg-blue-600 text-white py-2 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
+                >
+                  Enquire Now
+                </button>
               </div>
             ))}
           </div>
         )}
+        <div className="flex justify-center mt-6">
+          <button
+            onClick={startTour}
+            className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
+          >
+            <Video className="w-5 h-5 mr-2 transition-transform group-hover:rotate-12" />
+            Start Virtual Tour
+          </button>
+        </div>
       </div>
 
       {tourOpen && (
@@ -517,6 +456,10 @@ export function Home() {
           </div>
         </div>
       )}
+
+      {/* {isEnquiryFormOpen && selectedProperty && (
+        <EnquiryForm property={selectedProperty} onClose={closeEnquiryForm} />
+      )} */}
     </div>
   );
 }

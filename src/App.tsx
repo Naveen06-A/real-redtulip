@@ -34,7 +34,8 @@ import {AgentProfilePage} from './pages/AgentProfilePage';
 import {AgentExpensesPage} from './pages/AgentExpensesPage';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { Enquiryjob } from './pages/Enquiryjob';
-
+import EnquiryFormProps from './pages/EnquiryForm';
+//}
 // Error Boundary to catch import or runtime errors
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   state = { hasError: false, error: null };
@@ -134,6 +135,8 @@ const routes = [
   { path: '/property-form', element: <PropertyForm /> },
   { path: '/comparisons', element: <AgentRoute><Comparisons /></AgentRoute> },
   { path: '/enquiryjob', element: <Enquiryjob /> },
+  // {path :'/enquiry-form',element:<EnquiryForm/>},
+  
 
   {
     path: '/commission-by-agency',

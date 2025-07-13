@@ -16,16 +16,15 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [modalDimensions, setModalDimensions] = useState({ width: '90vw', maxWidth: 1200, height: '90vh' });
 
-  // Calculate modal dimensions based on window size and device pixel ratio
+  // Calculate modal dimensions based on window size
   useEffect(() => {
     const updateDimensions = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const dpr = window.devicePixelRatio || 1;
 
       // Calculate modal width: 90% of viewport width, capped at 1200px for desktop, 95% for mobile
       const width = vw <= 768 ? '95vw' : vw <= 1024 ? '85vw' : '80vw';
-      const maxWidth = Math.min(vw * 0.9, 1200 * dpr); // Adjust max-width for high-DPI displays
+      const maxWidth = Math.min(vw * 0.9, 1200); // Remove DPR scaling for max-width
 
       // Calculate modal height: 90% of viewport height, capped at 90% of available height
       const height = `${Math.min(vh * 0.9, vh - 100)}px`;
@@ -46,7 +45,7 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
         return;
       }
 
-      const doc = new jsPDF();
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
       const dpr = window.devicePixelRatio || 1;
 
       // Adjust font sizes for high-resolution displays
@@ -68,7 +67,7 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(headerFontSize);
       doc.setTextColor(30, 58, 138); // Dark blue
-      doc.text('Harcourts Job Enquiry', 105, 20, { align: 'center' });
+      doc.text('Harcourts Success', 105, 20, { align: 'center' });
 
       // Subtitle
       doc.setFontSize(subtitleFontSize);
@@ -138,6 +137,9 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
         },
       });
 
+      // Set default zoom level for PDF viewers
+      doc.setDisplayMode('100%', 'continuous'); // Set zoom to 100% and continuous scroll
+
       if (preview) {
         const pdfBlob = doc.output('blob');
         setPdfUrl(URL.createObjectURL(pdfBlob));
@@ -190,11 +192,9 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
         {pdfUrl ? (
           <iframe
             src={pdfUrl}
-            className="w-full border border-blue-200 rounded-md object-contain"
+            className="w-full border border-blue-200 rounded-md"
             style={{
               height: `calc(${modalDimensions.height} - 120px)`,
-              transform: window.devicePixelRatio > 1 ? `scale(${1 / window.devicePixelRatio})` : 'none',
-              transformOrigin: 'top left',
             }}
             title="Enquiry PDF Preview"
           />

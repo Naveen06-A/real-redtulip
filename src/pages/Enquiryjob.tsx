@@ -1,11 +1,11 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Copy, Download, Save, Eye } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useDebounce } from 'use-debounce';
-import { supabase } from '../lib/supabase'; 
-import {types} from '../types';
+import { supabase } from '../lib/supabase';
+import { types } from '../types';
 
 // Background image (base64-encoded light abstract pattern)
 const backgroundImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJwYXR0ZXJuIiB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiPjxwYXRoIGQ9Ik0gMCA0MCAyMCAyMCA0MCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48cGF0aCBkPSJNIDQwIDAgMjAgMjAgMCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjcGF0dGVybikiLz48L3N2Zz4=';
@@ -114,6 +114,7 @@ export default function Enquiryjob() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [debouncedDetails] = useDebounce(enquiryDetails, 500);
+  const fieldRefs = useRef<{ [key: string]: HTMLInputElement | HTMLTextAreaElement | null }>({});
 
   // Capitalize first letter of a string
   const capitalizeFirstLetter = (value: string): string => {
@@ -138,15 +139,51 @@ export default function Enquiryjob() {
     return null;
   };
 
+  // Validate fields and return errors
+  const validateFields = (fields: string[]): ErrorsState => {
+    const newErrors: ErrorsState = {};
+    fields.forEach(field => {
+      const value = enquiryDetails[field as keyof EnquiryDetails];
+      if (field === 'expected_earnings') {
+        const error = validateDollarAmount(value as string);
+        if (error) newErrors[field] = error;
+      } else if (
+        (typeof value === 'string' && !value.trim()) ||
+        (typeof value === 'boolean' && value === undefined)
+      ) {
+        const displayField = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
+                            field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
+                            field === 'team_contribution' ? 'Your Contribution' :
+                            field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
+                            field === 'whats_your_goal' ? 'What’s Your Goal' :
+                            field === 'do_you_own_a_car' ? 'Do You Own a Car' :
+                            field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
+                            field === 'full_license_details' ? 'License Details' :
+                            field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
+                            field === 'car_details' ? 'Car Details' :
+                            field === 'drivers_license_details' ? 'Driver\'s License Details' :
+                            field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        newErrors[field] = `${displayField} is required`;
+      }
+    });
+    return newErrors;
+  };
+
+  // Highlight and scroll to unfilled field
+  const highlightUnfilledField = (field: string) => {
+    const element = fieldRefs.current[field];
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      element.classList.add('animate-shake', 'border-red-500');
+      setTimeout(() => {
+        element.classList.remove('animate-shake');
+      }, 500);
+    }
+  };
+
   // Calculate form completion percentage
   const completionPercentage = useMemo(() => {
-    const requiredFields = steps
-      .flatMap(step => step.fields)
-      .filter(
-        field =>
-          !field.endsWith('_details') ||
-          enquiryDetails[field.replace('_details', '') as keyof EnquiryDetails] === true
-      );
+    const requiredFields = steps.flatMap(step => step.fields);
     const filledFields = requiredFields.filter(field => {
       const value = enquiryDetails[field as keyof EnquiryDetails];
       return typeof value === 'string' ? value.trim() !== '' : value !== undefined;
@@ -156,45 +193,40 @@ export default function Enquiryjob() {
 
   // Real-time validation
   useEffect(() => {
-    const newErrors: ErrorsState = {};
-    const requiredFields = steps
-      .flatMap(step => step.fields)
-      .filter(
-        field =>
-          !field.endsWith('_details') ||
-          enquiryDetails[field.replace('_details', '') as keyof EnquiryDetails] === true
-      );
-    requiredFields.forEach(field => {
-      const value = enquiryDetails[field as keyof EnquiryDetails];
-      if (field === 'expected_earnings') {
-        const error = validateDollarAmount(value as string);
-        if (error) newErrors[field] = error;
-      } else if (
-        field.endsWith('_details') &&
-        enquiryDetails[field.replace('_details', '') as keyof EnquiryDetails] === true &&
-        !value?.trim()
-      ) {
-        const displayField = field === 'full_license_details' ? 'License Details' :
-                            field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                            field === 'financial_capability_details' ? 'Financial Capability Details' :
-                            field === 'car_details' ? 'Car Details' :
-                            field === 'drivers_license_details' ? 'Driver\'s License Details' :
-                            field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        newErrors[field] = `${displayField} is required when selecting Yes`;
-      } else if (!field.endsWith('_details') && typeof value === 'string' && !value.trim()) {
-        const displayField = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                            field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                            field === 'team_contribution' ? 'Your Contribution' :
-                            field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
-                            field === 'whats_your_goal' ? 'What’s Your Goal' :
-                            field === 'do_you_own_a_car' ? 'Do You Own a Car' :
-                            field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
-                            field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        newErrors[field] = `${displayField} is required`;
-      }
-    });
+    const newErrors: ErrorsState = validateFields(steps.flatMap(step => step.fields));
     setErrors(newErrors);
   }, [debouncedDetails]);
+
+  const handleNextStep = useCallback(() => {
+    const currentStepFields = steps.find(step => step.id === currentStep)?.fields || [];
+    const newErrors = validateFields(currentStepFields);
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      const firstErrorField = Object.keys(newErrors)[0];
+      const missingFields = Object.keys(newErrors).map(field => {
+        return field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
+               field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
+               field === 'team_contribution' ? 'Your Contribution' :
+               field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
+               field === 'whats_your_goal' ? 'What’s Your Goal' :
+               field === 'do_you_own_a_car' ? 'Do You Own a Car' :
+               field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
+               field === 'full_license_details' ? 'License Details' :
+               field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
+               field === 'car_details' ? 'Car Details' :
+               field === 'drivers_license_details' ? 'Driver\'s License Details' :
+               field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      });
+      toast.error(`Please fill the following fields: ${missingFields.join(', ')}`, {
+        style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
+        duration: 5000,
+      });
+      highlightUnfilledField(firstErrorField);
+    } else {
+      setErrors({});
+      setCurrentStep(currentStep + 1);
+    }
+  }, [currentStep, enquiryDetails]);
 
   const handleSubmit = useCallback(async () => {
     try {
@@ -202,59 +234,31 @@ export default function Enquiryjob() {
       setSuccess(null);
 
       // Validate all fields
-      const newErrors: ErrorsState = {};
-      const requiredTextFields = [
-        'full_name',
-        'why_real_estate',
-        'whats_your_goal',
-        'expected_earnings',
-        'why_us',
-        'what_do_you_expect_from_us',
-        'team_contribution',
-        'suburbs_to_prospect',
-        'strengths',
-        'weaknesses',
-      ];
-      const requiredFields = steps
-        .flatMap(step => step.fields)
-        .filter(
-          field =>
-            !field.endsWith('_details') ||
-            enquiryDetails[field.replace('_details', '') as keyof EnquiryDetails] === true
-        );
-
-      requiredFields.forEach(field => {
-        const value = enquiryDetails[field as keyof EnquiryDetails];
-        if (field === 'expected_earnings') {
-          const error = validateDollarAmount(value as string);
-          if (error) newErrors[field] = error;
-        } else if (
-          field.endsWith('_details') &&
-          enquiryDetails[field.replace('_details', '') as keyof EnquiryDetails] === true &&
-          !value?.trim()
-        ) {
-          const displayField = field === 'full_license_details' ? 'License Details' :
-                              field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
-                              field === 'financial_capability_details' ? 'Financial Capability Details' :
-                              field === 'car_details' ? 'Car Details' :
-                              field === 'drivers_license_details' ? 'Driver\'s License Details' :
-                              field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          newErrors[field] = `${displayField} is required when selecting Yes`;
-        } else if (requiredTextFields.includes(field) && typeof value === 'string' && !value.trim()) {
-          const displayField = field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
-                              field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
-                              field === 'team_contribution' ? 'Your Contribution' :
-                              field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
-                              field === 'whats_your_goal' ? 'What’s Your Goal' :
-                              field === 'do_you_own_a_car' ? 'Do You Own a Car' :
-                              field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
-                              field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          newErrors[field] = `${displayField} is required`;
-        }
-      });
+      const requiredFields = steps.flatMap(step => step.fields);
+      const newErrors: ErrorsState = validateFields(requiredFields);
 
       if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
+        const firstErrorField = Object.keys(newErrors)[0];
+        const missingFields = Object.keys(newErrors).map(field => {
+          return field === 'financial_capability' ? 'Financial Capability Next 12 Months' :
+                 field === 'agree_to_rite_values' ? 'Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?' :
+                 field === 'team_contribution' ? 'Your Contribution' :
+                 field === 'do_you_hold_a_full_license' ? 'Do You Hold a Full Real-Estate License' :
+                 field === 'whats_your_goal' ? 'What’s Your Goal' :
+                 field === 'do_you_own_a_car' ? 'Do You Own a Car' :
+                 field === 'do_you_hold_a_drivers_license' ? 'Do You Hold a Driver’s License' :
+                 field === 'full_license_details' ? 'License Details' :
+                 field === 'bought_sold_qld_details' ? 'Bought Sold Details' :
+                 field === 'car_details' ? 'Car Details' :
+                 field === 'drivers_license_details' ? 'Driver\'s License Details' :
+                 field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        });
+        toast.error(`Please fill the following fields: ${missingFields.join(', ')}`, {
+          style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
+          duration: 5000,
+        });
+        highlightUnfilledField(firstErrorField);
         throw new Error('Please fill all required fields correctly');
       }
 
@@ -265,23 +269,23 @@ export default function Enquiryjob() {
       const supabaseData = {
         id: submissionId,
         full_name: enquiryDetails.full_name,
-        languages_known: enquiryDetails.languages_known || null,
+        languages_known: enquiryDetails.languages_known,
         do_you_hold_a_full_license: enquiryDetails.do_you_hold_a_full_license,
-        full_license_details: enquiryDetails.full_license_details || null,
+        full_license_details: enquiryDetails.full_license_details,
         do_you_own_a_car: enquiryDetails.do_you_own_a_car,
-        car_details: enquiryDetails.car_details || null,
+        car_details: enquiryDetails.car_details,
         do_you_hold_a_drivers_license: enquiryDetails.do_you_hold_a_drivers_license,
-        drivers_license_details: enquiryDetails.drivers_license_details || null,
+        drivers_license_details: enquiryDetails.drivers_license_details,
         why_real_estate: enquiryDetails.why_real_estate,
         have_you_bought_and_sold_in_qld: enquiryDetails.have_you_bought_and_sold_in_qld,
-        bought_sold_qld_details: enquiryDetails.bought_sold_qld_details || null,
+        bought_sold_qld_details: enquiryDetails.bought_sold_qld_details,
         whats_your_goal: enquiryDetails.whats_your_goal,
         expected_earnings: enquiryDetails.expected_earnings,
         agree_to_rite_values: enquiryDetails.agree_to_rite_values,
         why_us: enquiryDetails.why_us,
         what_do_you_expect_from_us: enquiryDetails.what_do_you_expect_from_us,
         financial_capability: enquiryDetails.financial_capability,
-        financial_capability_details: enquiryDetails.financial_capability_details || null,
+        financial_capability_details: enquiryDetails.financial_capability_details,
         team_contribution: enquiryDetails.team_contribution,
         suburbs_to_prospect: enquiryDetails.suburbs_to_prospect,
         strengths: enquiryDetails.strengths,
@@ -292,9 +296,12 @@ export default function Enquiryjob() {
       // Log data for debugging
       console.log('Submitting to Supabase:', supabaseData);
 
-      // Validate that no required fields are null
-      const missingRequiredFields = requiredTextFields.filter(
-        field => supabaseData[field as keyof typeof supabaseData] === null || supabaseData[field as keyof typeof supabaseData] === ''
+      // Validate that no required fields are null or empty
+      const missingRequiredFields = requiredFields.filter(
+        field => {
+          const value = supabaseData[field as keyof typeof supabaseData];
+          return typeof value === 'string' ? !value.trim() : value === undefined;
+        }
       );
       if (missingRequiredFields.length > 0) {
         throw new Error(`Required fields are missing or empty: ${missingRequiredFields.join(', ')}`);
@@ -350,14 +357,14 @@ export default function Enquiryjob() {
       });
     } catch (err: any) {
       const errorMessage = err.message || 'An unexpected error occurred';
-      setErrors({ general: errorMessage });
+      setErrors({ ...errors, general: errorMessage });
       toast.error(`Failed to submit: ${errorMessage}`, {
         style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
       });
     } finally {
       setIsLoading(false);
     }
-  }, [enquiryDetails]);
+  }, [enquiryDetails, errors]);
 
   const handleSaveDraft = async () => {
     try {
@@ -395,23 +402,23 @@ export default function Enquiryjob() {
       Submission ID: ${success.id}
       Submitted At: ${new Date(success.submitted_at).toLocaleString()}
       Full Name: ${success.full_name}
-      Languages Known: ${success.languages_known || 'N/A'}
+      Languages Known: ${success.languages_known}
       Do You Hold a Full Real-Estate License: ${success.do_you_hold_a_full_license ? 'Yes' : 'No'}
-      License Details: ${success.full_license_details || 'N/A'}
+      License Details: ${success.full_license_details}
       Do You Own a Car: ${success.do_you_own_a_car ? 'Yes' : 'No'}
-      Car Details: ${success.car_details || 'N/A'}
+      Car Details: ${success.car_details}
       Do You Hold a Driver’s License: ${success.do_you_hold_a_drivers_license ? 'Yes' : 'No'}
-      Driver's License Details: ${success.drivers_license_details || 'N/A'}
+      Driver's License Details: ${success.drivers_license_details}
       Why Real Estate: ${success.why_real_estate}
       Have You Bought and Sold in QLD: ${success.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'}
-      Bought Sold Details: ${success.bought_sold_qld_details || 'N/A'}
+      Bought Sold Details: ${success.bought_sold_qld_details}
       What’s Your Goal: ${success.whats_your_goal}
       Expected Earnings: ${success.expected_earnings}
       Our Core Values are RITE (Respect, Integrity, Trust, Excellence) - Are You Willing to Inherit It?: ${success.agree_to_rite_values ? 'Yes' : 'No'}
       Why Us: ${success.why_us}
       What Do You Expect From Us: ${success.what_do_you_expect_from_us}
       Financial Capability Next 12 Months: ${success.financial_capability ? 'Yes' : 'No'}
-      Financial Capability Details: ${success.financial_capability_details || 'N/A'}
+      Financial Capability Details: ${success.financial_capability_details}
       Your Contribution: ${success.team_contribution}
       Suburbs to Prospect: ${success.suburbs_to_prospect}
       Strengths: ${success.strengths}
@@ -467,6 +474,9 @@ export default function Enquiryjob() {
       disabled: isLoading,
       'aria-invalid': !!errors[field as keyof EnquiryDetails],
       'aria-describedby': errors[field as keyof EnquiryDetails] ? `${field}-error` : undefined,
+      ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+        fieldRefs.current[field] = el;
+      },
     };
 
     const isTextArea = [
@@ -532,6 +542,9 @@ export default function Enquiryjob() {
                 onChange={() => setEnquiryDetails({ ...enquiryDetails, [field]: true })}
                 disabled={isLoading}
                 className="h-4 w-4 text-blue-300 focus:ring-blue-300 border-blue-200"
+                ref={(el) => {
+                  fieldRefs.current[field] = el;
+                }}
               />
               <span className="ml-2 text-blue-900">Yes</span>
             </label>
@@ -547,16 +560,15 @@ export default function Enquiryjob() {
               <span className="ml-2 text-blue-900">No</span>
             </label>
           </div>
-          {enquiryDetails[field as keyof EnquiryDetails] &&
-            [
-              'full_license_details',
-              'car_details',
-              'drivers_license_details',
-              'bought_sold_qld_details',
-              'financial_capability_details',
-            ].includes(`${field}_details`) && (
-              <div className="mt-4">{renderField(`${field}_details`)}</div>
-            )}
+          {[
+            'full_license_details',
+            'car_details',
+            'drivers_license_details',
+            'bought_sold_qld_details',
+            // 'financial_capability_details',
+          ].includes(`${field}_details`) && (
+            <div className="mt-4">{renderField(`${field}_details`)}</div>
+          )}
         </div>
       );
     }
@@ -611,6 +623,55 @@ export default function Enquiryjob() {
         transition={{ duration: 0.6, ease: 'easeOut' }}
         className="bg-white bg-opacity-90 rounded-xl shadow-2xl p-8 w-full max-w-3xl border border-blue-200"
       >
+        <style>{`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+          }
+          .animate-shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+          }
+          .submit-button {
+            background: linear-gradient(45deg, #1E40AF, #2DD4BF);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+          }
+          .submit-button:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(45deg, #2DD4BF, #1E40AF);
+          }
+          .submit-button:disabled {
+            background: linear-gradient(45deg, #4B5EAA, #99F6E4);
+            opacity: 0.6;
+          }
+          .submit-button::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s ease, height 0.6s ease;
+          }
+          .submit-button:hover::after {
+            width: 200%;
+            height: 200%;
+          }
+          .pulse-spinner {
+            animation: pulse 1.5s infinite;
+          }
+          @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+          }
+        `}</style>
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-center text-blue-900">Harcourts Success</h1>
         </div>
@@ -652,7 +713,7 @@ export default function Enquiryjob() {
               className="bg-white bg-opacity-90 p-6 rounded-lg w-full max-h-[80vh] overflow-y-auto border border-blue-200"
               style={{ backgroundImage: `url(${backgroundImage})`, backgroundSize: 'cover' }}
             >
-              <h2 className="text-2xl font-bold mb-4 text-blue-900">Submitted Enquiry Details</h2>
+              <h2 className="text-2xl font-bold mb-4 text-blue-900">Submitted Agent Details</h2>
               <div className="space-y-4">
                 <div className="bg-blue-100 p-4 rounded-lg">
                   <p className="text-blue-900">
@@ -723,7 +784,7 @@ export default function Enquiryjob() {
                   className="px-4 py-2 bg-blue-300 text-white rounded-md hover:bg-blue-400"
                   aria-label="Submit another enquiry"
                 >
-                  Submit Another Enquiry
+                  Submit Another Wanna Sales Agent
                 </button>
               </div>
             </motion.div>
@@ -753,7 +814,7 @@ export default function Enquiryjob() {
                   return (
                     <div key={field} className="mb-6">
                       <label htmlFor={field} className="block text-sm font-medium text-blue-900 mb-1">
-                        {displayLabel} {['languages_known', 'full_license_details', 'car_details', 'drivers_license_details', 'bought_sold_qld_details', 'financial_capability_details'].includes(field) ? '' : '*'}
+                        {displayLabel} *
                       </label>
                       {renderField(field)}
                     </div>
@@ -799,7 +860,7 @@ export default function Enquiryjob() {
                   </button>
                   {currentStep < steps.length ? (
                     <button
-                      onClick={() => setCurrentStep(currentStep + 1)}
+                      onClick={handleNextStep}
                       className="px-4 py-2 bg-blue-300 text-white rounded-md hover:bg-blue-400"
                       aria-label="Next step"
                     >
@@ -809,14 +870,14 @@ export default function Enquiryjob() {
                     <button
                       onClick={handleSubmit}
                       disabled={isLoading}
-                      className={`px-4 py-3 rounded-lg text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${
-                        isLoading ? 'bg-blue-200 cursor-not-allowed' : 'bg-blue-300 hover:bg-blue-400'
+                      className={`submit-button px-4 py-3 rounded-lg text-white font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-blue-300 ${
+                        isLoading ? 'cursor-not-allowed' : ''
                       }`}
                       aria-label="Submit enquiry"
                     >
                       {isLoading ? (
                         <span className="flex items-center justify-center">
-                          <svg className="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
+                          <svg className="pulse-spinner h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                             <path
                               className="opacity-75"
@@ -824,7 +885,7 @@ export default function Enquiryjob() {
                               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                             />
                           </svg>
-                          Submitting...
+                          <span className="animate-pulse">Submitting...</span>
                         </span>
                       ) : (
                         'Submit Enquiry'
@@ -885,12 +946,26 @@ export default function Enquiryjob() {
                 <button
                   onClick={handleSubmit}
                   disabled={isLoading}
-                  className={`px-4 py-2 rounded-lg text-white transition-colors ${
-                    isLoading ? 'bg-blue-200 cursor-not-allowed' : 'bg-blue-300 hover:bg-blue-400'
+                  className={`submit-button px-4 py-2 rounded-lg text-white font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-blue-300 ${
+                    isLoading ? 'cursor-not-allowed' : ''
                   }`}
                   aria-label="Submit from preview"
                 >
-                  Submit
+                  {isLoading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="pulse-spinner h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      <span className="animate-pulse">Submitting...</span>
+                    </span>
+                  ) : (
+                    'Submit'
+                  )}
                 </button>
               </div>
             </motion.div>

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -91,6 +91,8 @@ interface AgentTotal {
   propertiesListed: number;
   propertiesSold: number;
   commissionRate?: number;
+  suburbs: string[];
+  propertyTypes: string[];
 }
 
 interface CommissionEditState {
@@ -686,11 +688,14 @@ function CommissionByAgency() {
     if (!internalCommissionData) return [];
     const agencySuburbsMap: Record<string, Set<string>> = {};
     const agencyAgentsMap: Record<string, AgentTotal[]> = {};
+    const agentSuburbsMap: Record<string, Set<string>> = {};
+    const agentPropertyTypesMap: Record<string, Set<string>> = {};
 
     internalProperties.forEach((property) => {
       const agency = normalizeAgencyName(property.agency_name);
       const agent = normalizeAgentName(property.agent_name);
       const suburb = normalizeSuburbName(property.suburb);
+      const propertyType = property.property_type || 'Unknown';
       const isSold = property.contract_status === 'sold' || !!property.sold_date;
 
       if (agency && suburb !== 'Unknown') {
@@ -699,6 +704,11 @@ function CommissionByAgency() {
       }
       if (agency && agent) {
         agencyAgentsMap[agency] = agencyAgentsMap[agency] || [];
+        agentSuburbsMap[agent] = agentSuburbsMap[agent] || new Set();
+        agentSuburbsMap[agent].add(suburb);
+        agentPropertyTypesMap[agent] = agentPropertyTypesMap[agent] || new Set();
+        agentPropertyTypesMap[agent].add(propertyType);
+
         const agentData = internalAgentData[agent] || { commission: 0, listed: 0, sold: 0, commissionRate: undefined };
         if (!agencyAgentsMap[agency].some((a) => a.name === agent)) {
           agencyAgentsMap[agency].push({
@@ -707,6 +717,8 @@ function CommissionByAgency() {
             propertiesListed: agentData.listed,
             propertiesSold: agentData.sold,
             commissionRate: agentData.commissionRate,
+            suburbs: Array.from(agentSuburbsMap[agent] || []),
+            propertyTypes: Array.from(agentPropertyTypesMap[agent] || []),
           });
         }
       }
@@ -911,6 +923,93 @@ function CommissionByAgency() {
     },
   };
 
+  const filteredAgentData = useMemo(() => {
+    let filtered = Object.entries(internalAgentData).map(([name, data]) => ({ name, ...data }));
+    if (selectedAgency) {
+      filtered = filtered.filter((agent) => {
+        const properties = internalProperties.filter((p) => normalizeAgentName(p.agent_name) === agent.name);
+        return properties.some((p) => normalizeAgencyName(p.agency_name) === selectedAgency);
+      });
+    }
+    return filtered;
+  }, [internalAgentData, selectedAgency, internalProperties]);
+
+  const agentPropertyTypeChartData = useMemo(() => {
+    const selectedAgents = selectedAgency
+      ? filteredAgentData.filter((agent) => agencyTotals.find((a) => a.agency === selectedAgency)?.agents.some((ag) => ag.name === agent.name))
+      : topFiveAgents;
+    const propertyTypesSet = new Set<string>();
+    internalProperties.forEach((p) => {
+      if (p.property_type && selectedAgents.some((a) => a.name === normalizeAgentName(p.agent_name))) {
+        propertyTypesSet.add(p.property_type);
+      }
+    });
+    const propertyTypes = Array.from(propertyTypesSet);
+
+    return {
+      labels: selectedAgents.map((agent) => agent.name),
+      datasets: propertyTypes.map((type, index) => ({
+        label: type,
+        data: selectedAgents.map((agent) => {
+          const properties = internalProperties.filter(
+            (p) => normalizeAgentName(p.agent_name) === agent.name && p.property_type === type
+          );
+          return properties.length;
+        }),
+        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'][index % 5],
+        borderColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'][index % 5],
+        borderWidth: 2,
+        stack: 'Stack 0',
+      })),
+    };
+  }, [internalProperties, selectedAgency, filteredAgentData, topFiveAgents]);
+
+  const agentPropertyTypeChartOptions: ChartOptions<'bar'> = {
+    plugins: {
+      legend: { position: 'top', labels: { font: { size: 14, family: 'Inter' } } },
+      title: { display: true, text: 'Agent Property Type Distribution', font: { size: 18, weight: 'bold', family: 'Inter' } },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const value = context.parsed.y;
+            const agent = context.label;
+            const type = context.dataset.label;
+            return `${type} by ${agent}: ${value} properties`;
+          },
+        },
+      },
+      datalabels: {
+        display: (context) => context.dataset.data[context.dataIndex] > 0,
+        formatter: (value: number) => value,
+        color: '#fff',
+        font: { size: 10, family: 'Inter', weight: 'bold' },
+        anchor: 'end',
+        align: 'top',
+        offset: 5,
+      },
+    },
+    scales: {
+      x: {
+        stacked: true,
+        ticks: { font: { size: 12, family: 'Inter' } },
+        grid: { display: false },
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: { font: { size: 12, family: 'Inter' } },
+        title: { display: true, text: 'Number of Properties', font: { size: 14, family: 'Inter' } },
+        grid: { color: 'rgba(0, 0, 0, 0.1)' },
+      },
+    },
+    animation: {
+      duration: 1500,
+      easing: 'easeOutQuart',
+    },
+    maintainAspectRatio: false,
+    responsive: true,
+  };
+
   const suburbChartData = useMemo(
     () => ({
       labels: topFiveSuburbs,
@@ -1048,15 +1147,22 @@ function CommissionByAgency() {
     });
 
     doc.autoTable({
-      head: [['Agent', 'Commission Rate', 'Total Commission', 'Properties Listed', 'Properties Sold', 'Our Agent']],
-      body: Object.entries(internalAgentData).map(([name, data]) => [
-        name,
-        data.commissionRate ? `${data.commissionRate.toFixed(2)}%` : 'Agency Default',
-        formatCurrency(data.commission),
-        data.listed.toString(),
-        data.sold.toString(),
-        name === ourAgentName && agencyTotals.some((a) => a.agency === ourAgencyName && a.agents.some((ag) => ag.name === name)) ? 'Yes' : 'No',
-      ]),
+      head: [['Agent', 'Commission Rate', 'Total Commission', 'Properties Listed', 'Properties Sold', 'Suburbs', 'Property Types', 'Our Agent']],
+      body: Object.entries(internalAgentData).map(([name, data]) => {
+        const agentDetails = agencyTotals
+          .flatMap((a) => a.agents)
+          .find((a) => a.name === name);
+        return [
+          name,
+          data.commissionRate ? `${data.commissionRate.toFixed(2)}%` : 'Agency Default',
+          formatCurrency(data.commission),
+          data.listed.toString(),
+          data.sold.toString(),
+          agentDetails?.suburbs.join(', ') || 'None',
+          agentDetails?.propertyTypes.join(', ') || 'None',
+          name === ourAgentName && agencyTotals.some((a) => a.agency === ourAgencyName && a.agents.some((ag) => ag.name === name)) ? 'Yes' : 'No',
+        ];
+      }),
       startY: doc.lastAutoTable.finalY + 20,
       theme: 'striped',
       headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], font: 'Inter' },
@@ -1087,7 +1193,7 @@ function CommissionByAgency() {
   const exportCommissionCSV = () => {
     const data = [
       ['Commission Performance Report'],
-      [`Generated on: ${new Date().toLocaleString()}`, '', '', '', '', '', '', ''],
+      [`Generated on: ${new Date().toLocaleString()}`, '', '', '', '', '', '', '', ''],
       ['Harcourts Success'],
       [],
       ['Summary'],
@@ -1119,15 +1225,22 @@ function CommissionByAgency() {
       ]),
       [],
       ['Agent Totals'],
-      ['Agent', 'Commission Rate', 'Total Commission', 'Properties Listed', 'Properties Sold', 'Our Agent'],
-      ...Object.entries(internalAgentData).map(([name, data]) => [
-        name,
-        data.commissionRate ? `${data.commissionRate.toFixed(2)}%` : 'Agency Default',
-        formatCurrency(data.commission),
-        data.listed.toString(),
-        data.sold.toString(),
-        name === ourAgentName && agencyTotals.some((a) => a.agency === ourAgencyName && a.agents.some((ag) => ag.name === name)) ? 'Yes' : 'No',
-      ]),
+      ['Agent', 'Commission Rate', 'Total Commission', 'Properties Listed', 'Properties Sold', 'Suburbs', 'Property Types', 'Our Agent'],
+      ...Object.entries(internalAgentData).map(([name, data]) => {
+        const agentDetails = agencyTotals
+          .flatMap((a) => a.agents)
+          .find((a) => a.name === name);
+        return [
+          name,
+          data.commissionRate ? `${data.commissionRate.toFixed(2)}%` : 'Agency Default',
+          formatCurrency(data.commission),
+          data.listed.toString(),
+          data.sold.toString(),
+          agentDetails?.suburbs.join(', ') || 'None',
+          agentDetails?.propertyTypes.join(', ') || 'None',
+          name === ourAgentName && agencyTotals.some((a) => a.agency === ourAgencyName && a.agents.some((ag) => ag.name === name)) ? 'Yes' : 'No',
+        ];
+      }),
       [],
       ['Suburb Totals'],
       ['Suburb', 'Avg Listed Commission Rate', 'Listed Commission', 'Listed Properties', 'Avg Sold Commission Rate', 'Sold Commission', 'Sold Properties'],
@@ -1223,17 +1336,6 @@ function CommissionByAgency() {
     Math.ceil(filteredAgencyTotals.length / itemsPerPage),
     Math.ceil(filteredSuburbCommissions.length / itemsPerPage)
   );
-
-  const filteredAgentData = useMemo(() => {
-    let filtered = Object.entries(internalAgentData).map(([name, data]) => ({ name, ...data }));
-    if (selectedAgency) {
-      filtered = filtered.filter((agent) => {
-        const properties = internalProperties.filter((p) => normalizeAgentName(p.agent_name) === agent.name);
-        return properties.some((p) => normalizeAgencyName(p.agency_name) === selectedAgency);
-      });
-    }
-    return filtered;
-  }, [internalAgentData, selectedAgency, internalProperties]);
 
   if (isLoading) {
     return (
@@ -1395,14 +1497,14 @@ function CommissionByAgency() {
             <div className="p-4 bg-indigo-50 rounded-lg">
               <p className="text-sm text-gray-600">Top Agency</p>
               <p className="text-lg font-semibold text-indigo-600 flex items-center">
-                {summary.topAgency} ({formatCurrency(summary.topAgencyTotalCommission)}),( {summary.topAgencyCommissionRate.toFixed(2)}%), ({summary.topAgencyPropertyCount} properties)
+                {summary.topAgency} ({formatCurrency(summary.topAgencyTotalCommission)}, {summary.topAgencyCommissionRate.toFixed(2)}%, {summary.topAgencyPropertyCount} properties)
                 {summary.topAgency === ourAgencyName && <Star className="w-4 h-4 ml-2 text-yellow-400" />}
               </p>
             </div>
             <div className="p-4 bg-indigo-50 rounded-lg">
               <p className="text-sm text-gray-600">Top Agent</p>
               <p className="text-lg font-semibold text-indigo-600 flex items-center">
-                {summary.topAgent.name} ({formatCurrency(summary.topAgent.commission)}),( {summary.topAgent.propertyCount} properties)
+                {summary.topAgent.name} ({formatCurrency(summary.topAgent.commission)}, {summary.topAgent.propertyCount} properties)
                 {summary.topAgent.name === ourAgentName && <Star className="w-4 h-4 ml-2 text-yellow-400" />}
               </p>
             </div>
@@ -1445,6 +1547,7 @@ function CommissionByAgency() {
                   <p className="text-2xl font-semibold text-indigo-600">{formatCurrency(ourAgency.soldCommission)}</p>
                 </motion.div>
                 <motion.div
+                 
                   className="p-4 bg-indigo-50 rounded-lg shadow-sm"
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -1651,37 +1754,41 @@ function CommissionByAgency() {
             </div>
           )}
         </CollapsibleSection>
-
-        {selectedAgency && (
-          <CollapsibleSection
-            title={`Agents for ${selectedAgency}`}
-            isOpen={openSections.agents}
-            toggleOpen={() => setOpenSections({ ...openSections, agents: !openSections.agents })}
-          >
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => setSelectedAgency(null)}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 text-sm"
-              >
-                Back to Agencies
-              </button>
-            </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission Rate</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commission</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Properties Listed</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Properties Sold</th>
-                  {isAdmin && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                <AnimatePresence>
-                  {filteredAgentData.map((agent, index) => (
+        <CollapsibleSection
+          title={`Agents for ${selectedAgency}`}
+          isOpen={openSections.agents}
+          toggleOpen={() => setOpenSections({ ...openSections, agents: !openSections.agents })}
+        >
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => setSelectedAgency(null)}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 text-sm"
+            >
+              Back to Agencies
+            </button>
+          </div>
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission Rate</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commission</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Properties Listed</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Properties Sold</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suburbs</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Property Types</th>
+                {isAdmin && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              <AnimatePresence>
+                {filteredAgentData.map((agent, index) => {
+                  const agentDetails = agencyTotals
+                    .find((a) => a.agency === selectedAgency)
+                    ?.agents.find((a) => a.name === agent.name);
+                  return (
                     <motion.tr
                       key={agent.name}
                       initial={{ opacity: 0, y: 10 }}
@@ -1694,7 +1801,9 @@ function CommissionByAgency() {
                     >
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 flex items-center">
                         {agent.name}
-                        {agent.name === ourAgentName && selectedAgency === ourAgencyName && <Star className="w-4 h-4 ml-2 text-yellow-400" />}
+                        {agent.name === ourAgentName && selectedAgency === ourAgencyName && (
+                          <Star className="w-4 h-4 ml-2 text-yellow-400" />
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {agent.commissionRate ? `${agent.commissionRate.toFixed(2)}%` : 'Agency Default'}
@@ -1702,6 +1811,8 @@ function CommissionByAgency() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(agent.commission)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{agent.listed}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{agent.sold}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">{agentDetails?.suburbs.join(', ') || 'None'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">{agentDetails?.propertyTypes.join(', ') || 'None'}</td>
                       {isAdmin && (
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <motion.button
@@ -1724,36 +1835,18 @@ function CommissionByAgency() {
                         </td>
                       )}
                     </motion.tr>
-                  ))}
-                </AnimatePresence>
-              </tbody>
-            </table>
-            <div className="mt-6">
-              <Doughnut data={agentChartData} options={agentChartOptions} />
+                  );
+                })}
+              </AnimatePresence>
+            </tbody>
+          </table>
+          <div className="mt-6">
+            <div className="relative h-[400px]">
+              <Bar data={agentPropertyTypeChartData} options={agentPropertyTypeChartOptions} />
             </div>
-          </CollapsibleSection>
-        )}
-
-        <CollapsibleSection
-          title="Street Insights"
-          isOpen={openSections.streets}
-          toggleOpen={() => setOpenSections({ ...openSections, streets: !openSections.streets })}
-        >
-          <div className="space-y-4">
-            <div className="p-4 bg-indigo-50 rounded-lg">
-              <p className="text-sm text-gray-600">Most Active Street</p>
-              <p className="text-lg font-semibold text-indigo-600 flex items-center">
-                <MapPin className="w-5 h-5 mr-2" />
-                {summary.topStreet.street}
-              </p>
-              <p className="text-sm text-gray-600">
-                Listed: {summary.topStreet.listedCount}, Commission: {formatCurrency(summary.topStreet.commission)}
-              </p>
-            </div>
-            <div className="p-4 bg-gray-100 rounded-lg">
-              <p className="text-sm text-gray-600">Street Heatmap (Placeholder)</p>
-              <p className="text-gray-500 text-sm">Interactive map coming soon to visualize street-level activity.</p>
-            </div>
+          </div>
+          <div className="mt-6">
+            <Doughnut data={agentChartData} options={agentChartOptions} />
           </div>
         </CollapsibleSection>
 

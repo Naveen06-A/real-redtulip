@@ -31,7 +31,7 @@ export function Navigation() {
           <div className="flex items-center space-x-4">
             {user ? (
               <>
-                <Link to="/properties" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
+                <Link to="/agent-properties" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                   <motion.div variants={iconVariants} initial="initial" whileHover="hover">
                     <Home className="w-5 h-5" />
                   </motion.div>

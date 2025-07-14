@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Loader2, MapPin, DollarSign, X, Video } from 'lucide-react';
+import { Loader2, Mail, User, MessageSquare, MapPin, DollarSign, X, Video } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
-import EnquiryForm from './EnquiryForm'; // Adjust path as needed
+
+interface EnquiryFormData {
+  name: string;
+  email: string;
+  message: string;
+}
 
 interface Property {
   id: string;
-  name: string;
-  street_number: string; // Changed to required
-  street_name: string; // Changed to required for consistency
+  street_number?: string;
+  street_name?: string;
   suburb: string;
   postcode: string;
-  city: string;
   property_type: string;
   bedrooms: number;
   bathrooms: number;
@@ -27,7 +30,6 @@ interface Property {
   created_at: string;
   listed_date: string;
   sold_date?: string | null;
-  sale_date?: string | null; // Kept for EnquiryForm compatibility
   category: 'Listing' | 'Sold' | 'Under Offer';
   sale_type: 'Private Treaty' | 'Auction' | 'EOI';
   flood_risk?: 'Low' | 'Medium' | 'High';
@@ -67,6 +69,8 @@ interface TourState {
 }
 
 export function Home() {
+  const [formData, setFormData] = useState<EnquiryFormData>({ name: '', email: '', message: '' });
+  const [formStatus, setFormStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,31 +82,32 @@ export function Home() {
     currentPropertyIndex: 0,
     favorites: [],
   });
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
-  const [isEnquiryFormOpen, setIsEnquiryFormOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchProperties = async () => {
       try {
+        setLoading(true);
+        setError(null);
         const { data, error } = await supabase
           .from('properties')
-          .select('*')
-          .eq('category', 'Listing')
+          .select('id, street_number, street_name, suburb, postcode, property_type, bedrooms, bathrooms, car_garage, sqm, landsize, price, expected_price, commission, features, user_id, created_at, listed_date, sold_date, category, sale_type, flood_risk, bushfire_risk, flood_notes, bushfire_notes, contract_status, agent_name, agency_name, sold_price')
+          .in('category', ['Listing', 'Sold'])
           .order('listed_date', { ascending: false });
-        if (error) throw error;
-        // Map properties to ensure EnquiryForm compatibility
-        const mappedProperties = data.map((prop: any) => ({
-          ...prop,
-          name: prop.name || `${prop.street_number || ''} ${prop.street_name || ''}, ${prop.suburb}`,
-          city: prop.city || prop.suburb,
-          street_number: prop.street_number || '', // Provide default empty string
-          street_name: prop.street_name || '', // Provide default empty string
-          sale_date: prop.sold_date || null,
-        }));
-        setProperties(mappedProperties || []);
+        if (error) {
+          console.error('Supabase error:', error);
+          throw new Error(`Failed to fetch properties: ${error.message}`);
+        }
+        console.log('Fetched properties:', data);
+        if (!data || data.length === 0) {
+          setError('No properties found. Please check the database or try again later.');
+          setProperties([]);
+          return;
+        }
+        setProperties(data as Property[]);
       } catch (err: any) {
-        setError('Failed to load properties.');
+        console.error('Error fetching properties:', err.message);
+        setError('Failed to load properties. Please check your connection or try again later.');
       } finally {
         setLoading(false);
       }
@@ -110,18 +115,36 @@ export function Home() {
     fetchProperties();
   }, []);
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormStatus('submitting');
+    try {
+      const response = await fetch('/api/enquiry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+      if (!response.ok) throw new Error('Failed to submit enquiry');
+      setFormStatus('success');
+      setFormData({ name: '', email: '', message: '' });
+    } catch (error) {
+      console.error('Enquiry submission error:', error);
+      setFormStatus('error');
+    }
+  };
+
   const handlePropertyClick = (property: Property) => {
+    if (!property.id) {
+      console.error('Invalid property ID:', property);
+      setError('Cannot navigate to property details: Invalid ID');
+      return;
+    }
+    console.log('Navigating to property ID:', property.id);
     navigate(`/property-detail/${property.id}`);
-  };
-
-  const openEnquiryForm = (property: Property) => {
-    setSelectedProperty(property);
-    setIsEnquiryFormOpen(true);
-  };
-
-  const closeEnquiryForm = () => {
-    setIsEnquiryFormOpen(false);
-    setSelectedProperty(null);
   };
 
   const startTour = () => {
@@ -146,19 +169,25 @@ export function Home() {
     const { budget, bedrooms, suburb } = tourState.preferences;
     let filtered = properties;
     if (budget) {
-      filtered = filtered.filter((p) => p.price <= budget);
+      filtered = filtered.filter((p: Property) => p.price <= budget);
     }
     if (bedrooms) {
-      filtered = filtered.filter((p) => p.bedrooms >= bedrooms);
+      filtered = filtered.filter((p: Property) => p.bedrooms >= bedrooms);
     }
     if (suburb) {
-      filtered = filtered.filter((p) => p.suburb.toLowerCase().includes(suburb.toLowerCase()));
+      filtered = filtered.filter((p: Property) => p.suburb.toLowerCase().includes(suburb.toLowerCase()));
     }
-    setTourState((prev) => ({
-      ...prev,
-      step: filtered.length ? 'tour' : 'summary',
-      selectedProperties: filtered.slice(0, 3),
-    }));
+    if (filtered.length === 0) {
+      setError('No properties match your criteria. Try adjusting your preferences.');
+      setTourState((prev) => ({ ...prev, step: 'summary', selectedProperties: [] }));
+    } else {
+      setError(null);
+      setTourState((prev) => ({
+        ...prev,
+        step: 'tour',
+        selectedProperties: filtered.slice(0, 3),
+      }));
+    }
   };
 
   const toggleFavorite = (propertyId: string) => {
@@ -210,7 +239,7 @@ export function Home() {
             </p>
             <button
               onClick={() => setTourState((prev) => ({ ...prev, step: 'preferences' }))}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click"
+              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
             >
               Start Tour
             </button>
@@ -220,12 +249,13 @@ export function Home() {
         return (
           <div className="p-6 animate-slide-in">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Tell Me About Your Preferences</h2>
+            {error && <p className="text-red-600 mb-4">{error}</p>}
             <div className="space-y-4">
               <div>
                 <label className="block text-gray-700 mb-2">Budget (AUD)</label>
                 <input
                   type="number"
-                  value={preferences.budget || ''}
+                  value={preferences.budget ?? ''}
                   onChange={(e) => handleTourInput('budget', parseFloat(e.target.value) || 0)}
                   className="w-full p-3 border rounded-lg transition-all focus:ring-2 focus:ring-blue-600"
                   placeholder="e.g., 800000"
@@ -235,7 +265,7 @@ export function Home() {
                 <label className="block text-gray-700 mb-2">Minimum Bedrooms</label>
                 <input
                   type="number"
-                  value={preferences.bedrooms || ''}
+                  value={preferences.bedrooms ?? ''}
                   onChange={(e) => handleTourInput('bedrooms', parseInt(e.target.value) || 0)}
                   className="w-full p-3 border rounded-lg transition-all focus:ring-2 focus:ring-blue-600"
                   placeholder="e.g., 3"
@@ -245,7 +275,7 @@ export function Home() {
                 <label className="block text-gray-700 mb-2">Preferred Suburb</label>
                 <input
                   type="text"
-                  value={preferences.suburb || ''}
+                  value={preferences.suburb ?? ''}
                   onChange={(e) => handleTourInput('suburb', e.target.value)}
                   className="w-full p-3 border rounded-lg transition-all focus:ring-2 focus:ring-blue-600"
                   placeholder="e.g., Brisbane"
@@ -254,7 +284,7 @@ export function Home() {
             </div>
             <button
               onClick={proceedToTour}
-              className="mt-6 w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click"
+              className="mt-6 w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
             >
               Find Properties
             </button>
@@ -270,7 +300,7 @@ export function Home() {
               <div className="space-y-4">
                 <div className="bg-gray-100 p-4 rounded-lg transition-all">
                   <h3 className="text-lg font-semibold">
-                    {`${currentProperty.street_number} ${currentProperty.street_name}, ${currentProperty.suburb}`}
+                    {`${currentProperty.street_number || ''} ${currentProperty.street_name || ''}, ${currentProperty.suburb}`}
                   </h3>
                   <p className="text-gray-600">{formatCurrency(currentProperty.price)}</p>
                   <p className="text-gray-600">
@@ -279,6 +309,17 @@ export function Home() {
                   <p className="text-gray-600">Features: {currentProperty.features.join(', ') || 'None'}</p>
                   <p className="text-gray-600">
                     Flood Risk: {currentProperty.flood_risk || 'Low'} | Bushfire Risk: {currentProperty.bushfire_risk || 'Low'}
+                  </p>
+                  <p
+                    className={`text-sm mt-1 ${
+                      currentProperty.category === 'Sold'
+                        ? 'text-green-600'
+                        : currentProperty.category === 'Under Offer'
+                        ? 'text-yellow-600'
+                        : 'text-blue-600'
+                    }`}
+                  >
+                    Status: {currentProperty.category}
                   </p>
                 </div>
                 <p className="text-gray-700 italic">
@@ -293,12 +334,6 @@ export function Home() {
                   } hover:animate-pulse-hover active:animate-bounce-click`}
                 >
                   {favorites.includes(currentProperty.id) ? 'Remove from Favorites' : 'Add to Favorites'}
-                </button>
-                <button
-                  onClick={() => openEnquiryForm(currentProperty)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
-                >
-                  Enquire About This Property
                 </button>
                 <div className="flex justify-between mt-4">
                   <button
@@ -317,7 +352,7 @@ export function Home() {
                   </button>
                 </div>
                 <button
-                  onClick={() => navigate(`/property-detail/${currentProperty.id}`)}
+                  onClick={() => handlePropertyClick(currentProperty)}
                   className="w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
                 >
                   View Full Details
@@ -345,16 +380,21 @@ export function Home() {
                   const prop = properties.find((p) => p.id === id);
                   return prop ? (
                     <div key={id} className="bg-gray-50 p-3 rounded-lg mb-2 transition-all">
-                      <p>{`${prop.street_number} ${prop.street_name}, ${prop.suburb}`}</p>
-                      <button
-                        onClick={() => openEnquiryForm(prop)}
-                        className="text-blue-600 hover:underline hover:animate-pulse-hover active:animate-bounce-click"
+                      <p>{`${prop.street_number || ''} ${prop.street_name || ''}, ${prop.suburb}, QLD ${prop.postcode.trim()}`}</p>
+                      <p
+                        className={`text-sm ${
+                          prop.category === 'Sold'
+                            ? 'text-green-600'
+                            : prop.category === 'Under Offer'
+                            ? 'text-yellow-600'
+                            : 'text-blue-600'
+                        }`}
                       >
-                        Enquire Now
-                      </button>
+                        Status: {prop.category}
+                      </p>
                       <button
-                        onClick={() => navigate(`/property-detail/${id}`)}
-                        className="ml-4 text-blue-600 hover:underline hover:animate-pulse-hover active:animate-bounce-click"
+                        onClick={() => handlePropertyClick(prop)}
+                        className="text-blue-600 hover:underline hover:animate-pulse-hover active:animate-bounce-click"
                       >
                         View Details
                       </button>
@@ -384,55 +424,85 @@ export function Home() {
   return (
     <div className="max-w-4xl mx-auto mt-12">
       <div className="bg-white p-8 rounded-lg shadow-lg mb-12 animate-fade-in">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6 text-center">Featured Properties</h1>
-        {loading ? (
-          <div className="flex justify-center items-center min-h-[200px]">
-            <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
-            <span className="ml-2 animate-pulse">Loading properties...</span>
+        <h1 className="text-3xl font-bold text-gray-900 mb-6 text-center">Enquire About a Property</h1>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="name" className="block text-gray-700 mb-2 font-medium">
+              Name
+            </label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 transition-transform group-hover:scale-110" />
+              <input
+                id="name"
+                name="name"
+                type="text"
+                value={formData.name}
+                onChange={handleChange}
+                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all group"
+                placeholder="Your Name"
+                required
+                disabled={formStatus === 'submitting'}
+              />
+            </div>
           </div>
-        ) : error ? (
-          <p className="text-red-600 text-center animate-fade-in">{error}</p>
-        ) : properties.length === 0 ? (
-          <p className="text-gray-600 text-center animate-fade-in">No properties available.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {properties.map((property, index) => (
-              <div
-                key={property.id}
-                className="bg-gray-50 p-4 rounded-lg hover:shadow-md hover:animate-scale-up transition-all cursor-pointer"
-                style={{ animationDelay: `${index * 0.1}s`, animationFillMode: 'forwards' }}
-              >
-                <h3
-                  className="text-lg font-semibold text-gray-900 transition-colors hover:text-blue-600"
-                  onClick={() => handlePropertyClick(property)}
-                >
-                  {`${property.street_number} ${property.street_name}, ${property.suburb}`}
-                </h3>
-                <p className="text-gray-600 flex items-center mt-1">
-                  <MapPin className="w-4 h-4 mr-1 transition-transform hover:scale-110" />
-                  {property.suburb}, QLD {property.postcode}
-                </p>
-                <p className="text-gray-600 flex items-center mt-1">
-                  <DollarSign className="w-4 h-4 mr-1 transition-transform hover:scale-110" />
-                  {formatCurrency(property.price)}
-                </p>
-                <p className="text-sm text-gray-500 mt-1 transition-opacity hover:opacity-80">
-                  {property.bedrooms} Beds, {property.bathrooms} Baths, {property.car_garage} Garage
-                </p>
-                <p className="text-sm text-blue-600 mt-1 transition-transform hover:translate-x-1">
-                  {property.category}
-                </p>
-                <button
-                  onClick={() => openEnquiryForm(property)}
-                  className="mt-2 w-full bg-blue-600 text-white py-2 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
-                >
-                  Enquire Now
-                </button>
-              </div>
-            ))}
+          <div>
+            <label htmlFor="email" className="block text-gray-700 mb-2 font-medium">
+              Email
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 transition-transform group-hover:scale-110" />
+              <input
+                id="email"
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={handleChange}
+                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all group"
+                placeholder="your.email@example.com"
+                required
+                disabled={formStatus === 'submitting'}
+              />
+            </div>
           </div>
-        )}
-        <div className="flex justify-center mt-6">
+          <div>
+            <label htmlFor="message" className="block text-gray-700 mb-2 font-medium">
+              Message
+            </label>
+            <div className="relative">
+              <MessageSquare className="absolute left-3 top-4 w-5 h-5 text-gray-400 transition-transform group-hover:scale-110" />
+              <textarea
+                id="message"
+                name="message"
+                value={formData.message}
+                onChange={handleChange}
+                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent h-32 resize-y transition-all group"
+                placeholder="Tell us about your property needs..."
+                required
+                disabled={formStatus === 'submitting'}
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className={`w-full bg-blue-600 text-white py-3 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all flex items-center justify-center ${
+              formStatus === 'submitting' ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            disabled={formStatus === 'submitting'}
+          >
+            {formStatus === 'submitting' ? 'Submitting...' : 'Send Enquiry'}
+          </button>
+          {formStatus === 'success' && (
+            <p className="text-green-600 text-center animate-fade-in">Enquiry sent successfully!</p>
+          )}
+          {formStatus === 'error' && (
+            <p className="text-red-600 text-center animate-fade-in">Failed to send enquiry. Please try again.</p>
+          )}
+        </form>
+      </div>
+
+      <div className="bg-white p-8 rounded-lg shadow-lg">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 animate-fade-in">Featured Properties</h2>
           <button
             onClick={startTour}
             className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:animate-pulse-hover active:animate-bounce-click transition-all"
@@ -441,6 +511,61 @@ export function Home() {
             Start Virtual Tour
           </button>
         </div>
+        {loading ? (
+          <div className="flex justify-center items-center min-h-[200px]">
+            <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+            <span className="ml-2 animate-pulse">Loading properties...</span>
+          </div>
+        ) : error ? (
+          <div className="text-center text-red-600 animate-fade-in">
+            <p>{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 bg-blue-600 text-white py-2 px-4 rounded-lg hover:animate-pulse-hover"
+            >
+              Retry
+            </button>
+          </div>
+        ) : properties.length === 0 ? (
+          <p className="text-gray-600 text-center animate-fade-in">No properties available.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {properties.map((property, index) => (
+              <div
+                key={property.id}
+                className="bg-gray-50 p-4 rounded-lg hover:shadow-md hover:animate-scale-up transition-all cursor-pointer"
+                onClick={() => handlePropertyClick(property)}
+                style={{ animationDelay: `${index * 0.1}s`, animationFillMode: 'forwards' }}
+              >
+                <h3 className="text-lg font-semibold text-gray-900 transition-colors hover:text-blue-600">
+                  {`${property.street_number || ''} ${property.street_name || ''}, ${property.suburb}`}
+                </h3>
+                <p className="text-gray-600 flex items-center mt-1">
+                  <MapPin className="w-4 h-4 mr-1 transition-transform hover:scale-110" />
+                  {`${property.suburb}, QLD ${property.postcode.trim()}`}
+                </p>
+                <p className="text-gray-600 flex items-center mt-1">
+                  <DollarSign className="w-4 h-4 mr-1 transition-transform hover:scale-110" />
+                  {formatCurrency(property.price)}
+                </p>
+                <p className="text-sm text-gray-500 mt-1 transition-opacity hover:opacity-80">
+                  {property.bedrooms} Beds, {property.bathrooms} Baths, {property.car_garage} Garage
+                </p>
+                <p
+                  className={`text-sm mt-1 transition-transform hover:translate-x-1 ${
+                    property.category === 'Sold'
+                      ? 'text-green-600'
+                      : property.category === 'Under Offer'
+                      ? 'text-yellow-600'
+                      : 'text-blue-600'
+                  }`}
+                >
+                  Status: {property.category}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {tourOpen && (
@@ -456,10 +581,6 @@ export function Home() {
           </div>
         </div>
       )}
-
-      {/* {isEnquiryFormOpen && selectedProperty && (
-        <EnquiryForm property={selectedProperty} onClose={closeEnquiryForm} />
-      )} */}
     </div>
   );
 }

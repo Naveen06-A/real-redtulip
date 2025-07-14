@@ -619,6 +619,39 @@ export function MarketingPlanPage() {
     }
   };
 
+  const updateStreet = (
+    type: 'door_knock' | 'phone_call',
+    id: string,
+    field: string,
+    value: string
+  ) => {
+    if (type === 'door_knock') {
+      setMarketingPlan({
+        ...marketingPlan,
+        door_knock_streets: marketingPlan.door_knock_streets.map((street) =>
+          street.id === id
+            ? {
+                ...street,
+                [field]: field === 'name' || field === 'why' ? toTitleCase(value) : value,
+              }
+            : street
+        ),
+      });
+    } else {
+      setMarketingPlan({
+        ...marketingPlan,
+        phone_call_streets: marketingPlan.phone_call_streets.map((street) =>
+          street.id === id
+            ? {
+                ...street,
+                [field]: field === 'name' || field === 'why' ? toTitleCase(value) : value,
+              }
+            : street
+        ),
+      });
+    }
+  };
+
   const handleSelectStreet = (street: { name: string; why: string }, type: 'door_knock' | 'phone_call') => {
     if (type === 'door_knock') {
       setMarketingPlan({
@@ -1129,7 +1162,7 @@ export function MarketingPlanPage() {
                   </div>
                 </div>
                 <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knock Desktop Appraisals</p>
+                  <p className="font-semibold text-gray-800 mb-2">Door Knock Deckstop Appraisals</p>
                   <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnockDesktopAppraisals.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnockDesktopAppraisals.target}>
                     <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
                       <div

@@ -2,8 +2,15 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Download, X } from 'lucide-react';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { Enquiry } from '../types';
+import { autoTable } from 'jspdf-autotable'; // Updated import
+import { Enquiry } from '../types/types';
+
+// Extend jsPDF type to include autoTable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: typeof autoTable;
+  }
+}
 
 interface EnquiryPDFPreviewProps {
   enquiry: Enquiry;
@@ -15,30 +22,24 @@ interface EnquiryPDFPreviewProps {
 export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: EnquiryPDFPreviewProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [modalDimensions, setModalDimensions] = useState({ width: '90vw', maxWidth: 1200, height: '90vh' });
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // Calculate modal dimensions based on window size
   useEffect(() => {
     const updateDimensions = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-
-      // Calculate modal width: 90% of viewport width, capped at 1200px for desktop, 95% for mobile
       const width = vw <= 768 ? '95vw' : vw <= 1024 ? '85vw' : '80vw';
-      const maxWidth = Math.min(vw * 0.9, 1200); // Remove DPR scaling for max-width
-
-      // Calculate modal height: 90% of viewport height, capped at 90% of available height
+      const maxWidth = Math.min(vw * 0.9, 1200);
       const height = `${Math.min(vh * 0.9, vh - 100)}px`;
-
       setModalDimensions({ width, maxWidth, height });
     };
 
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
-
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  const generatePDF = (preview: boolean = false) => {
+  const generatePDF = async (preview: boolean = false) => {
     try {
       if (!enquiry) {
         console.error('No enquiry data provided');
@@ -46,15 +47,13 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
       }
 
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-      const dpr = window.devicePixelRatio || 1;
+      // No manual attachment needed; autoTable should be available via import
 
-      // Adjust font sizes for high-resolution displays
-      const baseFontSize = 10 * dpr;
-      const headerFontSize = 18 * dpr;
-      const subtitleFontSize = 12 * dpr;
-      const footerFontSize = 8 * dpr;
+      // Set initial font context
+      doc.setFont('helvetica');
+      doc.setFontSize(18);
+      console.log('Initial doc state:', doc.getFontSize(), doc.getFont());
 
-      // Set document properties
       doc.setProperties({
         title: `Enquiry_${enquiry.full_name}_${enquiry.id}`,
         author: 'Harcourts',
@@ -62,17 +61,17 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
       });
 
       // Background and header
-      doc.setFillColor(219, 234, 254); // Light blue background
-      doc.rect(0, 0, 210, 297, 'F'); // A4 size
+      doc.setFillColor(219, 234, 254);
+      doc.rect(0, 0, 210, 297, 'F');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(headerFontSize);
-      doc.setTextColor(30, 58, 138); // Dark blue
+      doc.setFontSize(18);
+      doc.setTextColor(30, 58, 138);
       doc.text('Harcourts Success', 105, 20, { align: 'center' });
 
       // Subtitle
-      doc.setFontSize(subtitleFontSize);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(29, 78, 216); // Lighter blue
+      doc.setFontSize(12);
+      doc.setTextColor(29, 78, 216);
       doc.text(`Submission ID: ${enquiry.id}`, 20, 30);
       doc.text(`Submitted: ${new Date(enquiry.submitted_at).toLocaleString()}`, 20, 38);
 
@@ -102,65 +101,73 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
         ['Weaknesses', enquiry.weaknesses || 'N/A'],
       ];
 
-      // Use jsPDF-autotable for a professional table layout
-      (doc as any).autoTable({
+      // Use modern autoTable API (compatible with jspdf-autotable@5.x)
+      doc.autoTable({
         startY: 45,
-        head: [['Field', 'Details']],
+        columns: ['Field', 'Details'],
         body: tableData,
         theme: 'grid',
         styles: {
           font: 'helvetica',
-          fontSize: baseFontSize,
-          textColor: [17, 24, 39], // Dark text
-          cellPadding: 4 * dpr, // Adjust padding for high-DPI
+          fontSize: 10,
+          textColor: [17, 24, 39],
+          cellPadding: 4,
           overflow: 'linebreak',
         },
         headStyles: {
-          fillColor: [147, 197, 253], // Light blue header
-          textColor: [30, 58, 138], // Dark blue text
+          fillColor: [147, 197, 253],
+          textColor: [30, 58, 138],
           fontStyle: 'bold',
-          fontSize: baseFontSize + 2,
         },
         alternateRowStyles: {
-          fillColor: [241, 245, 249], // Very light blue for alternating rows
+          fillColor: [241, 245, 249],
         },
         columnStyles: {
-          0: { cellWidth: 60, fontStyle: 'bold', textColor: [29, 78, 216] }, // Label column
-          1: { cellWidth: 120 }, // Value column
+          0: { cellWidth: 60, fontStyle: 'bold', textColor: [29, 78, 216] },
+          1: { cellWidth: 120 },
         },
         margin: { left: 20, right: 20 },
-        didDrawPage: () => {
-          // Add footer
-          doc.setFontSize(footerFontSize);
+        didDrawPage: (data: any) => {
+          doc.setFont('helvetica');
+          doc.setFontSize(8);
           doc.setTextColor(100);
-          doc.text(`Generated by Harcourts Admin Dashboard`, 105, 290, { align: 'center' });
+          doc.text('Generated by Harcourts Admin Dashboard', 105, 290, { align: 'center' });
         },
       });
 
-      // Set default zoom level for PDF viewers
-      doc.setDisplayMode('100%', 'continuous'); // Set zoom to 100% and continuous scroll
+      console.log('Post-autoTable doc state:', doc.getFontSize(), doc.getFont());
+
+      doc.setDisplayMode('100%', 'continuous');
 
       if (preview) {
         const pdfBlob = doc.output('blob');
-        setPdfUrl(URL.createObjectURL(pdfBlob));
+        console.log('Generated PDF blob:', pdfBlob); // Debug blob
+        if (!pdfBlob || !(pdfBlob instanceof Blob)) {
+          throw new Error('Invalid PDF blob generated');
+        }
+        const url = URL.createObjectURL(pdfBlob);
+        console.log('Generated PDF URL:', url); // Debug URL
+        setPdfUrl(url);
       } else {
         doc.save(`enquiry-${enquiry.full_name}-${enquiry.id}.pdf`);
       }
     } catch (error: any) {
       console.error('PDF generation error:', error);
+      if (preview) {
+        setPreviewError('Failed to generate PDF preview: ' + error.message);
+        setPdfUrl(null);
+      }
     }
   };
 
   useEffect(() => {
     if (isOpen) {
+      setPreviewError(null); // Reset error on open
       generatePDF(true);
+    } else if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+      setPdfUrl(null);
     }
-    return () => {
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl);
-        setPdfUrl(null);
-      }
-    };
   }, [isOpen, enquiry]);
 
   if (!isOpen) return null;
@@ -182,21 +189,23 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-blue-900">Enquiry PDF Preview</h2>
-          <button
-            onClick={onClose}
-            className="text-blue-900 hover:text-blue-700"
-          >
+          <button onClick={onClose} className="text-blue-900 hover:text-blue-700">
             <X className="w-6 h-6" />
           </button>
         </div>
-        {pdfUrl ? (
+        {previewError ? (
+          <div className="text-center text-red-600 text-sm sm:text-base">{previewError}</div>
+        ) : pdfUrl ? (
           <iframe
             src={pdfUrl}
             className="w-full border border-blue-200 rounded-md"
-            style={{
-              height: `calc(${modalDimensions.height} - 120px)`,
-            }}
+            style={{ height: `calc(${modalDimensions.height} - 120px)` }}
             title="Enquiry PDF Preview"
+            onError={() => {
+              console.error('Iframe failed to load PDF');
+              setPreviewError('Failed to display PDF preview');
+              setPdfUrl(null);
+            }}
           />
         ) : (
           <div className="text-center text-blue-900 text-sm sm:text-base">Generating preview...</div>

@@ -23,7 +23,41 @@ export interface Agency {
   avg_sale_price: number;
   total_commission: number;
 }
-
+export interface Filters {
+  suburbs: string[];
+  streetNames: string[];
+  streetNumbers: string[];
+  agents: string[];
+  agency_names: string[];
+  propertyTypes?: string[];
+  categories?: string[];
+}
+export interface Enquiry {
+  id: string;
+  full_name: string;
+  languages_known: string | null;
+  do_you_hold_a_full_license: boolean;
+  full_license_details: string | null;
+  do_you_own_a_car: boolean;
+  car_details: string | null;
+  do_you_hold_a_drivers_license: boolean;
+  drivers_license_details: string | null;
+  why_real_estate: string | null;
+  have_you_bought_and_sold_in_qld: boolean;
+  bought_sold_qld_details: string | null;
+  whats_your_goal: string | null;
+  expected_earnings: string | null;
+  agree_to_rite_values: boolean;
+  why_us: string | null;
+  what_do_you_expect_from_us: string | null;
+  financial_capability: boolean;
+  financial_capability_details: string | null;
+  team_contribution: string | null;
+  suburbs_to_prospect: string | null;
+  strengths: string | null;
+  weaknesses: string | null;
+  submitted_at: string;
+}
 export interface PropertyDetails {
   id: string;
   street_name: string | null;
@@ -82,6 +116,8 @@ export interface PropertyMetrics {
   ourAgentStats: Agent[];
   topAgencies: Agency[];
   ourAgencyStats: Agency[];
+  [key: string]: any;
+
 }
 
 // Helper function to normalize suburb names to uppercase

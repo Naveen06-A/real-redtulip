@@ -5,7 +5,8 @@ import { Copy, Download, Save, Eye } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useDebounce } from 'use-debounce';
 import { supabase } from '../lib/supabase';
-import { types } from '../types';
+// import { types } from '../types/types';
+import * as types from '../types/types';
 
 // Background image (base64-encoded light abstract pattern)
 const backgroundImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJwYXR0ZXJuIiB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiPjxwYXRoIGQ9Ik0gMCA0MCAyMCAyMCA0MCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48cGF0aCBkPSJNIDQwIDAgMjAgMjAgMCA0MCAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE5NjdGRiIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIwLjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjcGF0dGVybikiLz48L3N2Zz4=';

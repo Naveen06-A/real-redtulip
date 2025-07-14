@@ -24,9 +24,11 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { AgentPropertyMap } from './AgentPropertyMap';
 import { EditModal } from './EditModal';
-import { PropertyDetails, PropertyMetrics, Filters } from './Reports';
+import type { CommissionEarner, Agent, Agency } from '../types/types';
+import { TopLister } from '../types/types';
+// import { PropertyDetails, PropertyMetrics, Filters } from './Reports';
 import { PropertyReportPage } from './PropertyReportPage';
-import { CommissionByAgency } from './CommissionByAgency';
+import CommissionByAgency from './CommissionByAgency';
 import {
   formatCurrency,
   normalizeSuburb,
@@ -69,6 +71,73 @@ const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error; resetError
   </div>
 );
 
+export interface Filters {
+  suburbs: string[];
+  streetNames: string[];
+  streetNumbers: string[];
+  agents: string[];
+  agency_names: string[];
+}
+export interface PropertyDetails {
+  id: string;
+  street_name: string | null;
+  street_number: string | null;
+  agent_name: string | null;
+  suburb: string | null;
+  postcode: string | null;
+  price: number;
+  sold_price: number | null;
+  category: string | null;
+  property_type: string | null;
+  agency_name: string | null;
+  commission: number | null;
+  commission_earned: number | null;
+  expected_price: number | null;
+  sale_type: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  car_garage: number | null;
+  sqm: number | null;
+  landsize: number | null;
+  listed_date: string | null;
+  sold_date: string | null;
+  flood_risk: string | null;
+  bushfire_risk: string | null;
+  contract_status: string | null;
+  features: string[] | null;
+  same_street_sales: any[] | null;
+  past_records: any[] | null;
+}
+export interface PropertyMetrics {
+  listingsBySuburb: Record<string, { listed: number; sold: number }>;
+  listingsByStreetName: Record<string, { listed: number; sold: number }>;
+  listingsByStreetNumber: Record<string, { listed: number; sold: number }>;
+  listingsByAgent: Record<string, { listed: number; sold: number }>;
+  listingsByAgency: Record<string, { listed: number; sold: number }>;
+  avgSalePriceBySuburb: Record<string, number>;
+  avgSalePriceByStreetName: Record<string, number>;
+  avgSalePriceByStreetNumber: Record<string, number>;
+  avgSalePriceByAgent: Record<string, number>;
+  avgSalePriceByAgency: Record<string, number>;
+  predictedAvgPriceBySuburb: Record<string, number>;
+  predictedConfidenceBySuburb: Record<string, { lower: number; upper: number }>;
+  priceTrendsBySuburb: Record<string, Record<string, number>>;
+  commissionByAgency: Record<string, Record<string, number>>;
+  propertyDetails: PropertyDetails[];
+  totalListings: number;
+  totalSales: number;
+  overallAvgSalePrice: number;
+  topListersBySuburb: Record<string, TopLister>;
+  ourListingsBySuburb: Record<string, number>;
+  topCommissionEarners: CommissionEarner[];
+  ourCommission: number;
+  topAgents: Agent[];
+  ourAgentStats: Agent[];
+  topAgencies: Agency[];
+  ourAgencyStats: Agency[];
+  [key: string]: any;
+
+}
 export function Reports() {
   const [properties, setProperties] = useState<PropertyDetails[]>([]);
   const [filteredProperties, setFilteredProperties] = useState<PropertyDetails[]>([]);
@@ -109,7 +178,7 @@ export function Reports() {
 
   const updateFilterSuggestions = useMemo(() => {
     return (data: PropertyDetails[]) => {
-      const uniqueSuburbs = [...new Set(data.map((p) => normalizeSuburb(p.suburb)).filter(Boolean))].sort();
+      const uniqueSuburbs = [...new Set(data.map((p) => normalizeSuburb(p.suburb || '')).filter(Boolean))].sort();
       const newSuggestions = {
         suburbs: uniqueSuburbs,
         streetNames: [...new Set(data.map((p) => p.street_name || '').filter(Boolean))].sort(),
@@ -159,7 +228,7 @@ export function Reports() {
       const previewFiltered = properties.filter((prop) => {
         const suburbMatch =
           filters.suburbs.length === 0 ||
-          filters.suburbs.some((suburb) => normalizeSuburb(prop.suburb) === normalizeSuburb(suburb));
+          filters.suburbs.some((suburb) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb));
         const streetNameMatch =
           filters.streetNames.length === 0 ||
           filters.streetNames.some((name) => (prop.street_name || '').toLowerCase() === name.toLowerCase());
@@ -582,17 +651,19 @@ export function Reports() {
             </motion.section>
 
             <EditModal
-              showEditModal={showEditModal}
-              setShowEditModal={setShowEditModal}
-              selectedProperty={selectedProperty}
-              setSelectedProperty={setSelectedProperty}
-              properties={properties}
-              setProperties={setProperties}
-              filteredProperties={filteredProperties}
-              setFilteredProperties={setFilteredProperties}
-              debouncedGenerateMetrics={() => debouncedGenerateMetrics(properties)}
-              propertiesTableRef={propertiesTableRef}
-            />
+            showEditModal={showEditModal}
+            setShowEditModal={setShowEditModal}
+            selectedProperty={selectedProperty}
+            setSelectedProperty={setSelectedProperty}
+            properties={properties}
+            setProperties={setProperties}
+            filteredProperties={filteredProperties}
+            setFilteredProperties={setFilteredProperties}
+            debouncedGenerateMetrics={() => debouncedGenerateMetrics(properties)}
+            propertiesTableRef={propertiesTableRef}
+            pauseSubscription={() => {/* implementation */}}
+            resumeSubscription={() => {/* implementation */}}
+          />
           </div>
         )}
       </div>

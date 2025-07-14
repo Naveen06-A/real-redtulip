@@ -1,6 +1,6 @@
 // src/utils.ts
 import moment from 'moment';
-import { PropertyDetails } from './pages/types/types';
+import { PropertyDetails } from './types/types';
 
 export const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);

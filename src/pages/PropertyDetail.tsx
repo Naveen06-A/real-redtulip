@@ -104,7 +104,8 @@ const generatePDFReport = async (
 
         img.onload = () => {
           doc.saveGraphicsState();
-          doc.setGState(new doc.GState({ opacity: 0.05 }));
+          doc.setGState(new (doc as any).GState({ opacity: 0.05 }));
+          // doc.setGState(new doc.GState({ opacity: 0.05 }));
           doc.addImage(img, 'JPEG', pageWidth / 4, pageHeight / 4, pageWidth / 2, pageHeight / 2);
           doc.restoreGraphicsState();
           resolve();
@@ -568,7 +569,8 @@ export function PropertyDetail() {
         }
         if (!propertyIds.includes(id)) {
           console.warn('Current ID not in allPropertyIds, appending:', id);
-          propertyIds = [id, ...propertyIds.filter(pid => pid !== id)]; // Ensure no duplicates
+          propertyIds = [id, ...propertyIds.filter((pid: string) => pid !== id)];
+          // propertyIds = [id, ...propertyIds.filter(pid => pid !== id)]; // Ensure no duplicates
         }
         setAllPropertyIds(propertyIds);
         setDebugInfo(`Fetched property and ${propertyIds.length} IDs`);
@@ -635,9 +637,10 @@ export function PropertyDetail() {
         navigate(`/property-detail/${nextId}`, {
           state: { allPropertyIds, property: null } // Clear property to force fetch
         });
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Navigation to next property failed:', err);
-        setDebugInfo(`Navigation Error: ${err.message}`);
+        setDebugInfo(`Navigation Error: ${err instanceof Error ? err.message : String(err)}`);
+        // setDebugInfo(`Navigation Error: ${err.message}`);
       }
     } else {
       console.log('Cannot navigate next: At last property');
@@ -655,9 +658,10 @@ export function PropertyDetail() {
         navigate(`/property-detail/${prevId}`, {
           state: { allPropertyIds, property: null } // Clear property to force fetch
         });
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Navigation to previous property failed:', err);
-        setDebugInfo(`Navigation Error: ${err.message}`);
+        setDebugInfo(`Navigation Error: ${err instanceof Error ? err.message : String(err)}`);
+        // setDebugInfo(`Navigation Error: ${err.message}`);
       }
     } else {
       console.log('Cannot navigate previous: At first property');

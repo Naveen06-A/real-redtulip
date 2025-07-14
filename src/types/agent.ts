@@ -5,6 +5,8 @@ export interface Agent {
   agency_name: string;
   phone: string;
   created_at: string;
+  permissions: { canRegisterProperties: boolean } | null;
+
 }
 
 export interface Property {

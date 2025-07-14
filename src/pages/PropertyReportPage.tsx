@@ -56,7 +56,8 @@ import {
   selectStyles,
 } from '../reportsUtils';
 import { generatePdf } from '../utils/pdfUtils';
-import { Filters, PropertyDetails } from './Reports';
+
+import { Filters, PropertyDetails } from '../types/types';
 
 ChartJS.register(
   CategoryScale,
@@ -102,6 +103,7 @@ interface PropertyFormData {
   contract_status: string;
   features: string[];
 }
+
 
 export function PropertyReportPage(props: PropertyReportPageProps) {
   const location = useLocation();
@@ -182,9 +184,10 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       setLocalFilterPreviewCount(initialFilteredProperties.length);
       // Initialize propertyTypes suggestions from initial data
       setDynamicFilterSuggestions((prev) => ({
-        ...prev,
-        propertyTypes: [...new Set(initialFilteredProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))] || [],
-      }));
+      ...prev,
+      categories: ['Listed', 'Sold'], // Remove the availableCategories reference
+      propertyTypes: [...new Set(filteredProperties.map((prop) => prop?.property_type || '').filter(Boolean))]
+    }));
     }
   }, [initialFilteredProperties]);
 
@@ -243,18 +246,19 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
 
       const newSuggestions = {
         suburbs: filterSuggestions?.suburbs || [],
-        streetNames: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))] || [],
-        streetNumbers: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))] || [],
-        agents: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))] || [],
-        agency_names: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))] || [],
-        propertyTypes: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))] || [],
-        categories: ['Listed', 'Sold'],
+        streetNames: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
+        streetNumbers: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
+        agents: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
+        agency_names: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
+        propertyTypes: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
+        categories: [...new Set(filteredProperties.map((prop: PropertyDetails) => prop.category || '').filter(Boolean).map((c: string) => c.trim()))],
       };
 
       console.log('New filter suggestions:', newSuggestions);
 
       setDynamicFilterSuggestions(newSuggestions);
-      categories: [...new Set(availableCategories.filter(Boolean).map(c => c.trim()))], // Only include valid, trimmed categories from data
+      
+        // categories: [...new Set(filteredProperties.map((prop: PropertyDetails) => prop.category).filter(Boolean).map((c: string) => c.trim()))],
 
       setLocalFilters((prev: Filters) => ({
         ...prev,
@@ -262,8 +266,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         streetNumbers: prev.streetNumbers.filter((num) => newSuggestions.streetNumbers.includes(num)),
         agents: prev.agents.filter((agent) => newSuggestions.agents.includes(agent)),
         agency_names: prev.agency_names.filter((agency) => newSuggestions.agency_names.includes(agency)),
-        propertyTypes: prev.propertyTypes.filter((type) => newSuggestions.propertyTypes.includes(type)),
-        categories: prev.categories.filter((category) => newSuggestions.categories.includes(category)),
+        propertyTypes: (prev.propertyTypes || []).filter((type) => newSuggestions.propertyTypes.includes(type)),
+        categories: (prev.categories || []).filter((category) => newSuggestions.categories.includes(category)),
       }));
     } catch (err) {
       console.error('Error updating filter suggestions:', err, { selectedSuburbs, filteredProperties });
@@ -441,7 +445,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
             if (propCategory !== filterCategory) {
               console.log('Category mismatch:', {
                 propertyId: prop.id,
-                propertyIndex: index,
+                // propertyIndex: index,
                 propertyCategory: propCategory,
                 filterCategory: filterCategory,
               });
@@ -1269,6 +1273,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                     />
                   </motion.div>
                 )}
+                
               </motion.div>
             ))}
           </div>

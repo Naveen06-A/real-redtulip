@@ -10,9 +10,40 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend } from 'chart.js';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// import autoTable from 'jspdf-autotable';
 import { utils, writeFile } from 'xlsx';
 
+// Type extensions for jsPDF
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: (options: AutoTableOptions) => jsPDF;
+    lastAutoTable?: { finalY: number };
+    getNumberOfPages(): number;
+    getCurrentPageInfo(): { pageNumber: number };
+  }
+}
+
+interface AutoTableOptions {
+  head: string[][];
+  body: string[][];
+  startY?: number;
+  theme?: string;
+  headStyles?: {
+    fillColor?: number[];
+    textColor?: number[];
+    font?: string;
+  };
+  bodyStyles?: {
+    fillColor?: number[];
+    textColor?: number[];
+    font?: string;
+  };
+  margin?: {
+    left?: number;
+    right?: number;
+  };
+  didDrawPage?: () => void;
+}
 // Register Chart.js components
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
@@ -221,11 +252,11 @@ const AgencyCard: React.FC<AgencyCardProps> = ({ item, index, globalIndex, maxSo
   );
 };
 
-// Extend jsPDF with autoTable
-interface JsPDFWithAutoTable extends jsPDF {
-  autoTable: (content: { head: string[][]; body: string[][] }, options?: any) => void;
-  lastAutoTable: { finalY: number };
-}
+// // Extend jsPDF with autoTable
+// interface JsPDFWithAutoTable extends jsPDF {
+//   autoTable: (content: { head: string[][]; body: string[][] }, options?: any) => void;
+//   lastAutoTable: { finalY: number };
+// }
 
 // Main Component
 export function ComparisonReport() {

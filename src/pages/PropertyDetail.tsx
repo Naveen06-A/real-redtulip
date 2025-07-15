@@ -54,7 +54,20 @@ const calculateCommission = (property: ExtendedProperty): { commissionRate: numb
   const commissionEarned = commissionRate > 0 && basePrice > 0 ? basePrice * (commissionRate / 100) : 0;
   return { commissionRate, commissionEarned };
 };
-
+const ALLOWED_SUBURBS = [
+  'Moggill QLD 4070',
+  'Bellbowrie QLD 4070',
+  'Pullenvale QLD 4069',
+  'Brookfield QLD 4069',
+  'Anstead QLD 4070',
+  'Chapel Hill QLD 4069',
+  'Kenmore QLD 4069',
+  'Kenmore Hills QLD 4069',
+  'Fig Tree Pocket QLD 4069',
+  'Pinjarra Hills QLD 4069',
+  'Springfield QLD 4300',
+  'Spring Mountain QLD 4300',
+].map(suburb => normalizeSuburb(suburb));
 const generateMockCoordinates = (suburb: string = 'Brisbane', index: number = 0): { latitude: number; longitude: number } => {
   const baseCoords: Record<string, { lat: number; lng: number }> = {
     'Pullenvale 4069': { lat: -27.522, lng: 152.885 },
@@ -507,6 +520,7 @@ export function PropertyDetail() {
             .from('properties')
             .select('*, commission')
             .eq('id', id)
+            .in('suburb', ALLOWED_SUBURBS)
             .single();
 
           if (propertyError) {
@@ -521,12 +535,19 @@ export function PropertyDetail() {
           fetchedProperty.suburb = normalizeSuburb(fetchedProperty.suburb);
           console.log('Fetched property data:', fetchedProperty);
         }
+        // Verify the property's suburb is in ALLOWED_SUBURBS
+        if (!ALLOWED_SUBURBS.includes(normalizeSuburb(fetchedProperty.suburb))) {
+          console.error('Property suburb not in allowed list:', fetchedProperty.suburb);
+          throw new Error('Property is not in an allowed suburb');
+        }
 
         // Fetch past records
         const { data: pastRecords, error: recordsError } = await supabase
           .from('past_records')
           .select('suburb, postcode, property_type, price, bedrooms, bathrooms, car_garage, sqm, landsize, listing_date, sale_date, status, notes')
-          .eq('property_id', id);
+          .eq('property_id', id)
+          .in('suburb', ALLOWED_SUBURBS);
+
 
         if (recordsError) {
           console.error('Supabase past records error:', recordsError);
@@ -559,6 +580,7 @@ export function PropertyDetail() {
           const { data, error } = await supabase
             .from('properties')
             .select('id')
+            .in('suburb', ALLOWED_SUBURBS)
             .order('created_at', { ascending: false });
           if (error) {
             console.error('Supabase property IDs error:', error);

@@ -103,7 +103,20 @@ interface PropertyFormData {
   contract_status: string;
   features: string[];
 }
-
+const ALLOWED_SUBURBS = [
+  'Moggill QLD 4070',
+  'Bellbowrie QLD 4070',
+  'Pullenvale QLD 4069',
+  'Brookfield QLD 4069',
+  'Anstead QLD 4070',
+  'Chapel Hill QLD 4069',
+  'Kenmore QLD 4069',
+  'Kenmore Hills QLD 4069',
+  'Fig Tree Pocket QLD 4069',
+  'Pinjarra Hills QLD 4069',
+  'Springfield QLD 4300',
+  'Spring Mountain QLD 4300',
+].map(suburb => normalizeSuburb(suburb));
 
 export function PropertyReportPage(props: PropertyReportPageProps) {
   const location = useLocation();
@@ -158,7 +171,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
   const [formErrors, setFormErrors] = useState<Partial<PropertyFormData>>({});
   const [filteredProperties, setFilteredProperties] = useState<PropertyDetails[]>(initialFilteredProperties);
   const [dynamicFilterSuggestions, setDynamicFilterSuggestions] = useState({
-    suburbs: filterSuggestions?.suburbs || [],
+    // suburbs: filterSuggestions?.suburbs || [],
+    suburbs: ALLOWED_SUBURBS, // Only allowed suburbs
     streetNames: filterSuggestions?.streetNames || [],
     streetNumbers: filterSuggestions?.streetNumbers || [],
     agents: filterSuggestions?.agents || [],
@@ -179,18 +193,24 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
   }, [pdfUrl]);
 
   useEffect(() => {
-    if (filteredProperties.length === 0 && initialFilteredProperties.length > 0) {
-      setFilteredProperties(initialFilteredProperties);
-      setLocalFilterPreviewCount(initialFilteredProperties.length);
-      // Initialize propertyTypes suggestions from initial data
-      setDynamicFilterSuggestions((prev) => ({
+  if (filteredProperties.length === 0 && initialFilteredProperties.length > 0) {
+    const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
+      prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
+    );
+    setFilteredProperties(filtered);
+    setLocalFilterPreviewCount(filtered.length);
+    setDynamicFilterSuggestions((prev) => ({
       ...prev,
-      categories: ['Listed', 'Sold'], // Remove the availableCategories reference
-      propertyTypes: [...new Set(filteredProperties.map((prop) => prop?.property_type || '').filter(Boolean))]
+      suburbs: ALLOWED_SUBURBS, // Restrict to allowed suburbs
+      streetNames: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
+      streetNumbers: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
+      agents: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
+      agency_names: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
+      propertyTypes: [...new Set(filtered.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
+      categories: ['Listed', 'Sold'],
     }));
-    }
-  }, [initialFilteredProperties]);
-
+  }
+}, [initialFilteredProperties]);
   useEffect(() => {
     console.log('filteredProperties updated:', filteredProperties);
   }, [filteredProperties]);
@@ -237,43 +257,44 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
   const totalPages = Math.ceil((filteredProperties?.length || 0) / ITEMS_PER_PAGE);
 
   const updateFilterSuggestions = (selectedSuburbs: string[]) => {
-    try {
-      const baseProperties = selectedSuburbs.length === 0
-        ? filteredProperties
-        : filteredProperties.filter((prop: PropertyDetails) =>
-            prop && selectedSuburbs.some((suburb) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb))
-          );
+  try {
+    // Only include allowed suburbs in the suggestions
+    const validSelectedSuburbs = selectedSuburbs.filter(suburb => ALLOWED_SUBURBS.includes(normalizeSuburb(suburb)));
+    const baseProperties = validSelectedSuburbs.length === 0
+      ? filteredProperties.filter((prop: PropertyDetails) => ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || '')))
+      : filteredProperties.filter((prop: PropertyDetails) =>
+          prop && validSelectedSuburbs.some((suburb) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb))
+        );
 
-      const newSuggestions = {
-        suburbs: filterSuggestions?.suburbs || [],
-        streetNames: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
-        streetNumbers: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
-        agents: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
-        agency_names: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
-        propertyTypes: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
-        categories: [...new Set(filteredProperties.map((prop: PropertyDetails) => prop.category || '').filter(Boolean).map((c: string) => c.trim()))],
-      };
+    const newSuggestions = {
+      suburbs: ALLOWED_SUBURBS, // Only allowed suburbs
+      streetNames: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
+      streetNumbers: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
+      agents: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
+      agency_names: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
+      propertyTypes: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
+      categories: ['Listed', 'Sold'],
+    };
 
-      console.log('New filter suggestions:', newSuggestions);
+    console.log('New filter suggestions:', newSuggestions);
 
-      setDynamicFilterSuggestions(newSuggestions);
-      
-        // categories: [...new Set(filteredProperties.map((prop: PropertyDetails) => prop.category).filter(Boolean).map((c: string) => c.trim()))],
+    setDynamicFilterSuggestions(newSuggestions);
 
-      setLocalFilters((prev: Filters) => ({
-        ...prev,
-        streetNames: prev.streetNames.filter((name) => newSuggestions.streetNames.includes(name)),
-        streetNumbers: prev.streetNumbers.filter((num) => newSuggestions.streetNumbers.includes(num)),
-        agents: prev.agents.filter((agent) => newSuggestions.agents.includes(agent)),
-        agency_names: prev.agency_names.filter((agency) => newSuggestions.agency_names.includes(agency)),
-        propertyTypes: (prev.propertyTypes || []).filter((type) => newSuggestions.propertyTypes.includes(type)),
-        categories: (prev.categories || []).filter((category) => newSuggestions.categories.includes(category)),
-      }));
-    } catch (err) {
-      console.error('Error updating filter suggestions:', err, { selectedSuburbs, filteredProperties });
-      toast.error('Failed to update filter suggestions');
-    }
-  };
+    setLocalFilters((prev: Filters) => ({
+      ...prev,
+      suburbs: prev.suburbs.filter((suburb) => ALLOWED_SUBURBS.includes(normalizeSuburb(suburb))),
+      streetNames: prev.streetNames.filter((name) => newSuggestions.streetNames.includes(name)),
+      streetNumbers: prev.streetNumbers.filter((num) => newSuggestions.streetNumbers.includes(num)),
+      agents: prev.agents.filter((agent) => newSuggestions.agents.includes(agent)),
+      agency_names: prev.agency_names.filter((agency) => newSuggestions.agency_names.includes(agency)),
+      propertyTypes: (prev.propertyTypes || []).filter((type) => newSuggestions.propertyTypes.includes(type)),
+      categories: (prev.categories || []).filter((category) => newSuggestions.categories.includes(category)),
+    }));
+  } catch (err) {
+    console.error('Error updating filter suggestions:', err, { selectedSuburbs, filteredProperties });
+    toast.error('Failed to update filter suggestions');
+  }
+ };
 
   const handleEditClick = (property: PropertyDetails) => {
     setEditingProperty({
@@ -414,9 +435,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           return false;
         }
 
-        const suburbMatch =
-          newFilters.suburbs.length === 0 ||
-          newFilters.suburbs.some((suburb: string) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb));
+        const suburbMatch = ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || '')) &&
+        (newFilters.suburbs.length === 0 ||
+        newFilters.suburbs.some((suburb: string) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb)));
         const streetNameMatch =
           newFilters.streetNames.length === 0 ||
           newFilters.streetNames.some((name: string) => (prop.street_name || '').toLowerCase() === name.toLowerCase());
@@ -549,6 +570,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         propertyTypes: false,
         categories: false,
       });
+      const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
+      prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
+     );
       setFilteredProperties(initialFilteredProperties);
       setLocalFilterPreviewCount(initialFilteredProperties.length);
       setDynamicFilterSuggestions({

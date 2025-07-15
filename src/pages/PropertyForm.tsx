@@ -1101,7 +1101,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                       <option value="apartment">Apartment</option>
                       <option value="land">Land</option>
                       <option value="commercial">Commercial</option>
-                      <option value="home_town">Home Town</option>
+                      <option value="home_town"> Town House</option>
                       <option value="acreage">Acreage</option>
                     </select>
                   </div>
@@ -1337,7 +1337,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                         <option value="apartment">Apartment</option>
                         <option value="land">Land</option>
                         <option value="commercial">Commercial</option>
-                        <option value="home_town">Home Town</option>
+                        <option value="home_town">Town House</option>
                         <option value="acreage">Acreage</option>
                       </select>
                     </div>
@@ -1557,7 +1557,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                 <option value="apartment">Apartment</option>
                 <option value="land">Land</option>
                 <option value="commercial">Commercial</option>
-                <option value="home_town">Home Town</option>
+                <option value="home_town">Town House</option>
                 <option value="acreage">Acreage</option>
               </select>
             </div>

@@ -72,11 +72,13 @@ interface PlanProgress {
   desktopAppraisals: { completed: number; target: number };
   faceToFaceAppraisals: { completed: number; target: number };
 }
-// Add at the top of the file
+
+// Utility functions
 const calculatePercentage = (completed: number, target: number): number => {
   if (target === 0) return completed > 0 ? 100 : 0;
   return Math.min(Math.round((completed / target) * 100), 100);
 };
+
 const formatDate = (date: string) => {
   if (!date) return 'Not specified';
   return new Date(date).toLocaleDateString('en-AU', {
@@ -85,7 +87,7 @@ const formatDate = (date: string) => {
     year: 'numeric',
   });
 };
-// Add date range validation
+
 const isDateRangeValid = (plan: MarketingPlan) => {
   if (!plan.start_date || !plan.end_date) return false;
   const start = new Date(plan.start_date);
@@ -93,20 +95,18 @@ const isDateRangeValid = (plan: MarketingPlan) => {
   return start <= end;
 };
 
-// Enhanced progress calculation
 const calculateStreetProgress = (streets: StreetProgress[]) => {
-  return streets.reduce((acc, street) => {
-    return {
-      completed: acc.completed + (street.completedKnocks || street.completedCalls || 0),
-      target: acc.target + (street.targetKnocks || street.targetCalls || 0),
-      appraisals: {
-        desktop: acc.appraisals.desktop + (street.desktopAppraisals || 0),
-        faceToFace: acc.appraisals.faceToFace + (street.faceToFaceAppraisals || 0)
-      }
-    };
-  }, { completed: 0, target: 0, appraisals: { desktop: 0, faceToFace: 0 } });
+  return streets.reduce((acc, street) => ({
+    completed: acc.completed + (street.completedKnocks || street.completedCalls || 0),
+    target: acc.target + (street.targetKnocks || street.targetCalls || 0),
+    appraisals: {
+      desktop: acc.appraisals.desktop + (street.desktopAppraisals || 0),
+      faceToFace: acc.appraisals.faceToFace + (street.faceToFaceAppraisals || 0),
+    },
+  }), { completed: 0, target: 0, appraisals: { desktop: 0, faceToFace: 0 } });
 };
-// Radial Progress Component
+
+// RadialProgress Component
 const RadialProgress = ({ percentage, color, label, completed, target }: {
   percentage: number;
   color: string;
@@ -146,16 +146,14 @@ const RadialProgress = ({ percentage, color, label, completed, target }: {
       </div>
     </div>
     <p className="mt-2 text-sm font-medium text-gray-600">{label}</p>
-    <p className="text-xs text-gray-500 font-semibold">
-      {completed}/{target}
-    </p>
+    <p className="text-xs text-gray-500 font-semibold">{completed}/{target}</p>
     <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-md py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
       {label}: {completed}/{target} ({calculatePercentage(completed, target)}%)
     </div>
   </motion.div>
 );
 
-// Error Boundary Component
+// ErrorBoundary Component
 const ErrorBoundary = ({ children, error }: { children: React.ReactNode; error: string | null }) => {
   if (error) {
     return (
@@ -202,16 +200,15 @@ export function ProgressReportPage() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
   const [planProgresses, setPlanProgresses] = useState<PlanProgress[]>([]);
-  
 
   // Memoized functions
   const loadMarketingPlans = useCallback(async (userId: string) => {
     try {
-    let query = supabase.from('marketing_plans').select('*').order('updated_at', { ascending: false });
-    if (profile.role === 'agent') {
-      query = query.eq('agent', userId);
-    }
-    const { data, error } = await query;
+      let query = supabase.from('marketing_plans').select('*').order('updated_at', { ascending: false });
+      if (profile.role === 'agent') {
+        query = query.eq('agent', userId);
+      }
+      const { data, error } = await query;
 
       if (error) throw new Error(`Failed to load marketing plans: ${error.message}`);
 
@@ -237,115 +234,104 @@ export function ProgressReportPage() {
       setMarketingPlans(plans);
       if (plans.length > 0 && !selectedPlan) {
         setSelectedPlan(plans[0]);
-        await fetchActualProgress(userId, plans[0]);
-      } else if (!plans.length) {
-        setSelectedPlan(null);
       }
-      await fetchPlanProgresses(userId);
     } catch (err) {
       setError((err as Error).message);
     }
-  }, [profile,selectedPlan]);
+  }, [profile, selectedPlan]);
 
   const fetchActualProgress = useCallback(async (agentId: string, plan: MarketingPlan) => {
-  try {
-    // Validate plan data
-    if (!plan?.suburb?.trim()) throw new Error('Invalid marketing plan: Suburb is missing.');
+    try {
+      if (!plan?.suburb?.trim()) throw new Error('Invalid marketing plan: Suburb is missing.');
 
-    const { data: activities, error } = await supabase
-      .from('agent_activities')
-      .select('activity_type, street_name, suburb, knocks_made, calls_connected, calls_answered, desktop_appraisals, face_to_face_appraisals, activity_date')
-      .eq('agent_id', agentId)
-      .eq('suburb', plan.suburb.trim())
-      .gte('activity_date', plan.start_date)
-      .lte('activity_date', plan.end_date);
+      const { data: activities, error } = await supabase
+        .from('agent_activities')
+        .select('activity_type, street_name, suburb, knocks_made, calls_connected, calls_answered, desktop_appraisals, face_to_face_appraisals, activity_date')
+        .eq('agent_id', agentId)
+        .eq('suburb', plan.suburb.trim())
+        .gte('activity_date', plan.start_date)
+        .lte('activity_date', plan.end_date);
 
-    if (error) throw new Error(`Failed to fetch activities: ${error.message}`);
+      if (error) throw new Error(`Failed to fetch activities: ${error.message}`);
 
-    // Calculate targets with validation
-    const totalTargetKnocks = plan.door_knock_streets.reduce(
-      (sum, street) => sum + (parseInt(street.target_knocks || '0', 10) || 0),
-      0
-    );
-    const totalTargetCalls = plan.phone_call_streets.reduce(
-      (sum, street) => sum + (parseInt(street.target_calls || '0', 10) || 0),
-      0
-    );
-    const totalTargetConnects = parseInt(plan.target_connects || '0', 10) || 0;
-    const totalTargetDesktopAppraisals = parseInt(plan.target_desktop_appraisals || '0', 10) || 0;
-    const totalTargetFaceToFaceAppraisals = parseInt(plan.target_face_to_face_appraisals || '0', 10) || 0;
+      const totalTargetKnocks = plan.door_knock_streets.reduce(
+        (sum, street) => sum + (parseInt(street.target_knocks || '0', 10) || 0),
+        0
+      );
+      const totalTargetCalls = plan.phone_call_streets.reduce(
+        (sum, street) => sum + (parseInt(street.target_calls || '0', 10) || 0),
+        0
+      );
+      const totalTargetConnects = parseInt(plan.target_connects || '0', 10) || 0;
+      const totalTargetDesktopAppraisals = parseInt(plan.target_desktop_appraisals || '0', 10) || 0;
+      const totalTargetFaceToFaceAppraisals = parseInt(plan.target_face_to_face_appraisals || '0', 10) || 0;
 
-    // Initialize street progress with validation
-    const doorKnockStreetProgress: StreetProgress[] = plan.door_knock_streets.map((street) => ({
-      name: street.name?.trim() || 'Unknown',
-      completedKnocks: 0,
-      targetKnocks: parseInt(street.target_knocks || '0', 10) || 0,
-      desktopAppraisals: 0,
-      faceToFaceAppraisals: 0,
-    }));
-    const phoneCallStreetProgress: StreetProgress[] = plan.phone_call_streets.map((street) => ({
-      name: street.name?.trim() || 'Unknown',
-      completedCalls: 0,
-      targetCalls: parseInt(street.target_calls || '0', 10) || 0,
-      desktopAppraisals: 0,
-      faceToFaceAppraisals: 0,
-    }));
+      const doorKnockStreetProgress: StreetProgress[] = plan.door_knock_streets.map((street) => ({
+        name: street.name?.trim() || 'Unknown',
+        completedKnocks: 0,
+        targetKnocks: parseInt(street.target_knocks || '0', 10) || 0,
+        desktopAppraisals: 0,
+        faceToFaceAppraisals: 0,
+      }));
+      const phoneCallStreetProgress: StreetProgress[] = plan.phone_call_streets.map((street) => ({
+        name: street.name?.trim() || 'Unknown',
+        completedCalls: 0,
+        targetCalls: parseInt(street.target_calls || '0', 10) || 0,
+        desktopAppraisals: 0,
+        faceToFaceAppraisals: 0,
+      }));
 
-    const progress = activities?.length
-      ? activities.reduce(
-          (acc, activity) => {
-            const streetName = activity.street_name?.trim()?.toLowerCase();
-            const activitySuburb = activity.suburb?.trim()?.toLowerCase();
-            if (!streetName || !activitySuburb || activitySuburb !== plan.suburb.trim().toLowerCase()) {
-              return acc; // Skip invalid activities
-            }
+      const progress = activities?.length
+        ? activities.reduce(
+            (acc, activity) => {
+              const streetName = activity.street_name?.trim()?.toLowerCase();
+              if (!streetName || activity.suburb?.trim()?.toLowerCase() !== plan.suburb.trim().toLowerCase()) return acc;
 
-            if (activity.activity_type === 'door_knock') {
-              acc.doorKnocks.completed += activity.knocks_made || 0;
-              acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
-              acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
-              const street = acc.doorKnocks.streets.find((s) => s.name.trim().toLowerCase() === streetName);
-              if (street) {
-                street.completedKnocks = (street.completedKnocks || 0) + (activity.knocks_made || 0);
-                street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10) || 0;
-                street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+              if (activity.activity_type === 'door_knock') {
+                acc.doorKnocks.completed += activity.knocks_made || 0;
+                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                const street = acc.doorKnocks.streets.find((s) => s.name.trim().toLowerCase() === streetName);
+                if (street) {
+                  street.completedKnocks = (street.completedKnocks || 0) + (activity.knocks_made || 0);
+                  street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                  street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                }
+              } else if (activity.activity_type === 'phone_call') {
+                acc.phoneCalls.completed += activity.calls_connected || 0;
+                acc.connects.completed += activity.calls_answered || 0;
+                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                const street = acc.phoneCalls.streets.find((s) => s.name.trim().toLowerCase() === streetName);
+                if (street) {
+                  street.completedCalls = (street.completedCalls || 0) + (activity.calls_connected || 0);
+                  street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                  street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                }
               }
-            } else if (activity.activity_type === 'phone_call') {
-              acc.phoneCalls.completed += activity.calls_connected || 0;
-              acc.connects.completed += activity.calls_answered || 0;
-              acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
-              acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
-              const street = acc.phoneCalls.streets.find((s) => s.name.trim().toLowerCase() === streetName);
-              if (street) {
-                street.completedCalls = (street.completedCalls || 0) + (activity.calls_connected || 0);
-                street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10) || 0;
-                street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
-              }
+              return acc;
+            },
+            {
+              doorKnocks: { completed: 0, target: totalTargetKnocks, streets: doorKnockStreetProgress },
+              phoneCalls: { completed: 0, target: totalTargetCalls, streets: phoneCallStreetProgress },
+              connects: { completed: 0, target: totalTargetConnects },
+              desktopAppraisals: { completed: 0, target: totalTargetDesktopAppraisals },
+              faceToFaceAppraisals: { completed: 0, target: totalTargetFaceToFaceAppraisals },
             }
-            return acc;
-          },
-          {
+          )
+        : {
             doorKnocks: { completed: 0, target: totalTargetKnocks, streets: doorKnockStreetProgress },
             phoneCalls: { completed: 0, target: totalTargetCalls, streets: phoneCallStreetProgress },
             connects: { completed: 0, target: totalTargetConnects },
             desktopAppraisals: { completed: 0, target: totalTargetDesktopAppraisals },
             faceToFaceAppraisals: { completed: 0, target: totalTargetFaceToFaceAppraisals },
-          }
-        )
-      : {
-          doorKnocks: { completed: 0, target: totalTargetKnocks, streets: doorKnockStreetProgress },
-          phoneCalls: { completed: 0, target: totalTargetCalls, streets: phoneCallStreetProgress },
-          connects: { completed: 0, target: totalTargetConnects },
-          desktopAppraisals: { completed: 0, target: totalTargetDesktopAppraisals },
-          faceToFaceAppraisals: { completed: 0, target: totalTargetFaceToFaceAppraisals },
-        };
+          };
 
-    setActualProgress(progress);
-  } catch (err) {
-    console.error('Error in fetchActualProgress:', err);
-    setError(`Unable to fetch progress for ${plan.suburb}: ${(err as Error).message}`);
-  }
-}, []);
+      setActualProgress(progress);
+    } catch (err) {
+      setError(`Unable to fetch progress for ${plan.suburb}: ${(err as Error).message}`);
+    }
+  }, []);
 
   const fetchOverallProgress = useCallback(async (agentId: string) => {
     try {
@@ -357,33 +343,16 @@ export function ProgressReportPage() {
       if (error) throw new Error(`Failed to fetch activities: ${error.message}`);
 
       const totalTargetKnocks = marketingPlans.reduce(
-        (sum, plan) =>
-          sum + plan.door_knock_streets.reduce(
-            (streetSum, street) => streetSum + parseInt(street.target_knocks || '0', 10),
-            0
-          ),
+        (sum, plan) => sum + plan.door_knock_streets.reduce((streetSum, street) => streetSum + parseInt(street.target_knocks || '0', 10), 0),
         0
       );
       const totalTargetCalls = marketingPlans.reduce(
-        (sum, plan) =>
-          sum + plan.phone_call_streets.reduce(
-            (streetSum, street) => streetSum + parseInt(street.target_calls || '0', 10),
-            0
-          ),
+        (sum, plan) => sum + plan.phone_call_streets.reduce((streetSum, street) => streetSum + parseInt(street.target_calls || '0', 10), 0),
         0
       );
-      const totalTargetConnects = marketingPlans.reduce(
-        (sum, plan) => sum + parseInt(plan.target_connects || '0', 10),
-        0
-      );
-      const totalTargetDesktopAppraisals = marketingPlans.reduce(
-        (sum, plan) => sum + parseInt(plan.target_desktop_appraisals || '0', 10),
-        0
-      );
-      const totalTargetFaceToFaceAppraisals = marketingPlans.reduce(
-        (sum, plan) => sum + parseInt(plan.target_face_to_face_appraisals || '0', 10),
-        0
-      );
+      const totalTargetConnects = marketingPlans.reduce((sum, plan) => sum + parseInt(plan.target_connects || '0', 10), 0);
+      const totalTargetDesktopAppraisals = marketingPlans.reduce((sum, plan) => sum + parseInt(plan.target_desktop_appraisals || '0', 10), 0);
+      const totalTargetFaceToFaceAppraisals = marketingPlans.reduce((sum, plan) => sum + parseInt(plan.target_face_to_face_appraisals || '0', 10), 0);
 
       const streetProgressMap: { [key: string]: StreetProgress } = {};
       marketingPlans.forEach((plan) => {
@@ -419,24 +388,24 @@ export function ProgressReportPage() {
               const suburb = activity.suburb?.trim();
               if (activity.activity_type === 'door_knock' && streetName && suburb) {
                 acc.doorKnocks.completed += activity.knocks_made || 0;
-                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10);
-                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10);
-                const street = acc.doorKnocks.streets.find((s) => s.name.trim() === `${suburb}: ${streetName}`);
+                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                const street = acc.doorKnocks.streets.find((s) => s.name.includes(`${suburb}: ${streetName}`));
                 if (street) {
                   street.completedKnocks = (street.completedKnocks || 0) + (activity.knocks_made || 0);
-                  street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10);
-                  street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10);
+                  street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                  street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
                 }
               } else if (activity.activity_type === 'phone_call' && streetName && suburb) {
                 acc.phoneCalls.completed += activity.calls_connected || 0;
                 acc.connects.completed += activity.calls_answered || 0;
-                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10);
-                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10);
-                const street = acc.phoneCalls.streets.find((s) => s.name.trim() === `${suburb}: ${streetName}`);
+                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                const street = acc.phoneCalls.streets.find((s) => s.name.includes(`${suburb}: ${streetName}`));
                 if (street) {
                   street.completedCalls = (street.completedCalls || 0) + (activity.calls_connected || 0);
-                  street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10);
-                  street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10);
+                  street.desktopAppraisals += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                  street.faceToFaceAppraisals += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
                 }
               }
               return acc;
@@ -464,81 +433,78 @@ export function ProgressReportPage() {
   }, [marketingPlans]);
 
   const fetchPlanProgresses = useCallback(async (agentId: string) => {
-  try {
-    // Fetch all activities for the agent
-    const { data: activities, error } = await supabase
-      .from('agent_activities')
-      .select('activity_type, suburb, knocks_made, calls_connected, calls_answered, desktop_appraisals, face_to_face_appraisals')
-      .eq('agent_id', agentId);
+    try {
+      const { data: activities, error } = await supabase
+        .from('agent_activities')
+        .select('activity_type, suburb, knocks_made, calls_connected, calls_answered, desktop_appraisals, face_to_face_appraisals')
+        .eq('agent_id', agentId);
 
-    if (error) throw new Error(`Failed to fetch activities: ${error.message}`);
+      if (error) throw new Error(`Failed to fetch activities: ${error.message}`);
 
-    // Group activities by suburb
-    const activitiesBySuburb = activities?.reduce((acc, activity) => {
-      const suburb = activity.suburb?.trim()?.toLowerCase();
-      if (suburb) {
-        acc[suburb] = acc[suburb] || [];
-        acc[suburb].push(activity);
-      }
-      return acc;
-    }, {} as { [key: string]: any[] }) || {};
+      const activitiesBySuburb = activities?.reduce((acc, activity) => {
+        const suburb = activity.suburb?.trim()?.toLowerCase();
+        if (suburb) {
+          acc[suburb] = acc[suburb] || [];
+          acc[suburb].push(activity);
+        }
+        return acc;
+      }, {} as { [key: string]: any[] }) || {};
 
-    const progresses: PlanProgress[] = marketingPlans.map((plan) => {
-      const suburb = plan.suburb.trim().toLowerCase();
-      const planActivities = activitiesBySuburb[suburb] || [];
+      const progresses: PlanProgress[] = marketingPlans.map((plan) => {
+        const suburb = plan.suburb.trim().toLowerCase();
+        const planActivities = activitiesBySuburb[suburb] || [];
 
-      const totalTargetKnocks = plan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_knocks || '0', 10) || 0),
-        0
-      );
-      const totalTargetCalls = plan.phone_call_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_calls || '0', 10) || 0),
-        0
-      );
-      const totalTargetConnects = parseInt(plan.target_connects || '0', 10) || 0;
-      const totalTargetDesktopAppraisals = parseInt(plan.target_desktop_appraisals || '0', 10) || 0;
-      const totalTargetFaceToFaceAppraisals = parseInt(plan.target_face_to_face_appraisals || '0', 10) || 0;
+        const totalTargetKnocks = plan.door_knock_streets.reduce(
+          (sum, street) => sum + (parseInt(street.target_knocks || '0', 10) || 0),
+          0
+        );
+        const totalTargetCalls = plan.phone_call_streets.reduce(
+          (sum, street) => sum + (parseInt(street.target_calls || '0', 10) || 0),
+          0
+        );
+        const totalTargetConnects = parseInt(plan.target_connects || '0', 10) || 0;
+        const totalTargetDesktopAppraisals = parseInt(plan.target_desktop_appraisals || '0', 10) || 0;
+        const totalTargetFaceToFaceAppraisals = parseInt(plan.target_face_to_face_appraisals || '0', 10) || 0;
 
-      const progress = planActivities.length
-        ? planActivities.reduce(
-            (acc, activity) => {
-              if (activity.activity_type === 'door_knock') {
-                acc.doorKnocks.completed += activity.knocks_made || 0;
-                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
-                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
-              } else if (activity.activity_type === 'phone_call') {
-                acc.phoneCalls.completed += activity.calls_connected || 0;
-                acc.connects.completed += activity.calls_answered || 0;
-                acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
-                acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+        const progress = planActivities.length
+          ? planActivities.reduce(
+              (acc, activity) => {
+                if (activity.activity_type === 'door_knock') {
+                  acc.doorKnocks.completed += activity.knocks_made || 0;
+                  acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                  acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                } else if (activity.activity_type === 'phone_call') {
+                  acc.phoneCalls.completed += activity.calls_connected || 0;
+                  acc.connects.completed += activity.calls_answered || 0;
+                  acc.desktopAppraisals.completed += parseInt(activity.desktop_appraisals || '0', 10) || 0;
+                  acc.faceToFaceAppraisals.completed += parseInt(activity.face_to_face_appraisals || '0', 10) || 0;
+                }
+                return acc;
+              },
+              {
+                doorKnocks: { completed: 0, target: totalTargetKnocks },
+                phoneCalls: { completed: 0, target: totalTargetCalls },
+                connects: { completed: 0, target: totalTargetConnects },
+                desktopAppraisals: { completed: 0, target: totalTargetDesktopAppraisals },
+                faceToFaceAppraisals: { completed: 0, target: totalTargetFaceToFaceAppraisals },
               }
-              return acc;
-            },
-            {
+            )
+          : {
               doorKnocks: { completed: 0, target: totalTargetKnocks },
               phoneCalls: { completed: 0, target: totalTargetCalls },
               connects: { completed: 0, target: totalTargetConnects },
               desktopAppraisals: { completed: 0, target: totalTargetDesktopAppraisals },
               faceToFaceAppraisals: { completed: 0, target: totalTargetFaceToFaceAppraisals },
-            }
-          )
-        : {
-            doorKnocks: { completed: 0, target: totalTargetKnocks },
-            phoneCalls: { completed: 0, target: totalTargetCalls },
-            connects: { completed: 0, target: totalTargetConnects },
-            desktopAppraisals: { completed: 0, target: totalTargetDesktopAppraisals },
-            faceToFaceAppraisals: { completed: 0, target: totalTargetFaceToFaceAppraisals },
-          };
+            };
 
-      return { id: plan.id, suburb: plan.suburb, ...progress };
-    });
+        return { id: plan.id, suburb: plan.suburb, ...progress };
+      });
 
-    setPlanProgresses(progresses);
-  } catch (err) {
-    console.error('Error in fetchPlanProgresses:', err);
-    setError(`Unable to fetch plan progresses: ${(err as Error).message}`);
-  }
-}, [marketingPlans]);
+      setPlanProgresses(progresses);
+    } catch (err) {
+      setError(`Unable to fetch plan progresses: ${(err as Error).message}`);
+    }
+  }, [marketingPlans]);
 
   const deleteMarketingPlan = useCallback(async (planId: string) => {
     if (!user?.id) return;
@@ -563,9 +529,10 @@ export function ProgressReportPage() {
 
       setMarketingPlans((prev) => prev.filter((plan) => plan.id !== planToDelete.id));
       if (selectedPlan?.id === planToDelete.id) {
-        setSelectedPlan(marketingPlans.length > 1 ? marketingPlans.filter((p) => p.id !== planToDelete.id)[0] : null);
-        if (marketingPlans.length > 1) {
-          await fetchActualProgress(user.id, marketingPlans.filter((p) => p.id !== planToDelete.id)[0]);
+        const newSelectedPlan = marketingPlans.length > 1 ? marketingPlans.find((p) => p.id !== planToDelete.id) : null;
+        setSelectedPlan(newSelectedPlan);
+        if (newSelectedPlan) {
+          await fetchActualProgress(user.id, newSelectedPlan);
         } else {
           setActualProgress({
             doorKnocks: { completed: 0, target: 0, streets: [] },
@@ -587,180 +554,31 @@ export function ProgressReportPage() {
   }, [user, planToDelete, selectedPlan, marketingPlans, fetchActualProgress]);
 
   const generateCSV = useCallback(() => {
-  if (viewMode === 'suburb' && !selectedPlan) return;
+    if (viewMode === 'suburb' && !selectedPlan) return;
 
-  const headers = [
-    'Suburb',
-    'Start Date',
-    'End Date',
-    'Street Name',
-    'Activity Type',
-    'Completed',
-    'Target',
-    'Progress (%)',
-    'Desktop Appraisals',
-    'Face-to-Face Appraisals',
-    'Reason',
-  ];
-  const rows: string[][] = [];
-
-  if (viewMode === 'suburb' && selectedPlan) {
-    selectedPlan.door_knock_streets.forEach((street) => {
-      const progress = actualProgress.doorKnocks.streets.find((s) => s.name === street.name);
-      rows.push([
-        selectedPlan.suburb,
-        formatDate(selectedPlan.start_date),
-        formatDate(selectedPlan.end_date),
-        street.name,
-        'Door Knock',
-        (progress?.completedKnocks || 0).toString(),
-        (progress?.targetKnocks || 0).toString(),
-        calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0).toString(),
-        (progress?.desktopAppraisals || 0).toString(),
-        (progress?.faceToFaceAppraisals || 0).toString(),
-        street.why || '',
-      ]);
-    });
-
-    selectedPlan.phone_call_streets.forEach((street) => {
-      const progress = actualProgress.phoneCalls.streets.find((s) => s.name === street.name);
-      rows.push([
-        selectedPlan.suburb,
-        formatDate(selectedPlan.start_date),
-        formatDate(selectedPlan.end_date),
-        street.name,
-        'Phone Call',
-        (progress?.completedCalls || 0).toString(),
-        (progress?.targetCalls || 0).toString(),
-        calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0).toString(),
-        (progress?.desktopAppraisals || 0).toString(),
-        (progress?.faceToFaceAppraisals || 0).toString(),
-        street.why || '',
-      ]);
-    });
-
-    rows.push([
-      selectedPlan.suburb,
-      formatDate(selectedPlan.start_date),
-      formatDate(selectedPlan.end_date),
-      'Total',
-      'Calls Answered',
-      actualProgress.connects.completed.toString(),
-      actualProgress.connects.target.toString(),
-      calculatePercentage(actualProgress.connects.completed, actualProgress.connects.target).toString(),
-      actualProgress.desktopAppraisals.completed.toString(),
-      actualProgress.faceToFaceAppraisals.completed.toString(),
-      '',
-    ]);
-  } else {
-    marketingPlans.forEach((plan) => {
-      const planProgress = planProgresses.find((p) => p.id === plan.id);
-      plan.door_knock_streets.forEach((street) => {
-        const progress = actualProgress.doorKnocks.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
-        rows.push([
-          plan.suburb,
-          formatDate(plan.start_date),
-          formatDate(plan.end_date),
-          street.name,
-          'Door Knock',
-          (progress?.completedKnocks || 0).toString(),
-          (progress?.targetKnocks || 0).toString(),
-          calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0).toString(),
-          (progress?.desktopAppraisals || 0).toString(),
-          (progress?.faceToFaceAppraisals || 0).toString(),
-          street.why || '',
-        ]);
-      });
-
-      plan.phone_call_streets.forEach((street) => {
-        const progress = actualProgress.phoneCalls.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
-        rows.push([
-          plan.suburb,
-          formatDate(plan.start_date),
-          formatDate(plan.end_date),
-          street.name,
-          'Phone Call',
-          (progress?.completedCalls || 0).toString(),
-          (progress?.targetCalls || 0).toString(),
-          calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0).toString(),
-          (progress?.desktopAppraisals || 0).toString(),
-          (progress?.faceToFaceAppraisals || 0).toString(),
-          street.why || '',
-        ]);
-      });
-
-      rows.push([
-        plan.suburb,
-        formatDate(plan.start_date),
-        formatDate(plan.end_date),
-        'Total',
-        'Calls Answered',
-        (planProgress?.connects.completed || 0).toString(),
-        (planProgress?.connects.target || 0).toString(),
-        calculatePercentage(planProgress?.connects.completed || 0, planProgress?.connects.target || 0).toString(),
-        (planProgress?.desktopAppraisals.completed || 0).toString(),
-        (planProgress?.faceToFaceAppraisals.completed || 0).toString(),
-        '',
-      ]);
-    });
-  }
-
-  const csvContent = [
-    headers.join(','),
-    ...rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')),
-  ].join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `Progress_Report_${viewMode === 'suburb' && selectedPlan ? selectedPlan.suburb : 'Overall'}_${new Date().toISOString().split('T')[0]}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}, [viewMode, selectedPlan, actualProgress, marketingPlans, planProgresses]);
-
-  const formatDate = useCallback((date: string) => {
-    if (!date) return 'Not specified';
-    return new Date(date).toLocaleDateString('en-AU', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
-  }, []);
-
-  const generatePDF = useCallback(async (download: boolean = false) => {
-  if (viewMode === 'suburb' && !selectedPlan) {
-    setError('No marketing plan selected for PDF generation.');
-    return;
-  }
-
-  try {
-    const head = [
-      [
-        'Suburb',
-        'Start Date',
-        'End Date',
-        'Street Name',
-        'Activity Type',
-        'Completed',
-        'Target',
-        'Progress (%)',
-        'Desktop Appraisals',
-        'Face-to-Face Appraisals',
-        'Reason',
-      ],
+    const headers = [
+      'Suburb',
+      'Start Date',
+      'End Date',
+      'Street Name',
+      'Activity Type',
+      'Completed',
+      'Target',
+      'Progress (%)',
+      'Desktop Appraisals',
+      'Face-to-Face Appraisals',
+      'Reason',
     ];
-    const body: any[][] = [];
+    const rows: string[][] = [];
 
     if (viewMode === 'suburb' && selectedPlan) {
       selectedPlan.door_knock_streets.forEach((street) => {
         const progress = actualProgress.doorKnocks.streets.find((s) => s.name === street.name);
-        body.push([
-          selectedPlan.suburb || 'N/A',
+        rows.push([
+          selectedPlan.suburb,
           formatDate(selectedPlan.start_date),
           formatDate(selectedPlan.end_date),
-          street.name || 'N/A',
+          street.name,
           'Door Knock',
           (progress?.completedKnocks || 0).toString(),
           (progress?.targetKnocks || 0).toString(),
@@ -773,11 +591,11 @@ export function ProgressReportPage() {
 
       selectedPlan.phone_call_streets.forEach((street) => {
         const progress = actualProgress.phoneCalls.streets.find((s) => s.name === street.name);
-        body.push([
-          selectedPlan.suburb || 'N/A',
+        rows.push([
+          selectedPlan.suburb,
           formatDate(selectedPlan.start_date),
           formatDate(selectedPlan.end_date),
-          street.name || 'N/A',
+          street.name,
           'Phone Call',
           (progress?.completedCalls || 0).toString(),
           (progress?.targetCalls || 0).toString(),
@@ -787,16 +605,30 @@ export function ProgressReportPage() {
           street.why || '',
         ]);
       });
+
+      rows.push([
+        selectedPlan.suburb,
+        formatDate(selectedPlan.start_date),
+        formatDate(selectedPlan.end_date),
+        'Total',
+        'Calls Answered',
+        actualProgress.connects.completed.toString(),
+        actualProgress.connects.target.toString(),
+        calculatePercentage(actualProgress.connects.completed, actualProgress.connects.target).toString(),
+        actualProgress.desktopAppraisals.completed.toString(),
+        actualProgress.faceToFaceAppraisals.completed.toString(),
+        '',
+      ]);
     } else {
       marketingPlans.forEach((plan) => {
         const planProgress = planProgresses.find((p) => p.id === plan.id);
         plan.door_knock_streets.forEach((street) => {
           const progress = overallProgress.doorKnocks.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
-          body.push([
-            plan.suburb || 'N/A',
+          rows.push([
+            plan.suburb,
             formatDate(plan.start_date),
             formatDate(plan.end_date),
-            street.name || 'N/A',
+            street.name,
             'Door Knock',
             (progress?.completedKnocks || 0).toString(),
             (progress?.targetKnocks || 0).toString(),
@@ -809,10 +641,100 @@ export function ProgressReportPage() {
 
         plan.phone_call_streets.forEach((street) => {
           const progress = overallProgress.phoneCalls.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
-          body.push([
-            plan.suburb || 'N/A',
+          rows.push([
+            plan.suburb,
             formatDate(plan.start_date),
             formatDate(plan.end_date),
+            street.name,
+            'Phone Call',
+            (progress?.completedCalls || 0).toString(),
+            (progress?.targetCalls || 0).toString(),
+            calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0).toString(),
+            (progress?.desktopAppraisals || 0).toString(),
+            (progress?.faceToFaceAppraisals || 0).toString(),
+            street.why || '',
+          ]);
+        });
+
+        rows.push([
+          plan.suburb,
+          formatDate(plan.start_date),
+          formatDate(plan.end_date),
+          'Total',
+          'Calls Answered',
+          (planProgress?.connects.completed || 0).toString(),
+          (planProgress?.connects.target || 0).toString(),
+          calculatePercentage(planProgress?.connects.completed || 0, planProgress?.connects.target || 0).toString(),
+          (planProgress?.desktopAppraisals.completed || 0).toString(),
+          (planProgress?.faceToFaceAppraisals.completed || 0).toString(),
+          '',
+        ]);
+      });
+    }
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Progress_Report_${viewMode === 'suburb' && selectedPlan ? selectedPlan.suburb : 'Overall'}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [viewMode, selectedPlan, actualProgress, marketingPlans, planProgresses, overallProgress]);
+
+  const generatePDF = useCallback(async (download: boolean = false) => {
+    if (viewMode === 'suburb' && !selectedPlan) {
+      setError('No marketing plan selected for PDF generation.');
+      return;
+    }
+
+    try {
+      const head = [
+        [
+          'Suburb',
+          'Start Date',
+          'End Date',
+          'Street Name',
+          'Activity Type',
+          'Completed',
+          'Target',
+          'Progress (%)',
+          'Desktop Appraisals',
+          'Face-to-Face Appraisals',
+          'Reason',
+        ],
+      ];
+      const body: any[][] = [];
+
+      if (viewMode === 'suburb' && selectedPlan) {
+        selectedPlan.door_knock_streets.forEach((street) => {
+          const progress = actualProgress.doorKnocks.streets.find((s) => s.name === street.name);
+          body.push([
+            selectedPlan.suburb || 'N/A',
+            formatDate(selectedPlan.start_date),
+            formatDate(selectedPlan.end_date),
+            street.name || 'N/A',
+            'Door Knock',
+            (progress?.completedKnocks || 0).toString(),
+            (progress?.targetKnocks || 0).toString(),
+            calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0).toString(),
+            (progress?.desktopAppraisals || 0).toString(),
+            (progress?.faceToFaceAppraisals || 0).toString(),
+            street.why || '',
+          ]);
+        });
+
+        selectedPlan.phone_call_streets.forEach((street) => {
+          const progress = actualProgress.phoneCalls.streets.find((s) => s.name === street.name);
+          body.push([
+            selectedPlan.suburb || 'N/A',
+            formatDate(selectedPlan.start_date),
+            formatDate(selectedPlan.end_date),
             street.name || 'N/A',
             'Phone Call',
             (progress?.completedCalls || 0).toString(),
@@ -823,42 +745,77 @@ export function ProgressReportPage() {
             street.why || '',
           ]);
         });
-      });
-    }
-
-    const fileName = `Progress_Report_${viewMode === 'suburb' && selectedPlan ? selectedPlan.suburb : 'Overall'}_${new Date().toISOString().split('T')[0]}.pdf`;
-
-    if (download) {
-      await generatePdf('Marketing Progress Report', head, body, fileName, 'save');
-      setNotification('PDF downloaded successfully.');
-      setTimeout(() => setNotification(null), 3000);
-    } else {
-      const blob = await generatePdf('Marketing Progress Report', head, body, fileName, 'blob');
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        setPdfPreviewUrl(url);
-        setShowPDFPreview(true);
       } else {
-        setError('Failed to generate PDF preview.');
+        marketingPlans.forEach((plan) => {
+          const planProgress = planProgresses.find((p) => p.id === plan.id);
+          plan.door_knock_streets.forEach((street) => {
+            const progress = overallProgress.doorKnocks.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
+            body.push([
+              plan.suburb || 'N/A',
+              formatDate(plan.start_date),
+              formatDate(plan.end_date),
+              street.name || 'N/A',
+              'Door Knock',
+              (progress?.completedKnocks || 0).toString(),
+              (progress?.targetKnocks || 0).toString(),
+              calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0).toString(),
+              (progress?.desktopAppraisals || 0).toString(),
+              (progress?.faceToFaceAppraisals || 0).toString(),
+              street.why || '',
+            ]);
+          });
+
+          plan.phone_call_streets.forEach((street) => {
+            const progress = overallProgress.phoneCalls.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
+            body.push([
+              plan.suburb || 'N/A',
+              formatDate(plan.start_date),
+              formatDate(plan.end_date),
+              street.name || 'N/A',
+              'Phone Call',
+              (progress?.completedCalls || 0).toString(),
+              (progress?.targetCalls || 0).toString(),
+              calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0).toString(),
+              (progress?.desktopAppraisals || 0).toString(),
+              (progress?.faceToFaceAppraisals || 0).toString(),
+              street.why || '',
+            ]);
+          });
+        });
       }
+
+      const fileName = `Progress_Report_${viewMode === 'suburb' && selectedPlan ? selectedPlan.suburb : 'Overall'}_${new Date().toISOString().split('T')[0]}.pdf`;
+
+      if (download) {
+        await generatePdf('Marketing Progress Report', head, body, fileName, 'save');
+        setNotification('PDF downloaded successfully.');
+        setTimeout(() => setNotification(null), 3000);
+      } else {
+        const blob = await generatePdf('Marketing Progress Report', head, body, fileName, 'blob');
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          setPdfPreviewUrl(url);
+          setShowPDFPreview(true);
+        } else {
+          setError('Failed to generate PDF preview.');
+        }
+      }
+    } catch (error) {
+      setError(`Failed to generate PDF: ${(error as Error).message}`);
     }
-  } catch (error) {
-    console.error('Error in generatePDF:', error);
-    setError(`Failed to generate PDF: ${(error as Error).message}`);
-  }
-}, [viewMode, selectedPlan, actualProgress, overallProgress, marketingPlans, planProgresses, formatDate]);
+  }, [viewMode, selectedPlan, actualProgress, overallProgress, marketingPlans, planProgresses, formatDate]);
 
   // Memoized progress metrics
   const getProgressMetrics = useMemo(() => {
-  const progress = viewMode === 'suburb' ? actualProgress : overallProgress;
-  return [
-    { label: 'Door Knocks', data: progress.doorKnocks, color: '#3B82F6' },
-    { label: 'Phone Calls Connected', data: progress.phoneCalls, color: '#10B981' },
-    { label: 'Calls Answered', data: progress.connects, color: '#8B5CF6' },
-    { label: 'Desktop Appraisals', data: progress.desktopAppraisals, color: '#F59E0B' },
-    { label: 'Face-to-Face Appraisals', data: progress.faceToFaceAppraisals, color: '#EF4444' },
-  ].filter((item) => item.data.target > 0 || item.data.completed > 0);
-}, [viewMode, actualProgress, overallProgress]);
+    const progress = viewMode === 'suburb' ? actualProgress : overallProgress;
+    return [
+      { label: 'Door Knocks', data: progress.doorKnocks, color: '#3B82F6' },
+      { label: 'Phone Calls Connected', data: progress.phoneCalls, color: '#10B981' },
+      { label: 'Calls Answered', data: progress.connects, color: '#8B5CF6' },
+      { label: 'Desktop Appraisals', data: progress.desktopAppraisals, color: '#F59E0B' },
+      { label: 'Face-to-Face Appraisals', data: progress.faceToFaceAppraisals, color: '#EF4444' },
+    ].filter((item) => item.data.target > 0 || item.data.completed > 0);
+  }, [viewMode, actualProgress, overallProgress]);
 
   // Chart plugin
   const chartPlugin = {
@@ -949,7 +906,6 @@ export function ProgressReportPage() {
       { label: 'Face-to-Face Appraisals Target', data: planProgresses.map((p) => p.faceToFaceAppraisals.target), backgroundColor: '#FCA5A5' },
     ],
   }), [planProgresses]);
-  
 
   // Effect for initialization
   useEffect(() => {
@@ -971,7 +927,12 @@ export function ProgressReportPage() {
     const initialize = async () => {
       try {
         await loadMarketingPlans(user.id);
+        if (marketingPlans.length > 0) {
+          setSelectedPlan(marketingPlans[0]);
+          await fetchActualProgress(user.id, marketingPlans[0]);
+        }
         await fetchOverallProgress(user.id);
+        await fetchPlanProgresses(user.id);
 
         const activitySubscription = supabase
           .channel('agent_activities_changes')
@@ -987,9 +948,7 @@ export function ProgressReportPage() {
                 } else if (viewMode === 'overall') {
                   await fetchOverallProgress(user.id);
                 }
-                if (viewMode === 'overall' || planProgresses.length > 1) {
-                  await fetchPlanProgresses(user.id);
-                }
+                await fetchPlanProgresses(user.id);
                 setTimeout(() => setNotification(null), 3000);
               }, 500);
             }
@@ -1006,6 +965,11 @@ export function ProgressReportPage() {
               clearTimeout(debounceTimeout);
               debounceTimeout = setTimeout(async () => {
                 await loadMarketingPlans(user.id);
+                if (selectedPlan) {
+                  await fetchActualProgress(user.id, selectedPlan);
+                }
+                await fetchOverallProgress(user.id);
+                await fetchPlanProgresses(user.id);
                 setTimeout(() => setNotification(null), 3000);
               }, 500);
             }
@@ -1025,7 +989,7 @@ export function ProgressReportPage() {
     };
 
     initialize();
-  }, [user, profile, navigate, selectedPlan, viewMode, loadMarketingPlans, fetchActualProgress, fetchOverallProgress, fetchPlanProgresses]);
+  }, [user, profile, navigate, loadMarketingPlans, fetchActualProgress, fetchOverallProgress, fetchPlanProgresses, marketingPlans, viewMode, selectedPlan]);
 
   if (loading) {
     return (
@@ -1427,9 +1391,6 @@ export function ProgressReportPage() {
                               <td className="p-2 text-right">{street.completedKnocks || 0}</td>
                               <td className="p-2 text-right">{street.targetKnocks || 0}</td>
                               <td className="p-2 text-right">{calculatePercentage(street.completedKnocks || 0, street.targetKnocks || 0)}%</td>
-                              <td className="p-2 text-right">
-                                {street.targetKnocks ? Math.round((street.completedKnocks! / street.targetKnocks) * 100) : 0}%
-                              </td>
                               <td className="p-2 text-right">{street.desktopAppraisals}</td>
                               <td className="p-2 text-right">{street.faceToFaceAppraisals}</td>
                             </tr>
@@ -1438,17 +1399,11 @@ export function ProgressReportPage() {
                             <td className="p-2">Total</td>
                             <td className="p-2 text-right">{(viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.completed}</td>
                             <td className="p-2 text-right">{(viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.target}</td>
-                              <td className="p-2 text-right">
+                            <td className="p-2 text-right">
                               {calculatePercentage(
                                 (viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.completed,
                                 (viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.target
                               )}%
-                            </td>
-                            <td className="p-2 text-right">
-                              {(viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.target
-                                ? Math.round(((viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.completed / (viewMode === 'suburb' ? actualProgress : overallProgress).doorKnocks.target) * 100)
-                                : 0}
-                              %
                             </td>
                             <td className="p-2 text-right">{(viewMode === 'suburb' ? actualProgress : overallProgress).desktopAppraisals.completed}</td>
                             <td className="p-2 text-right">{(viewMode === 'suburb' ? actualProgress : overallProgress).faceToFaceAppraisals.completed}</td>
@@ -1481,9 +1436,6 @@ export function ProgressReportPage() {
                             <td className="p-2 text-right">{street.completedCalls || 0}</td>
                             <td className="p-2 text-right">{street.targetCalls || 0}</td>
                             <td className="p-2 text-right">{calculatePercentage(street.completedCalls || 0, street.targetCalls || 0)}%</td>
-                            <td className="p-2 text-right">
-                              {street.targetCalls ? Math.round((street.completedCalls! / street.targetCalls) * 100) : 0}%
-                            </td>
                             <td className="p-2 text-right">{street.desktopAppraisals}</td>
                             <td className="p-2 text-right">{street.faceToFaceAppraisals}</td>
                           </tr>
@@ -1497,12 +1449,6 @@ export function ProgressReportPage() {
                               (viewMode === 'suburb' ? actualProgress : overallProgress).phoneCalls.completed,
                               (viewMode === 'suburb' ? actualProgress : overallProgress).phoneCalls.target
                             )}%
-                          </td>
-                          <td className="p-2 text-right">
-                            {(viewMode === 'suburb' ? actualProgress : overallProgress).phoneCalls.target
-                              ? Math.round(((viewMode === 'suburb' ? actualProgress : overallProgress).phoneCalls.completed / (viewMode === 'suburb' ? actualProgress : overallProgress).phoneCalls.target) * 100)
-                              : 0}
-                            %
                           </td>
                           <td className="p-2 text-right">{(viewMode === 'suburb' ? actualProgress : overallProgress).desktopAppraisals.completed}</td>
                           <td className="p-2 text-right">{(viewMode === 'suburb' ? actualProgress : overallProgress).faceToFaceAppraisals.completed}</td>

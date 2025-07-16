@@ -30,6 +30,7 @@ import { AdminLogin } from './pages/AdminLogin';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AgentManagement } from './pages/AgentManagement';
 import AgentBusinessPlan from './pages/AgentBusinessPlan';
+import { AdminBusinessPlan } from './pages/AdminBusinessPlan';
 import { AgentProfilePage } from './pages/AgentProfilePage';
 import { AgentExpensesPage } from './pages/AgentExpensesPage';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -117,6 +118,7 @@ const routes = [
   { path: '/agent-dashboard', element: <AgentRoute><AgentDashboard /></AgentRoute> },
   { path: '/agent-management', element: <AgentRoute><AgentManagement /></AgentRoute> },
   { path: '/agent-business-plan', element: <AgentRoute><AgentBusinessPlan /></AgentRoute> },
+  { path: '/admin-business-plan', element: <AdminRoute><AdminBusinessPlan /></AdminRoute> },
   { path: '/agent-profile', element: <AgentRoute><AgentProfilePage /></AgentRoute> },
   { path: '/agent-reports', element: <AgentReports /> },
   { path: '/agent-dashboard/door-knocks', element: <AgentRoute><DoorKnocks /></AgentRoute> },

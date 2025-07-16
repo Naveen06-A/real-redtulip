@@ -47,9 +47,10 @@ export function AdminDashboard() {
     { name: 'Activity Log', path: '/activity-logger', icon: Activity },
     { name: 'Progress Report', path: '/progress-report-page', icon: BarChart },
     { name: 'Reports', path: '/reports', icon: FileText },
-    { name: 'Agent Report', path: '/agent-reports', icon: FileText },
+    // { name: 'Agent Report', path: '/agent-reports', icon: FileText },
     // { name: 'Business Plan', path: '/agent-business-plan', icon: FaBusinessTime },
     { name: 'Business Plan', path:'/agent-business-plan',icon: FileText},
+    {name:'AdminBusinessPlan',path:'/admin-business-plan',icon:FileText},
     
     {
       name: 'Agent Report',

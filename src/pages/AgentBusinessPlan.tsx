@@ -31,7 +31,7 @@ interface BusinessPlanTargets {
   appraisals_target: number | null;
   listings_target: number | null;
   settled_sales_target: number | null;
-  net_commission_target: number | null;
+  gross_commission_target: number | null;
   connects_for_appraisals: number | null;
   phone_calls_to_achieve_appraisals: number | null;
   appraisal_to_listing_ratio: number | null;
@@ -47,22 +47,10 @@ interface BusinessPlanTargets {
   salary_per_hour: number | null;
   salary_per_day: number | null;
   marketing_expenses: number | null;
-  split_person: number | null;
   persons_salary: number | null;
-  total_of_all: number | null;
+  net_commission: number | null;
   created_at?: string;
   updated_at?: string;
-}
-
-interface RatioSliderProps {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min: number;
-  max: number;
-  step: number;
-  suffix: string;
-  tooltip: string;
 }
 
 interface RatioInputProps {
@@ -74,43 +62,6 @@ interface RatioInputProps {
   suffix: string;
   tooltip: string;
 }
-
-const RatioSlider: React.FC<RatioSliderProps> = ({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  suffix,
-  tooltip
-}) => (
-  <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200 relative group">
-    <div className="flex justify-between items-center mb-2">
-      <span className="text-sm font-medium text-blue-800">{label}</span>
-      <span className="text-sm text-blue-600">{value}{suffix}</span>
-    </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={(e) => onChange(parseFloat(e.target.value))}
-      className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer"
-      style={{
-        background: `linear-gradient(to right, #3B82F6 0%, #3B82F6 ${((value - min) / (max - min)) * 100}%, #BFDBFE ${((value - min) / (max - min)) * 100}%, #BFDBFE 100%)`
-      }}
-    />
-    <div className="flex justify-between text-xs text-blue-500 mt-1">
-      <span>{min}{suffix}</span>
-      <span>{max}{suffix}</span>
-    </div>
-    <div className="absolute z-10 hidden group-hover:block bg-blue-800 text-white text-xs rounded py-2 px-4 -top-10 left-1/2 transform -translate-x-1/2 w-64">
-      {tooltip}
-    </div>
-  </div>
-);
 
 const RatioInput: React.FC<RatioInputProps> = ({
   label,
@@ -124,14 +75,14 @@ const RatioInput: React.FC<RatioInputProps> = ({
   <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200 relative group">
     <div className="flex justify-between items-center mb-2">
       <span className="text-sm font-medium text-blue-800">{label}</span>
-      <span className="text-sm text-blue-600">{value}{suffix}</span>
+      <span className="text-sm text-blue-600">{value ? `${suffix}${Math.round(Number(value)).toLocaleString()}` : 'N/A'}</span>
     </div>
     <input
       type="number"
       min={min}
       step={step}
       value={value}
-      onChange={(e) => onChange(parseInt(e.target.value) || null)}
+      onChange={(e) => onChange(parseFloat(e.target.value) || null)}
       className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800"
     />
     <div className="absolute z-10 hidden group-hover:block bg-blue-800 text-white text-xs rounded py-2 px-4 -top-10 left-1/2 transform -translate-x-1/2 w-64">
@@ -144,11 +95,11 @@ export function AgentBusinessPlan() {
   const { user } = useAuthStore();
   const [targets, setTargets] = useState<BusinessPlanTargets>({
     agent_id: user?.id || '',
-    period_type: 'monthly',
+    period_type: 'yearly',
     appraisals_target: null,
     listings_target: null,
     settled_sales_target: null,
-    net_commission_target: null,
+    gross_commission_target: null,
     connects_for_appraisals: null,
     phone_calls_to_achieve_appraisals: null,
     appraisal_to_listing_ratio: null,
@@ -160,13 +111,12 @@ export function AgentBusinessPlan() {
     no_of_working_days_per_year: null,
     no_of_working_days_per_month: null,
     calls_per_person: null,
-    no_of_people_required: 2,
-    salary_per_hour: 60,
+    no_of_people_required: null,
+    salary_per_hour: null,
     salary_per_day: null,
-    marketing_expenses: 6000,
-    split_person: null,
+    marketing_expenses: null,
     persons_salary: null,
-    total_of_all: null,
+    net_commission: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
@@ -185,13 +135,11 @@ export function AgentBusinessPlan() {
 
   useEffect(() => {
     const { 
-      net_commission_target, 
+      gross_commission_target, 
       avg_commission_per_sale,
-      listing_to_written_ratio, 
-      appraisal_to_listing_ratio,
+      fall_over_rate,
       connects_for_appraisal,
       calls_for_connect,
-      period_type,
       no_of_people_required,
       salary_per_hour,
       marketing_expenses
@@ -201,84 +149,97 @@ export function AgentBusinessPlan() {
     let listings_target: number | null = null;
     let appraisals_target: number | null = null;
     let connects_for_appraisals: number | null = null;
+    let phone_calls_to_achieve_appraisals: number | null = null;
     let no_of_working_days_per_year: number | null = null;
     let no_of_working_days_per_month: number | null = null;
     let calls_per_person: number | null = null;
     let salary_per_day: number | null = null;
-    let split_person: number | null = null;
     let persons_salary: number | null = null;
-    let total_of_all: number | null = null;
+    let net_commission: number | null = null;
 
-    if (net_commission_target != null && avg_commission_per_sale != null && avg_commission_per_sale > 0) {
-      settled_sales_target = Math.round(net_commission_target / avg_commission_per_sale);
+    // Calculate settled sales target
+    if (gross_commission_target != null && avg_commission_per_sale != null && avg_commission_per_sale > 0) {
+      settled_sales_target = Math.round(gross_commission_target / avg_commission_per_sale);
     }
 
-    if (settled_sales_target != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
-      listings_target = Math.round(settled_sales_target / (listing_to_written_ratio / 100));
+    // Calculate listings target
+    if (settled_sales_target != null) {
+      if (fall_over_rate != null && fall_over_rate > 0) {
+        listings_target = Math.round(settled_sales_target * (1 + fall_over_rate / 100));
+      } else {
+        listings_target = settled_sales_target;
+      }
     }
 
-    if (listings_target != null && appraisal_to_listing_ratio != null && appraisal_to_listing_ratio > 0) {
-      appraisals_target = Math.round(listings_target / (appraisal_to_listing_ratio / 100));
+    // Calculate appraisals target
+    if (listings_target != null) {
+      if (fall_over_rate != null && fall_over_rate > 0) {
+        appraisals_target = Math.round(listings_target * (1 + fall_over_rate / 100));
+      } else {
+        appraisals_target = listings_target;
+      }
     }
 
+    // Calculate connects for appraisals
     if (appraisals_target != null && connects_for_appraisal != null) {
       connects_for_appraisals = Math.round(appraisals_target * connects_for_appraisal);
     }
 
+    // Calculate phone calls to achieve appraisals
     if (connects_for_appraisals != null && calls_for_connect != null) {
-      targets.phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
+      phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
     }
 
-    if (targets.phone_calls_to_achieve_appraisals != null) {
-      no_of_working_days_per_year = Math.round(targets.phone_calls_to_achieve_appraisals / 261);
-      no_of_working_days_per_month = Math.round(targets.phone_calls_to_achieve_appraisals / 12);
-      calls_per_person = Math.max(0, no_of_working_days_per_year - 224);
+    // Calculate working days per year
+    if (phone_calls_to_achieve_appraisals != null) {
+      no_of_working_days_per_year = Math.round(phone_calls_to_achieve_appraisals / 261);
     }
 
-    if (calls_per_person != null && no_of_people_required != null && no_of_people_required > 0) {
-      split_person = Math.round(calls_per_person / no_of_people_required);
+    // Calculate working days per month
+    if (no_of_working_days_per_year != null) {
+      no_of_working_days_per_month = Math.round(phone_calls_to_achieve_appraisals / 12);
     }
 
+    // Calculate calls per person
+    if (phone_calls_to_achieve_appraisals != null && no_of_people_required != null && no_of_people_required > 0) {
+      calls_per_person = Math.round(phone_calls_to_achieve_appraisals / no_of_people_required);
+    }
+
+    // Calculate salary per day
     if (salary_per_hour != null) {
       salary_per_day = Math.round(salary_per_hour * 8);
     }
 
-    if (no_of_people_required != null && salary_per_day != null) {
-      persons_salary = Math.round(no_of_people_required * salary_per_day);
+    // Calculate persons salary (yearly, assuming 240 working days)
+    if (salary_per_day != null && no_of_people_required != null) {
+      persons_salary = Math.round(salary_per_day * no_of_people_required * 261);
     }
 
-    if (marketing_expenses != null && persons_salary != null) {
-      total_of_all = Math.round(marketing_expenses + persons_salary);
+    // Calculate net commission
+    if (gross_commission_target != null && marketing_expenses != null && persons_salary != null) {
+      net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary);
     }
-
-    const multiplier = period_type === 'daily' ? 1 : 
-                      period_type === 'weekly' ? 5 :
-                      period_type === 'monthly' ? 20 : 240;
 
     setTargets(prev => ({
       ...prev,
-      settled_sales_target: settled_sales_target != null ? Math.round(settled_sales_target * multiplier) : null,
-      listings_target: listings_target != null ? Math.round(listings_target * multiplier) : null,
-      appraisals_target: appraisals_target != null ? Math.round(appraisals_target * multiplier) : null,
-      connects_for_appraisals: connects_for_appraisals != null ? Math.round(connects_for_appraisals * multiplier) : null,
-      phone_calls_to_achieve_appraisals: targets.phone_calls_to_achieve_appraisals != null ? Math.round(targets.phone_calls_to_achieve_appraisals * multiplier) : null,
+      settled_sales_target,
+      listings_target,
+      appraisals_target,
+      connects_for_appraisals,
+      phone_calls_to_achieve_appraisals,
       no_of_working_days_per_year,
       no_of_working_days_per_month,
       calls_per_person,
       salary_per_day,
-      split_person,
       persons_salary,
-      total_of_all
+      net_commission
     }));
   }, [
-    targets.net_commission_target,
+    targets.gross_commission_target,
     targets.avg_commission_per_sale,
-    targets.listing_to_written_ratio,
-    targets.appraisal_to_listing_ratio,
+    targets.fall_over_rate,
     targets.connects_for_appraisal,
     targets.calls_for_connect,
-    targets.period_type,
-    targets.phone_calls_to_achieve_appraisals,
     targets.no_of_people_required,
     targets.salary_per_hour,
     targets.marketing_expenses
@@ -304,16 +265,16 @@ export function AgentBusinessPlan() {
       if (data) {
         setTargets({
           ...data,
-          net_commission_target: data.net_commission_target != null ? Math.round(data.net_commission_target) : null,
+          gross_commission_target: data.gross_commission_target != null ? Math.round(data.gross_commission_target) : null,
           avg_commission_per_sale: data.avg_commission_per_sale != null ? Math.round(data.avg_commission_per_sale) : null,
           salary_per_hour: data.salary_per_hour != null ? Math.round(data.salary_per_hour) : null,
           salary_per_day: data.salary_per_day != null ? Math.round(data.salary_per_day) : null,
           persons_salary: data.persons_salary != null ? Math.round(data.persons_salary) : null,
           marketing_expenses: data.marketing_expenses != null ? Math.round(data.marketing_expenses) : null,
-          total_of_all: data.total_of_all != null ? Math.round(data.total_of_all) : null
+          net_commission: data.net_commission != null ? Math.round(data.net_commission) : null
         });
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching business plan:', error);
       toast.error('Failed to load business plan');
     } finally {
@@ -330,13 +291,13 @@ export function AgentBusinessPlan() {
         ...targets,
         agent_id: user.id,
         updated_at: new Date().toISOString(),
-        net_commission_target: targets.net_commission_target != null ? Math.round(targets.net_commission_target) : null,
-        avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(targets.avg_commission_per_sale) : null,
+        gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) : null,
+        avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(data.avg_commission_per_sale) : null,
         salary_per_hour: targets.salary_per_hour != null ? Math.round(targets.salary_per_hour) : null,
         salary_per_day: targets.salary_per_day != null ? Math.round(targets.salary_per_day) : null,
         persons_salary: targets.persons_salary != null ? Math.round(targets.persons_salary) : null,
         marketing_expenses: targets.marketing_expenses != null ? Math.round(targets.marketing_expenses) : null,
-        total_of_all: targets.total_of_all != null ? Math.round(targets.total_of_all) : null
+        net_commission: targets.net_commission != null ? Math.round(targets.net_commission) : null
       };
 
       if (targets.id) {
@@ -356,18 +317,18 @@ export function AgentBusinessPlan() {
         if (error) throw error;
         setTargets({
           ...data,
-          net_commission_target: data.net_commission_target != null ? Math.round(data.net_commission_target) : null,
+          gross_commission_target: data.gross_commission_target != null ? Math.round(data.gross_commission_target) : null,
           avg_commission_per_sale: data.avg_commission_per_sale != null ? Math.round(data.avg_commission_per_sale) : null,
           salary_per_hour: data.salary_per_hour != null ? Math.round(data.salary_per_hour) : null,
           salary_per_day: data.salary_per_day != null ? Math.round(data.salary_per_day) : null,
           persons_salary: data.persons_salary != null ? Math.round(data.persons_salary) : null,
           marketing_expenses: data.marketing_expenses != null ? Math.round(data.marketing_expenses) : null,
-          total_of_all: data.total_of_all != null ? Math.round(data.total_of_all) : null
+          net_commission: data.net_commission != null ? Math.round(data.net_commission) : null
         });
       }
 
       toast.success('Business plan saved successfully!');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving business plan:', error);
       toast.error('Failed to save business plan');
     } finally {
@@ -380,38 +341,37 @@ export function AgentBusinessPlan() {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 15;
+    const margin = 10;
     let yOffset = margin;
 
     // Set fonts
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(7);
 
     // Header
     doc.setFillColor(59, 130, 246);
-    doc.rect(0, 0, pageWidth, 30, 'F');
+    doc.rect(0, 0, pageWidth, 20, 'F');
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(18);
+    doc.setFontSize(14);
     doc.setFont('Helvetica', 'bold');
-    doc.text('Agent Business Plan', margin, yOffset + 10);
-    doc.setFontSize(10);
+    doc.text('Agent Business Plan', margin, yOffset + 7);
+    doc.setFontSize(7);
     doc.setFont('Helvetica', 'normal');
-    doc.text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth - margin - 60, yOffset + 10);
-    yOffset += 40;
+    doc.text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth - margin - 45, yOffset + 7);
+    yOffset += 25;
 
     // Period Configuration
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
     doc.setFillColor(219, 234, 254);
-    doc.rect(margin, yOffset, pageWidth - 2 * margin, 10, 'F');
-    doc.text('Period Configuration', margin + 5, yOffset + 7);
-    yOffset += 15;
+    doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+    doc.text('Period Configuration', margin + 3, yOffset + 5);
+    yOffset += 10;
 
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(7);
     const defaultWorkingDays = targets.period_type === 'weekly' ? 5 :
-                              targets.period_type === 'monthly' ? 20 : 240;
+                              targets.period_type === 'monthly' ? 21.5 : 261;
     doc.autoTable({
       startY: yOffset,
       head: [['Field', 'Value']],
@@ -420,28 +380,56 @@ export function AgentBusinessPlan() {
         ['Working Days', defaultWorkingDays.toString()]
       ],
       theme: 'striped',
-      styles: { fontSize: 9, cellPadding: 4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219] },
-      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
-      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 100 } },
+      styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 50, halign: 'left' }, 1: { cellWidth: 90, halign: 'center' } },
       margin: { left: margin, right: margin }
     });
-    yOffset = doc.lastAutoTable.finalY + 15;
+    yOffset = doc.lastAutoTable.finalY + 10;
 
-    // Targets
+    // Performance Ratios
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(9);
     doc.setFillColor(219, 234, 254);
-    doc.rect(margin, yOffset, pageWidth - 2 * margin, 10, 'F');
-    doc.text('Targets', margin + 5, yOffset + 7);
-    yOffset += 15;
+    doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+    doc.text('Performance Ratios', margin + 3, yOffset + 5);
+    yOffset += 10;
 
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(7);
     doc.autoTable({
       startY: yOffset,
       head: [['Field', 'Value']],
       body: [
-        ['Net Commission Target', targets.net_commission_target != null ? `$${Math.round(targets.net_commission_target).toLocaleString()}` : 'N/A'],
+        ['Fall Over Rate', targets.fall_over_rate != null ? `${Math.round(targets.fall_over_rate)}%` : 'N/A'],
+        ['Appraisal to Listing Ratio', targets.appraisal_to_listing_ratio != null ? `${Math.round(targets.appraisal_to_listing_ratio)}%` : 'N/A'],
+        ['Listing to Written Ratio', targets.listing_to_written_ratio != null ? `${Math.round(targets.listing_to_written_ratio)}%` : 'N/A'],
+        ['Connects for Appraisal', targets.connects_for_appraisal != null ? Math.round(targets.connects_for_appraisal).toLocaleString() : 'N/A'],
+        ['Calls for Connect', targets.calls_for_connect != null ? Math.round(targets.calls_for_connect).toLocaleString() : 'N/A']
+      ],
+      theme: 'striped',
+      styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 50, halign: 'left' }, 1: { cellWidth: 90, halign: 'center' } },
+      margin: { left: margin, right: margin }
+    });
+    yOffset = doc.lastAutoTable.finalY + 10;
+
+    // Targets
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setFillColor(219, 234, 254);
+    doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+    doc.text('Targets', margin + 3, yOffset + 5);
+    yOffset += 10;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.autoTable({
+      startY: yOffset,
+      head: [['Field', 'Value']],
+      body: [
+        ['Gross Commission Target', targets.gross_commission_target != null ? `$${Math.round(targets.gross_commission_target).toLocaleString()}` : 'N/A'],
         ['Average Commission Per Sale', targets.avg_commission_per_sale != null ? `$${Math.round(targets.avg_commission_per_sale).toLocaleString()}` : 'N/A'],
         ['Settled Sales', targets.settled_sales_target != null ? Math.round(targets.settled_sales_target).toLocaleString() : 'N/A'],
         ['Listings', targets.listings_target != null ? Math.round(targets.listings_target).toLocaleString() : 'N/A'],
@@ -451,101 +439,31 @@ export function AgentBusinessPlan() {
         ['Working Days per Year', targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'],
         ['Working Days per Month', targets.no_of_working_days_per_month != null ? Math.round(targets.no_of_working_days_per_month).toLocaleString() : 'N/A'],
         ['Calls per Person', targets.calls_per_person != null ? Math.round(targets.calls_per_person).toLocaleString() : 'N/A'],
-        ['Split Person', targets.split_person != null ? Math.round(targets.split_person).toLocaleString() : 'N/A'],
         ['Number of People Required', targets.no_of_people_required != null ? Math.round(targets.no_of_people_required).toLocaleString() : 'N/A'],
         ['Salary per Hour', targets.salary_per_hour != null ? `$${Math.round(targets.salary_per_hour).toLocaleString()}` : 'N/A'],
         ['Salary per Day', targets.salary_per_day != null ? `$${Math.round(targets.salary_per_day).toLocaleString()}` : 'N/A'],
-        ['Persons Salary', targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'],
+        ['Persons Salary ', targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'],
         ['Marketing Expenses', targets.marketing_expenses != null ? `$${Math.round(targets.marketing_expenses).toLocaleString()}` : 'N/A'],
-        ['Total of All', targets.total_of_all != null ? `$${Math.round(targets.total_of_all).toLocaleString()}` : 'N/A']
+        ['Net Commission', targets.net_commission != null ? `$${Math.round(targets.net_commission).toLocaleString()}` : 'N/A']
       ],
       theme: 'striped',
-      styles: { fontSize: 9, cellPadding: 4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219] },
-      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
-      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 100 } },
+      styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 50, halign: 'left' }, 1: { cellWidth: 90, halign: 'center' } },
       margin: { left: margin, right: margin }
     });
-    yOffset = doc.lastAutoTable.finalY + 15;
-
-    // Daily Progress Targets
-    const dailyTargets = calculateDailyTargets();
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setFillColor(219, 234, 254);
-    doc.rect(margin, yOffset, pageWidth - 2 * margin, 10, 'F');
-    doc.text('Daily Progress Targets', margin + 5, yOffset + 7);
-    yOffset += 15;
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.autoTable({
-      startY: yOffset,
-      head: [['Field', 'Value']],
-      body: [
-        ['Net Commission Target', dailyTargets.commission != null ? `$${Math.round(dailyTargets.commission).toLocaleString()}` : 'N/A'],
-        ['Average Commission Per Sale', dailyTargets.avg_commission_per_sale != null ? `$${Math.round(dailyTargets.avg_commission_per_sale).toLocaleString()}` : 'N/A'],
-        ['Settled Sales', dailyTargets.settled_sales != null ? Math.round(dailyTargets.settled_sales).toLocaleString() : 'N/A'],
-        ['Listings', dailyTargets.listings != null ? Math.round(dailyTargets.listings).toLocaleString() : 'N/A'],
-        ['Appraisals', dailyTargets.appraisals != null ? Math.round(dailyTargets.appraisals).toLocaleString() : 'N/A'],
-        ['Connects for Appraisals', dailyTargets.connects_for_appraisals != null ? Math.round(dailyTargets.connects_for_appraisals).toLocaleString() : 'N/A'],
-        ['Phone Calls to Achieve Appraisals', dailyTargets.phone_calls_to_achieve_appraisals != null ? Math.round(dailyTargets.phone_calls_to_achieve_appraisals).toLocaleString() : 'N/A'],
-        ['Working Days per Year', dailyTargets.no_of_working_days_per_year != null ? Math.round(dailyTargets.no_of_working_days_per_year).toLocaleString() : 'N/A'],
-        ['Working Days per Month', dailyTargets.no_of_working_days_per_month != null ? Math.round(dailyTargets.no_of_working_days_per_month).toLocaleString() : 'N/A'],
-        ['Calls per Person', dailyTargets.calls_per_person != null ? Math.round(dailyTargets.calls_per_person).toLocaleString() : 'N/A'],
-        ['Split Person', dailyTargets.split_person != null ? Math.round(dailyTargets.split_person).toLocaleString() : 'N/A'],
-        ['Number of People Required', dailyTargets.no_of_people_required != null ? Math.round(dailyTargets.no_of_people_required).toLocaleString() : 'N/A'],
-        ['Salary per Hour', dailyTargets.salary_per_hour != null ? `$${Math.round(dailyTargets.salary_per_hour).toLocaleString()}` : 'N/A'],
-        ['Salary per Day', dailyTargets.salary_per_day != null ? `$${Math.round(dailyTargets.salary_per_day).toLocaleString()}` : 'N/A'],
-        ['Persons Salary', dailyTargets.persons_salary != null ? `$${Math.round(dailyTargets.persons_salary).toLocaleString()}` : 'N/A'],
-        ['Marketing Expenses', dailyTargets.marketing_expenses != null ? `$${Math.round(dailyTargets.marketing_expenses).toLocaleString()}` : 'N/A'],
-        ['Total of All', dailyTargets.total_of_all != null ? `$${Math.round(dailyTargets.total_of_all).toLocaleString()}` : 'N/A']
-      ],
-      theme: 'striped',
-      styles: { fontSize: 9, cellPadding: 4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219] },
-      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
-      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 100 } },
-      margin: { left: margin, right: margin }
-    });
-    yOffset = doc.lastAutoTable.finalY + 15;
-
-    // Performance Ratios
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setFillColor(219, 234, 254);
-    doc.rect(margin, yOffset, pageWidth - 2 * margin, 10, 'F');
-    doc.text('Performance Ratios', margin + 5, yOffset + 7);
-    yOffset += 15;
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.autoTable({
-      startY: yOffset,
-      head: [['Field', 'Value']],
-      body: [
-        ['Fall Over Rate', targets.fall_over_rate != null ? `${targets.fall_over_rate}%` : 'N/A'],
-        ['Appraisal to Listing Ratio', targets.appraisal_to_listing_ratio != null ? `${targets.appraisal_to_listing_ratio}%` : 'N/A'],
-        ['Listing to Written Ratio', targets.listing_to_written_ratio != null ? `${targets.listing_to_written_ratio}%` : 'N/A'],
-        ['Connects for Appraisal', targets.connects_for_appraisal != null ? targets.connects_for_appraisal.toString() : 'N/A'],
-        ['Calls for Connect', targets.calls_for_connect != null ? targets.calls_for_connect.toString() : 'N/A']
-      ],
-      theme: 'striped',
-      styles: { fontSize: 9, cellPadding: 4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219] },
-      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
-      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 100 } },
-      margin: { left: margin, right: margin }
-    });
-    yOffset = doc.lastAutoTable.finalY + 15;
+    yOffset = doc.lastAutoTable.finalY + 10;
 
     // Metadata
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(9);
     doc.setFillColor(219, 234, 254);
-    doc.rect(margin, yOffset, pageWidth - 2 * margin, 10, 'F');
-    doc.text('Metadata', margin + 5, yOffset + 7);
-    yOffset += 15;
+    doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+    doc.text('Metadata', margin + 3, yOffset + 5);
+    yOffset += 10;
 
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(7);
     doc.autoTable({
       startY: yOffset,
       head: [['Field', 'Value']],
@@ -554,21 +472,17 @@ export function AgentBusinessPlan() {
         ['Updated At', targets.updated_at || 'N/A']
       ],
       theme: 'striped',
-      styles: { fontSize: 9, cellPadding: 4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219] },
-      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
-      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 100 } },
+      styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 50, halign: 'left' }, 1: { cellWidth: 90, halign: 'center' } },
       margin: { left: margin, right: margin }
     });
 
     // Footer
-    doc.setFontSize(8);
+    doc.setFontSize(7);
     doc.setTextColor(100, 100, 100);
-    const pageCount = doc.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin - 20, pageHeight - 10);
-      doc.text('Generated by RealRed', margin, pageHeight - 10);
-    }
+    doc.text(`Page 1 of 1`, pageWidth - margin - 15, pageHeight - margin);
+    doc.text('Generated by RealRed', margin, pageHeight - margin);
 
     if (forView) {
       const pdfDataUri = doc.output('datauristring');
@@ -595,11 +509,11 @@ export function AgentBusinessPlan() {
   const resetToDefaults = () => {
     setTargets({
       agent_id: user?.id || '',
-      period_type: 'monthly',
+      period_type: 'yearly',
       appraisals_target: null,
       listings_target: null,
       settled_sales_target: null,
-      net_commission_target: null,
+      gross_commission_target: null,
       connects_for_appraisals: null,
       phone_calls_to_achieve_appraisals: null,
       appraisal_to_listing_ratio: null,
@@ -611,45 +525,16 @@ export function AgentBusinessPlan() {
       no_of_working_days_per_year: null,
       no_of_working_days_per_month: null,
       calls_per_person: null,
-      no_of_people_required: 2,
-      salary_per_hour: 60,
+      no_of_people_required: null,
+      salary_per_hour: null,
       salary_per_day: null,
-      marketing_expenses: 6000,
-      split_person: null,
+      marketing_expenses: null,
       persons_salary: null,
-      total_of_all: null,
+      net_commission: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
   };
-
-  const calculateDailyTargets = () => {
-    const multiplier = targets.period_type === 'daily' ? 1 :
-                      targets.period_type === 'weekly' ? 5 :
-                      targets.period_type === 'monthly' ? 20 : 240;
-
-    return {
-      commission: targets.net_commission_target != null ? Math.round(targets.net_commission_target / multiplier) : null,
-      avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(targets.avg_commission_per_sale) : null,
-      settled_sales: targets.settled_sales_target != null ? Math.round(targets.settled_sales_target / multiplier) : null,
-      listings: targets.listings_target != null ? Math.round(targets.listings_target / multiplier) : null,
-      appraisals: targets.appraisals_target != null ? Math.round(targets.appraisals_target / multiplier) : null,
-      connects_for_appraisals: targets.connects_for_appraisals != null ? Math.round(targets.connects_for_appraisals / multiplier) : null,
-      phone_calls_to_achieve_appraisals: targets.phone_calls_to_achieve_appraisals != null ? Math.round(targets.phone_calls_to_achieve_appraisals / multiplier) : null,
-      no_of_working_days_per_year: targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year / multiplier) : null,
-      no_of_working_days_per_month: targets.no_of_working_days_per_month != null ? Math.round(targets.no_of_working_days_per_month / multiplier) : null,
-      calls_per_person: targets.calls_per_person != null ? Math.round(targets.calls_per_person / multiplier) : null,
-      split_person: targets.split_person != null ? Math.round(targets.split_person / multiplier) : null,
-      no_of_people_required: targets.no_of_people_required != null ? Math.round(targets.no_of_people_required) : null,
-      salary_per_hour: targets.salary_per_hour != null ? Math.round(targets.salary_per_hour) : null,
-      salary_per_day: targets.salary_per_day != null ? Math.round(targets.salary_per_day) : null,
-      persons_salary: targets.persons_salary != null ? Math.round(targets.persons_salary / multiplier) : null,
-      marketing_expenses: targets.marketing_expenses != null ? Math.round(targets.marketing_expenses / multiplier) : null,
-      total_of_all: targets.total_of_all != null ? Math.round(targets.total_of_all / multiplier) : null
-    };
-  };
-
-  const dailyTargets = calculateDailyTargets();
 
   const chartData = [
     { name: 'Appraisals', value: targets.appraisals_target ?? 0, fill: '#1E3A8A' },
@@ -657,30 +542,27 @@ export function AgentBusinessPlan() {
     { name: 'Settled Sales', value: targets.settled_sales_target ?? 0, fill: '#93C5FD' },
     { name: 'Connects', value: targets.connects_for_appraisals ?? 0, fill: '#BFDBFE' },
     { name: 'Phone Calls', value: targets.phone_calls_to_achieve_appraisals ?? 0, fill: '#DBEAFE' },
-    { name: 'Commission', value: targets.net_commission_target ?? 0, fill: '#2563EB' },
+    { name: 'Gross Commission', value: targets.gross_commission_target ?? 0, fill: '#2563EB' },
     { name: 'Working Days/Yr', value: targets.no_of_working_days_per_year ?? 0, fill: '#1E40AF' },
-    { name: 'Calls/Person', value: targets.calls_per_person ?? 0, fill: '#1E90FF' },
-    { name: 'Split Person', value: targets.split_person ?? 0, fill: '#60A5FA' },
+    { name: 'Calls/Person', value:targets. calls_per_person ?? 0, fill: '#1E90FF' },
     { name: 'Persons Salary', value: targets.persons_salary ?? 0, fill: '#1D4ED8' },
-    { name: 'Total Cost', value: targets.total_of_all ?? 0, fill: '#3B82F6' }
+    { name: 'Net Commission', value: targets.net_commission ?? 0, fill: '#3B82F6' }
   ];
 
   const targetCards = [
     { 
-      title: 'Net Commission Target', 
-      value: targets.net_commission_target ?? '', 
-      daily: dailyTargets.commission ?? '', 
+      title: 'Gross Commission Target', 
+      value: targets.gross_commission_target ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100', 
       isCurrency: true,
-      field: 'net_commission_target',
+      field: 'gross_commission_target',
       isReadOnly: false
     },
     { 
       title: 'Average Commission Per Sale', 
       value: targets.avg_commission_per_sale ?? '', 
-      daily: dailyTargets.avg_commission_per_sale ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-500', 
       bgColor: 'bg-blue-100', 
@@ -691,7 +573,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Settled Sales Target', 
       value: targets.settled_sales_target ?? '', 
-      daily: dailyTargets.settled_sales ?? '', 
       icon: CheckCircle, 
       color: 'bg-blue-700', 
       bgColor: 'bg-blue-100',
@@ -701,7 +582,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Listings Target', 
       value: targets.listings_target ?? '', 
-      daily: dailyTargets.listings ?? '', 
       icon: FileText, 
       color: 'bg-blue-500', 
       bgColor: 'bg-blue-100',
@@ -711,7 +591,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Appraisals Target', 
       value: targets.appraisals_target ?? '', 
-      daily: dailyTargets.appraisals ?? '', 
       icon: Home, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -721,7 +600,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Connects for Appraisals', 
       value: targets.connects_for_appraisals ?? '', 
-      daily: dailyTargets.connects_for_appraisals ?? '', 
       icon: Phone, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -731,7 +609,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Phone Calls to Achieve Appraisals', 
       value: targets.phone_calls_to_achieve_appraisals ?? '', 
-      daily: dailyTargets.phone_calls_to_achieve_appraisals ?? '', 
       icon: Phone, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -741,7 +618,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Working Days per Year', 
       value: targets.no_of_working_days_per_year ?? '', 
-      daily: dailyTargets.no_of_working_days_per_year ?? '', 
       icon: Calendar, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -751,7 +627,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Working Days per Month', 
       value: targets.no_of_working_days_per_month ?? '', 
-      daily: dailyTargets.no_of_working_days_per_month ?? '', 
       icon: Calendar, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -761,7 +636,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Calls per Person', 
       value: targets.calls_per_person ?? '', 
-      daily: dailyTargets.calls_per_person ?? '', 
       icon: Phone, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -769,19 +643,8 @@ export function AgentBusinessPlan() {
       isReadOnly: true
     },
     { 
-      title: 'Split Person', 
-      value: targets.split_person ?? '', 
-      daily: dailyTargets.split_person ?? '', 
-      icon: Phone, 
-      color: 'bg-blue-600', 
-      bgColor: 'bg-blue-100',
-      field: 'split_person',
-      isReadOnly: true
-    },
-    { 
       title: 'Number of People Required', 
       value: targets.no_of_people_required ?? '', 
-      daily: dailyTargets.no_of_people_required ?? '', 
       icon: Target, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -791,7 +654,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Salary per Hour', 
       value: targets.salary_per_hour ?? '', 
-      daily: dailyTargets.salary_per_hour ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -802,7 +664,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Salary per Day', 
       value: targets.salary_per_day ?? '', 
-      daily: dailyTargets.salary_per_day ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -811,9 +672,8 @@ export function AgentBusinessPlan() {
       isReadOnly: true
     },
     { 
-      title: 'Persons Salary', 
+      title: 'Persons Salary ', 
       value: targets.persons_salary ?? '', 
-      daily: dailyTargets.persons_salary ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -824,7 +684,6 @@ export function AgentBusinessPlan() {
     { 
       title: 'Marketing Expenses', 
       value: targets.marketing_expenses ?? '', 
-      daily: dailyTargets.marketing_expenses ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
@@ -833,14 +692,13 @@ export function AgentBusinessPlan() {
       isReadOnly: false
     },
     { 
-      title: 'Total of All', 
-      value: targets.total_of_all ?? '', 
-      daily: dailyTargets.total_of_all ?? '', 
+      title: 'Net Commission', 
+      value: targets.net_commission ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
       isCurrency: true,
-      field: 'total_of_all',
+      field: 'net_commission',
       isReadOnly: true
     }
   ];
@@ -974,13 +832,32 @@ export function AgentBusinessPlan() {
                     {({ open }) => (
                       <>
                         <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
+                          <span>Performance Ratios</span>
+                          <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </Disclosure.Button>
+                        <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
+                          <p><strong>Fall Over Rate:</strong> {targets.fall_over_rate != null ? `${Math.round(targets.fall_over_rate)}%` : 'N/A'}</p>
+                          <p><strong>Appraisal to Listing Ratio:</strong> {targets.appraisal_to_listing_ratio != null ? `${Math.round(targets.appraisal_to_listing_ratio)}%` : 'N/A'}</p>
+                          <p><strong>Listing to Written Ratio:</strong> {targets.listing_to_written_ratio != null ? `${Math.round(targets.listing_to_written_ratio)}%` : 'N/A'}</p>
+                          <p><strong>Connects for Appraisal:</strong> {targets.connects_for_appraisal != null ? Math.round(targets.connects_for_appraisal).toLocaleString() : 'N/A'}</p>
+                          <p><strong>Calls for Connect:</strong> {targets.calls_for_connect != null ? Math.round(targets.calls_for_connect).toLocaleString() : 'N/A'}</p>
+                        </Disclosure.Panel>
+                      </>
+                    )}
+                  </Disclosure>
+                  <Disclosure defaultOpen>
+                    {({ open }) => (
+                      <>
+                        <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
                           <span>Targets</span>
                           <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                           </svg>
                         </Disclosure.Button>
                         <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
-                          <p><strong>Net Commission Target:</strong> {targets.net_commission_target != null ? `$${Math.round(targets.net_commission_target).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Gross Commission Target:</strong> {targets.gross_commission_target != null ? `$${Math.round(targets.gross_commission_target).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Average Commission Per Sale:</strong> {targets.avg_commission_per_sale != null ? `$${Math.round(targets.avg_commission_per_sale).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Settled Sales:</strong> {targets.settled_sales_target != null ? Math.round(targets.settled_sales_target).toLocaleString() : 'N/A'}</p>
                           <p><strong>Listings:</strong> {targets.listings_target != null ? Math.round(targets.listings_target).toLocaleString() : 'N/A'}</p>
@@ -990,63 +867,12 @@ export function AgentBusinessPlan() {
                           <p><strong>Working Days per Year:</strong> {targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'}</p>
                           <p><strong>Working Days per Month:</strong> {targets.no_of_working_days_per_month != null ? Math.round(targets.no_of_working_days_per_month).toLocaleString() : 'N/A'}</p>
                           <p><strong>Calls per Person:</strong> {targets.calls_per_person != null ? Math.round(targets.calls_per_person).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Split Person:</strong> {targets.split_person != null ? Math.round(targets.split_person).toLocaleString() : 'N/A'}</p>
                           <p><strong>Number of People Required:</strong> {targets.no_of_people_required != null ? Math.round(targets.no_of_people_required).toLocaleString() : 'N/A'}</p>
                           <p><strong>Salary per Hour:</strong> {targets.salary_per_hour != null ? `$${Math.round(targets.salary_per_hour).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Salary per Day:</strong> {targets.salary_per_day != null ? `$${Math.round(targets.salary_per_day).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Persons Salary:</strong> {targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Persons Salary (Yearly):</strong> {targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Marketing Expenses:</strong> {targets.marketing_expenses != null ? `$${Math.round(targets.marketing_expenses).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Total of All:</strong> {targets.total_of_all != null ? `$${Math.round(targets.total_of_all).toLocaleString()}` : 'N/A'}</p>
-                        </Disclosure.Panel>
-                      </>
-                    )}
-                  </Disclosure>
-                  <Disclosure defaultOpen>
-                    {({ open }) => (
-                      <>
-                        <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
-                          <span>Daily Progress Targets</span>
-                          <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </Disclosure.Button>
-                        <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
-                          <p><strong>Net Commission Target:</strong> {dailyTargets.commission != null ? `$${Math.round(dailyTargets.commission).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Average Commission Per Sale:</strong> {dailyTargets.avg_commission_per_sale != null ? `$${Math.round(dailyTargets.avg_commission_per_sale).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Settled Sales:</strong> {dailyTargets.settled_sales != null ? Math.round(dailyTargets.settled_sales).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Listings:</strong> {dailyTargets.listings != null ? Math.round(dailyTargets.listings).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Appraisals:</strong> {dailyTargets.appraisals != null ? Math.round(dailyTargets.appraisals).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Connects for Appraisals:</strong> {dailyTargets.connects_for_appraisals != null ? Math.round(dailyTargets.connects_for_appraisals).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Phone Calls to Achieve Appraisals:</strong> {dailyTargets.phone_calls_to_achieve_appraisals != null ? Math.round(dailyTargets.phone_calls_to_achieve_appraisals).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Working Days per Year:</strong> {dailyTargets.no_of_working_days_per_year != null ? Math.round(dailyTargets.no_of_working_days_per_year).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Working Days per Month:</strong> {dailyTargets.no_of_working_days_per_month != null ? Math.round(dailyTargets.no_of_working_days_per_month).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Calls per Person:</strong> {dailyTargets.calls_per_person != null ? Math.round(dailyTargets.calls_per_person).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Split Person:</strong> {dailyTargets.split_person != null ? Math.round(dailyTargets.split_person).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Number of People Required:</strong> {dailyTargets.no_of_people_required != null ? Math.round(dailyTargets.no_of_people_required).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Salary per Hour:</strong> {dailyTargets.salary_per_hour != null ? `$${Math.round(dailyTargets.salary_per_hour).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Salary per Day:</strong> {dailyTargets.salary_per_day != null ? `$${Math.round(dailyTargets.salary_per_day).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Persons Salary:</strong> {dailyTargets.persons_salary != null ? `$${Math.round(dailyTargets.persons_salary).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Marketing Expenses:</strong> {dailyTargets.marketing_expenses != null ? `$${Math.round(dailyTargets.marketing_expenses).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Total of All:</strong> {dailyTargets.total_of_all != null ? `$${Math.round(dailyTargets.total_of_all).toLocaleString()}` : 'N/A'}</p>
-                        </Disclosure.Panel>
-                      </>
-                    )}
-                  </Disclosure>
-                  <Disclosure defaultOpen>
-                    {({ open }) => (
-                      <>
-                        <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
-                          <span>Ratios</span>
-                          <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </Disclosure.Button>
-                        <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
-                          <p><strong>Fall Over Rate:</strong> {targets.fall_over_rate != null ? `${targets.fall_over_rate}%` : 'N/A'}</p>
-                          <p><strong>Appraisal to Listing Ratio:</strong> {targets.appraisal_to_listing_ratio != null ? `${targets.appraisal_to_listing_ratio}%` : 'N/A'}</p>
-                          <p><strong>Listing to Written Ratio:</strong> {targets.listing_to_written_ratio != null ? `${targets.listing_to_written_ratio}%` : 'N/A'}</p>
-                          <p><strong>Connects for Appraisal:</strong> {targets.connects_for_appraisal != null ? targets.connects_for_appraisal : 'N/A'}</p>
-                          <p><strong>Calls for Connect:</strong> {targets.calls_for_connect != null ? targets.calls_for_connect : 'N/A'}</p>
+                          <p><strong>Net Commission:</strong> {targets.net_commission != null ? `$${Math.round(targets.net_commission).toLocaleString()}` : 'N/A'}</p>
                         </Disclosure.Panel>
                       </>
                     )}
@@ -1120,137 +946,41 @@ export function AgentBusinessPlan() {
           </div>
         </motion.div>
 
-        {/* Targets Table */}
+        {/* Performance Ratios */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
         >
-          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
-            <BarChart3 className="w-5 h-5 mr-2 text-blue-600" />
-            Targets
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-blue-100">
-                  <th className="p-3 border-b text-blue-700">Target</th>
-                  <th className="p-3 border-b text-blue-700">Value</th>
-                  <th className="p-3 border-b text-blue-700">Daily Progress</th>
-                </tr>
-              </thead>
-              <tbody>
-                {targetCards.map((card) => (
-                  <tr key={card.title} className="border-b hover:bg-blue-50">
-                    <td className="p-3 flex items-center">
-                      <div className={`${card.color} p-2 rounded-lg text-white mr-2`}>
-                        <card.icon className="w-5 h-5" />
-                      </div>
-                      <span className="text-blue-700">{card.title}</span>
-                    </td>
-                    <td className="p-3">
-                      <input
-                        type="number"
-                        min="0"
-                        step={card.isCurrency ? "1" : "1"}
-                        value={card.value}
-                        onChange={(e) => {
-                          if (card.isReadOnly) return;
-                          const value = parseInt(e.target.value) || null;
-                          setTargets(prev => ({
-                            ...prev,
-                            [card.field as keyof BusinessPlanTargets]: value
-                          }));
-                        }}
-                        disabled={card.isReadOnly}
-                        className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 disabled:bg-blue-200 disabled:cursor-not-allowed"
-                        placeholder={`Enter ${card.title.toLowerCase()}`}
-                      />
-                    </td>
-                    <td className="p-3 text-blue-600">
-                      <motion.span
-                        key={card.daily}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.3 }}
-                      >
-                        {card.isCurrency ? (card.daily != null ? `$${Math.round(card.daily).toLocaleString()}` : 'N/A') : (card.daily != null ? Math.round(card.daily).toLocaleString() : 'N/A')}
-                      </motion.span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </motion.div>
-
-        {/* Daily Progress Highlight */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
-        >
-          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
-            <Target className="w-5 h-5 mr-2 text-blue-600" />
-            Daily Progress Goals
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {targetCards.map((card) => (
-              <div key={card.title} className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200">
-                <div className="flex items-center mb-2">
-                  <div className={`${card.color} p-2 rounded-lg text-white mr-2`}>
-                    <card.icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-sm font-medium text-blue-800">{card.title}</span>
-                </div>
-                <div className="text-lg font-bold text-blue-600">
-                  {card.isCurrency ? (card.daily != null ? `$${Math.round(card.daily).toLocaleString()}` : 'N/A') : (card.daily != null ? Math.round(card.daily).toLocaleString() : 'N/A')}
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Ratios Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200"
-        >
           <h2 className="text-lg font-semibold mb-6 text-blue-900 flex items-center">
             <Settings className="w-5 h-5 mr-2 text-blue-600" />
             Performance Ratios
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <RatioSlider
+            <RatioInput
               label="Fall Over Rate"
-              value={targets.fall_over_rate ?? 0}
+              value={targets.fall_over_rate ?? ''}
               onChange={(value) => setTargets({ ...targets, fall_over_rate: value })}
               min={0}
-              max={50}
               step={0.5}
               suffix="%"
               tooltip="Percentage of written sales that don't settle (fall over)"
             />
-            <RatioSlider
+            <RatioInput
               label="Appraisal to Listing Ratio"
-              value={targets.appraisal_to_listing_ratio ?? 0}
+              value={targets.appraisal_to_listing_ratio ?? ''}
               onChange={(value) => setTargets({ ...targets, appraisal_to_listing_ratio: value })}
               min={0}
-              max={100}
               step={1}
               suffix="%"
               tooltip="Percentage of appraisals that convert to listings"
             />
-            <RatioSlider
+            <RatioInput
               label="Listing to Written Ratio"
-              value={targets.listing_to_written_ratio ?? 0}
+              value={targets.listing_to_written_ratio ?? ''}
               onChange={(value) => setTargets({ ...targets, listing_to_written_ratio: value })}
               min={0}
-              max={100}
               step={1}
               suffix="%"
               tooltip="Percentage of listings that convert to written sales"
@@ -1273,6 +1003,88 @@ export function AgentBusinessPlan() {
               suffix=""
               tooltip="Number of calls required to achieve one connect"
             />
+          </div>
+        </motion.div>
+
+        {/* Targets Table */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+        >
+          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
+            <BarChart3 className="w-5 h-5 mr-2 text-blue-600" />
+            Targets
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-blue-100">
+                  <th className="p-3 border-b text-blue-700">Target</th>
+                  <th className="p-3 border-b text-blue-700">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {targetCards.map((card) => (
+                  <tr key={card.title} className="border-b hover:bg-blue-50">
+                    <td className="p-3 flex items-center">
+                      <div className={`${card.color} p-2 rounded-lg text-white mr-2`}>
+                        <card.icon className="w-5 h-5" />
+                      </div>
+                      <span className="text-blue-700">{card.title}</span>
+                    </td>
+                    <td className="p-3">
+                      <input
+                        type="number"
+                        min="0"
+                        step={card.isCurrency ? "1" : "1"}
+                        value={card.value}
+                        onChange={(e) => {
+                          if (card.isReadOnly) return;
+                          const value = parseFloat(e.target.value) || null;
+                          setTargets(prev => ({
+                            ...prev,
+                            [card.field as keyof BusinessPlanTargets]: value
+                          }));
+                        }}
+                        disabled={card.isReadOnly}
+                        className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 disabled:bg-blue-200 disabled:cursor-not-allowed"
+                        placeholder={`Enter ${card.title.toLowerCase()}`}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
+
+        {/* Performance Goals */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+        >
+          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
+            <Target className="w-5 h-5 mr-2 text-blue-600" />
+            Performance Goals
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {targetCards.map((card) => (
+              <div key={card.title} className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200">
+                <div className="flex items-center mb-2">
+                  <div className={`${card.color} p-2 rounded-lg text-white mr-2`}>
+                    <card.icon className="w-5 h-5" />
+                  </div>
+                  <span className="text-sm font-medium text-blue-800">{card.title}</span>
+                </div>
+                <div className="text-lg font-bold text-blue-600">
+                  {card.isCurrency ? (card.value != null ? `$${Math.round(card.value).toLocaleString()}` : 'N/A') : (card.value != null ? Math.round(card.value).toLocaleString() : 'N/A')}
+                </div>
+              </div>
+            ))}
           </div>
         </motion.div>
 
@@ -1313,12 +1125,12 @@ export function AgentBusinessPlan() {
                   yAxisId="right" 
                   orientation="right" 
                   stroke="#2563EB" 
-                  domain={[0, dataMax => Math.max((targets.net_commission_target ?? 0) * 1.3, (targets.total_of_all ?? 0) * 1.3, (targets.persons_salary ?? 0) * 1.3, 1000)]}
+                  domain={[0, dataMax => Math.max((targets.gross_commission_target ?? 0) * 1.3, (targets.net_commission ?? 0) * 1.3, (targets.persons_salary ?? 0) * 1.3, 1000)]}
                 />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderRadius: 4 }}
                   formatter={(value: number, name: string) => [
-                    name === 'Commission' || name === 'Persons Salary' || name === 'Total Cost' 
+                    name === 'Gross Commission' || name === 'Persons Salary' || name === 'Net Commission' 
                       ? `$${Math.round(value).toLocaleString()}` 
                       : Math.round(value).toLocaleString(),
                     name
@@ -1335,7 +1147,7 @@ export function AgentBusinessPlan() {
                     offset={8}
                   />
                 </Bar>
-                <Bar yAxisId="right" dataKey="value" name="Commission" fill="#2563EB" data={chartData.filter(d => d.name === 'Commission')}>
+                <Bar yAxisId="right" dataKey="value" name="Gross Commission" fill="#2563EB" data={chartData.filter(d => d.name === 'Gross Commission')}>
                   <LabelList 
                     dataKey="value" 
                     position="top" 
@@ -1355,13 +1167,17 @@ export function AgentBusinessPlan() {
                     offset={8}
                   />
                 </Bar>
-                <Bar yAxisId="right" dataKey="value" name="Total Cost" fill="#3B82F6" data={chartData.filter(d => d.name === 'Total Cost')}>
+                <Bar yAxisId="right" dataKey="value" name="Net Commission" fill="#3B82F6" data={chartData.filter(d => d.name === 'Net Commission')}>
                   <LabelList 
                     dataKey="value" 
                     position="top" 
-                    formatter={(value: number) => (value != null ? `$${Math.round(value).toLocaleString()}` : 'N/A')} fill="#2563EB" />
-              </Bar>
-            </BarChart>
+                    formatter={(value: number) => (value != null ? `$${Math.round(value).toLocaleString()}` : 'N/A')} 
+                    fill="#3B82F6"
+                    fontSize={10}
+                    offset={8}
+                  />
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </motion.div>
@@ -1386,21 +1202,21 @@ export function AgentBusinessPlan() {
             </div>
             <div className="bg-white rounded-lg p-4 shadow-sm">
               <div className="text-2xl font-bold text-blue-600">
-                {targets.avg_commission_per_sale != null ? '$' + Math.round(targets.avg_commission_per_sale).toLocaleString() : 'N/A'}
+                {targets.avg_commission_per_sale != null ? `$${Math.round(targets.avg_commission_per_sale).toLocaleString()}` : 'N/A'}
               </div>
               <div className="text-sm text-blue-600">Average Commission Per Sale</div>
             </div>
             <div className="bg-white rounded-lg p-4 shadow-sm">
               <div className="text-2xl font-bold text-blue-600">
-                {targets.settled_sales_target != null && targets.net_commission_target != null && targets.settled_sales_target > 0 ? `$${Math.round(targets.net_commission_target / targets.settled_sales_target).toLocaleString()}` : 'N/A'}
+                {targets.settled_sales_target != null && targets.gross_commission_target != null && targets.settled_sales_target > 0 ? `$${Math.round(targets.gross_commission_target / targets.settled_sales_target).toLocaleString()}` : 'N/A'}
               </div>
-              <div className="text-sm text-blue-600">Net Commission per Settled Sale</div>
+              <div className="text-sm text-blue-600">Gross Commission per Settled Sale</div>
             </div>
             <div className="bg-white rounded-lg p-4 shadow-sm">
               <div className="text-2xl font-bold text-blue-600">
-                {targets.total_of_all != null ? '$' + Math.round(targets.total_of_all).toLocaleString() : 'N/A'}
+                {targets.net_commission != null ? `$${Math.round(targets.net_commission).toLocaleString()}` : 'N/A'}
               </div>
-              <div className="text-sm text-blue-600">Total Cost</div>
+              <div className="text-sm text-blue-600">Net Commission</div>
             </div>
           </div>
         </motion.div>

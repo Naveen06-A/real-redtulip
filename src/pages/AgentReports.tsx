@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart3, Target, Phone, Home, DollarSign, Download, CheckCircle, Activity } from 'lucide-react';
+import { BarChart3, Target, Phone, Home, DollarSign, Download, CheckCircle, Activity, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-hot-toast';
@@ -72,6 +73,49 @@ interface Property {
   commission?: number;
 }
 
+interface StreetProgress {
+  streetName: string;
+  suburb: string;
+  totalActivities: number;
+  completedActivities: number;
+  totalKnocks: number;
+  answeredKnocks: number;
+  totalCalls: number;
+  connectedCalls: number;
+  totalDesktopAppraisals: number;
+  totalFaceToFaceAppraisals: number;
+  totalAppraisals: number;
+  totalListings: number;
+  totalSales: number;
+  targetKnocks: number;
+  targetCalls: number;
+  targetAppraisals: number;
+  knockProgress: number;
+  callProgress: number;
+  appraisalProgress: number;
+}
+
+interface SuburbProgress {
+  suburb: string;
+  totalActivities: number;
+  completedActivities: number;
+  totalKnocks: number;
+  answeredKnocks: number;
+  totalCalls: number;
+  connectedCalls: number;
+  totalDesktopAppraisals: number;
+  totalFaceToFaceAppraisals: number;
+  totalAppraisals: number;
+  totalListings: number;
+  totalSales: number;
+  targetKnocks: number;
+  targetCalls: number;
+  targetAppraisals: number;
+  knockProgress: number;
+  callProgress: number;
+  appraisalProgress: number;
+}
+
 interface ProgressMetrics {
   agentName: string;
   totalActivities: number;
@@ -80,6 +124,8 @@ interface ProgressMetrics {
   connectedCalls: number;
   totalKnocks: number;
   answeredKnocks: number;
+  totalDesktopAppraisals: number;
+  totalFaceToFaceAppraisals: number;
   totalAppraisals: number;
   totalListings: number;
   totalSales: number;
@@ -88,6 +134,8 @@ interface ProgressMetrics {
   doorKnockProgress: number;
   phoneCallProgress: number;
   appraisalProgress: number;
+  streetProgress: StreetProgress[];
+  suburbProgress: SuburbProgress[];
 }
 
 export function AgentReports() {
@@ -102,41 +150,43 @@ export function AgentReports() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [error, setError] = useState<string | null>(null);
+  const [expandedStreets, setExpandedStreets] = useState<string[]>([]);
+  const [expandedSuburbs, setExpandedSuburbs] = useState<string[]>([]);
 
   useEffect(() => {
     if (user?.id) {
-      fetchAllData();
+      fetchAgents().then(() => {
+        if (selectedAgentId) {
+          fetchAllData();
+        }
+      });
     } else {
-      setError('No user logged in. Check authentication in useAuthStore.');
+      setError('No user logged in.');
       setLoading(false);
     }
   }, [user?.id, selectedPeriod, selectedAgentId]);
 
   const fetchAllData = async () => {
-    if (!user?.id) {
-      setError('User ID is missing. Verify useAuthStore setup.');
+    if (!user?.id || !selectedAgentId) {
+      setError('User ID or selected agent ID is missing.');
       setLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
-    try {
-      // Reset states
-      setMarketingPlans([]);
-      setActivities([]);
-      setProperties([]);
-      setProgressMetrics(null);
+    setMarketingPlans([]);
+    setActivities([]);
+    setProperties([]);
+    setProgressMetrics(null);
 
-      await fetchAgents();
-      if (selectedAgentId) {
-        await Promise.all([
-          fetchMarketingPlans(),
-          fetchActivities(),
-          fetchProperties(),
-        ]);
-        calculateProgressMetrics();
-      }
+    try {
+      await Promise.all([
+        fetchMarketingPlans(),
+        fetchActivities(),
+        fetchProperties(),
+      ]);
+      calculateProgressMetrics();
     } catch (error: any) {
       setError(`Failed to load report data: ${error.message || 'Unknown error'}`);
       toast.error(`Failed to load report data: ${error.message || 'Unknown error'}`);
@@ -153,14 +203,16 @@ export function AgentReports() {
         .eq('role', 'agent');
       if (error) throw new Error(`Failed to fetch agents: ${error.message}`);
       if (!data || data.length === 0) {
-        setError('No agents found. Check profiles table.');
+        setError('No agents found.');
         setAgents([]);
         setSelectedAgentId(null);
         return;
       }
       setAgents(data);
-      const userAgent = data.find(agent => agent.email === user?.email) || data[0];
-      setSelectedAgentId(userAgent.id);
+      if (!selectedAgentId) {
+        const userAgent = data.find(agent => agent.email === user?.email) || data[0];
+        setSelectedAgentId(userAgent.id);
+      }
     } catch (err: any) {
       setError(`Failed to fetch agents: ${err.message}`);
       toast.error(`Failed to fetch agents: ${err.message}`);
@@ -175,10 +227,13 @@ export function AgentReports() {
       return;
     }
     try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
       const { data, error } = await supabase
         .from('marketing_plans')
         .select('*')
         .eq('agent', selectedAgentId)
+        .gte('start_date', startDate.toISOString())
         .order('created_at', { ascending: false });
       if (error) throw new Error(`Failed to fetch marketing plans: ${error.message}`);
       const plans: MarketingPlan[] = data?.map(plan => ({
@@ -209,34 +264,27 @@ export function AgentReports() {
   };
 
   const fetchActivities = async () => {
-    if (!selectedAgentId) {
-      setActivities([]);
-      return;
-    }
-    try {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
-      const { data, error } = await supabase
-        .from('agent_activities')
-        .select('id, agent_id, activity_type, activity_date, street_name, suburb, notes, status, calls_connected, calls_answered, knocks_made, knocks_answered, desktop_appraisals, face_to_face_appraisals')
-        .eq('agent_id', selectedAgentId)
-        .gte('activity_date', startDate.toISOString())
-        .order('activity_date', { ascending: false });
-      if (error) {
-        if (error.code === '42883') {
-          throw new Error('Type mismatch: Ensure agent_id is uuid in agent_activities');
-        } else if (error.code === '42501') {
-          throw new Error('Permission denied: Check RLS policy for agent_activities');
-        }
-        throw new Error(`Failed to fetch activities: ${error.message}`);
-      }
-      setActivities(data || []);
-    } catch (err: any) {
-      setError(`Failed to fetch activities: ${err.message}`);
-      toast.error(`Failed to fetch activities: ${err.message}`);
-      setActivities([]);
-    }
-  };
+  if (!selectedAgentId) {
+    setActivities([]);
+    return;
+  }
+  try {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
+    const { data, error } = await supabase
+      .from('agent_activities')
+      .select('id, agent_id, activity_type, activity_date, street_name, suburb, notes, status, calls_connected, calls_answered, knocks_made, knocks_answered, desktop_appraisals, face_to_face_appraisals')
+      .eq('agent_id', selectedAgentId)
+      .gte('activity_date', startDate.toISOString())
+      .order('activity_date', { ascending: false });
+    if (error) throw new Error(`Failed to fetch activities: ${error.message}`);
+    setActivities(data || []);
+  } catch (err: any) {
+    setError(`Failed to fetch activities: ${err.message}`);
+    toast.error(`Failed to fetch activities: ${err.message}`);
+    setActivities([]);
+  }
+};
 
   const fetchProperties = async () => {
     if (!selectedAgentId) {
@@ -244,10 +292,13 @@ export function AgentReports() {
       return;
     }
     try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
       const { data, error } = await supabase
         .from('properties')
         .select('*')
         .eq('agent_id', selectedAgentId)
+        .gte('listed_date', startDate.toISOString())
         .order('created_at', { ascending: false });
       if (error) throw new Error(`Failed to fetch properties: ${error.message}`);
       setProperties(data || []);
@@ -271,57 +322,246 @@ export function AgentReports() {
 
     const agentPlans = marketingPlans.filter(p => p.agent === selectedAgentId);
     const agentActivities = activities.filter(a => a.agent_id === selectedAgentId);
+    const agentProperties = properties.filter(p => p.agent_id === selectedAgentId);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
 
-    // Initialize metrics
     let totalActivities = agentActivities.length;
     let completedActivities = agentActivities.filter(a => a.status === 'Completed').length;
     let totalCalls = 0;
     let connectedCalls = 0;
     let totalKnocks = 0;
     let answeredKnocks = 0;
+    let totalDesktopAppraisals = 0;
+    let totalFaceToFaceAppraisals = 0;
     let totalAppraisals = 0;
 
-    // Aggregate activity metrics
+    const streetProgressMap: { [key: string]: StreetProgress } = {};
+    const suburbProgressMap: { [key: string]: SuburbProgress } = {};
+
     agentActivities.forEach(a => {
-      totalCalls += Number(a.calls_connected || 0);
-      connectedCalls += Number(a.calls_answered || 0);
-      totalKnocks += Number(a.knocks_made || 0);
-      answeredKnocks += Number(a.knocks_answered || 0);
-      totalAppraisals += Number(a.desktop_appraisals || 0) + Number(a.face_to_face_appraisals || 0);
+      if (new Date(a.activity_date) >= startDate) {
+        totalCalls += Number(a.calls_connected || 0);
+        connectedCalls += Number(a.calls_answered || 0);
+        totalKnocks += Number(a.knocks_made || 0);
+        answeredKnocks += Number(a.knocks_answered || 0);
+        totalDesktopAppraisals += Number(a.desktop_appraisals || 0);
+        totalFaceToFaceAppraisals += Number(a.face_to_face_appraisals || 0);
+
+        const streetKey = `${a.street_name}, ${a.suburb}`;
+        if (!streetProgressMap[streetKey]) {
+          streetProgressMap[streetKey] = {
+            streetName: a.street_name,
+            suburb: a.suburb,
+            totalActivities: 0,
+            completedActivities: 0,
+            totalKnocks: 0,
+            answeredKnocks: 0,
+            totalCalls: 0,
+            connectedCalls: 0,
+            totalDesktopAppraisals: 0,
+            totalFaceToFaceAppraisals: 0,
+            totalAppraisals: 0,
+            totalListings: 0,
+            totalSales: 0,
+            targetKnocks: 0,
+            targetCalls: 0,
+            targetAppraisals: 0,
+            knockProgress: 0,
+            callProgress: 0,
+            appraisalProgress: 0,
+          };
+        }
+        streetProgressMap[streetKey].totalActivities += 1;
+        streetProgressMap[streetKey].completedActivities += a.status === 'Completed' ? 1 : 0;
+        streetProgressMap[streetKey].totalKnocks += Number(a.knocks_made || 0);
+        streetProgressMap[streetKey].answeredKnocks += Number(a.knocks_answered || 0);
+        streetProgressMap[streetKey].totalCalls += Number(a.calls_connected || 0);
+        streetProgressMap[streetKey].connectedCalls += Number(a.calls_answered || 0);
+        streetProgressMap[streetKey].totalDesktopAppraisals += Number(a.desktop_appraisals || 0);
+        streetProgressMap[streetKey].totalFaceToFaceAppraisals += Number(a.face_to_face_appraisals || 0);
+        streetProgressMap[streetKey].totalAppraisals += Number(a.desktop_appraisals || 0) + Number(a.face_to_face_appraisals || 0);
+
+        if (!suburbProgressMap[a.suburb]) {
+          suburbProgressMap[a.suburb] = {
+            suburb: a.suburb,
+            totalActivities: 0,
+            completedActivities: 0,
+            totalKnocks: 0,
+            answeredKnocks: 0,
+            totalCalls: 0,
+            connectedCalls: 0,
+            totalDesktopAppraisals: 0,
+            totalFaceToFaceAppraisals: 0,
+            totalAppraisals: 0,
+            totalListings: 0,
+            totalSales: 0,
+            targetKnocks: 0,
+            targetCalls: 0,
+            targetAppraisals: 0,
+            knockProgress: 0,
+            callProgress: 0,
+            appraisalProgress: 0,
+          };
+        }
+        suburbProgressMap[a.suburb].totalActivities += 1;
+        suburbProgressMap[a.suburb].completedActivities += a.status === 'Completed' ? 1 : 0;
+        suburbProgressMap[a.suburb].totalKnocks += Number(a.knocks_made || 0);
+        suburbProgressMap[a.suburb].answeredKnocks += Number(a.knocks_answered || 0);
+        suburbProgressMap[a.suburb].totalCalls += Number(a.calls_connected || 0);
+        suburbProgressMap[a.suburb].connectedCalls += Number(a.calls_answered || 0);
+        suburbProgressMap[a.suburb].totalDesktopAppraisals += Number(a.desktop_appraisals || 0);
+        suburbProgressMap[a.suburb].totalFaceToFaceAppraisals += Number(a.face_to_face_appraisals || 0);
+        suburbProgressMap[a.suburb].totalAppraisals += Number(a.desktop_appraisals || 0) + Number(a.face_to_face_appraisals || 0);
+      }
     });
 
-    // Property metrics
-    const totalListings = properties.filter(p => p.agent_id === selectedAgentId && p.category === 'Listing').length;
-    const totalSales = properties.filter(p => p.agent_id === selectedAgentId && p.category === 'Sold').length;
-    const totalCommission = properties
-      .filter(p => p.agent_id === selectedAgentId)
+    totalAppraisals = totalDesktopAppraisals + totalFaceToFaceAppraisals;
+
+    const totalListings = agentProperties.filter(p => p.category === 'Listing' && new Date(p.listed_date) >= startDate).length;
+    const totalSales = agentProperties.filter(p => p.category === 'Sold' && new Date(p.sold_date || p.listed_date) >= startDate).length;
+    const totalCommission = agentProperties
+      .filter(p => new Date(p.listed_date) >= startDate)
       .reduce((sum, p) => sum + Number(p.commission || 0), 0);
     const conversionRate = totalAppraisals > 0 ? (totalListings / totalAppraisals) * 100 : 0;
 
-    // Calculate targets from marketing plans
-    let totalTargetKnocks = 0;
-    let totalTargetCalls = 0;
-    let totalTargetAppraisals = 0;
-
-    agentPlans.forEach(plan => {
-      if (plan.door_knock_streets?.length) {
-        plan.door_knock_streets.forEach(street => {
-          totalTargetKnocks += Number(street.target_knocks || 0);
-          totalTargetAppraisals += Number(street.desktop_appraisals || 0) + Number(street.face_to_face_appraisals || 0);
-        });
-      }
-      if (plan.phone_call_streets?.length) {
-        plan.phone_call_streets.forEach(street => {
-          totalTargetCalls += Number(street.target_calls || 0);
-          totalTargetAppraisals += Number(street.desktop_appraisals || 0) + Number(street.face_to_face_appraisals || 0);
-        });
+    agentProperties.forEach(p => {
+      if (new Date(p.listed_date) >= startDate) {
+        const streetKey = `${p.street_name}, ${p.suburb}`;
+        if (streetProgressMap[streetKey]) {
+          streetProgressMap[streetKey].totalListings += p.category === 'Listing' ? 1 : 0;
+          streetProgressMap[streetKey].totalSales += p.category === 'Sold' ? 1 : 0;
+        }
+        if (suburbProgressMap[p.suburb]) {
+          suburbProgressMap[p.suburb].totalListings += p.category === 'Listing' ? 1 : 0;
+          suburbProgressMap[p.suburb].totalSales += p.category === 'Sold' ? 1 : 0;
+        }
       }
     });
 
-    // Calculate progress percentages
-    const doorKnockProgress = totalTargetKnocks > 0 ? (totalKnocks / totalTargetKnocks) * 100 : 0;
-    const phoneCallProgress = totalTargetCalls > 0 ? (totalCalls / totalTargetCalls) * 100 : 0;
-    const appraisalProgress = totalTargetAppraisals > 0 ? (totalAppraisals / totalTargetAppraisals) * 100 : 0;
+    let totalTargetKnocks = 0;
+    let totalTargetCalls = 0;
+    let totalTargetDesktopAppraisals = 0;
+    let totalTargetFaceToFaceAppraisals = 0;
+
+    agentPlans.forEach(plan => {
+      if (new Date(plan.start_date) >= startDate) {
+        if (plan.door_knock_streets?.length) {
+          plan.door_knock_streets.forEach(street => {
+            const streetKey = `${street.name}, ${plan.suburb}`;
+            if (!streetProgressMap[streetKey]) {
+              streetProgressMap[streetKey] = {
+                streetName: street.name,
+                suburb: plan.suburb,
+                totalActivities: 0,
+                completedActivities: 0,
+                totalKnocks: 0,
+                answeredKnocks: 0,
+                totalCalls: 0,
+                connectedCalls: 0,
+                totalDesktopAppraisals: 0,
+                totalFaceToFaceAppraisals: 0,
+                totalAppraisals: 0,
+                totalListings: 0,
+                totalSales: 0,
+                targetKnocks: 0,
+                targetCalls: 0,
+                targetAppraisals: 0,
+                knockProgress: 0,
+                callProgress: 0,
+                appraisalProgress: 0,
+              };
+            }
+            streetProgressMap[streetKey].targetKnocks += Number(street.target_knocks || 0);
+            streetProgressMap[streetKey].targetAppraisals += Number(street.desktop_appraisals || 0) + Number(street.face_to_face_appraisals || 0);
+            totalTargetKnocks += Number(street.target_knocks || 0);
+            totalTargetDesktopAppraisals += Number(street.desktop_appraisals || 0);
+            totalTargetFaceToFaceAppraisals += Number(street.face_to_face_appraisals || 0);
+          });
+        }
+        if (plan.phone_call_streets?.length) {
+          plan.phone_call_streets.forEach(street => {
+            const streetKey = `${street.name}, ${plan.suburb}`;
+            if (!streetProgressMap[streetKey]) {
+              streetProgressMap[streetKey] = {
+                streetName: street.name,
+                suburb: plan.suburb,
+                totalActivities: 0,
+                completedActivities: 0,
+                totalKnocks: 0,
+                answeredKnocks: 0,
+                totalCalls: 0,
+                connectedCalls: 0,
+                totalDesktopAppraisals: 0,
+                totalFaceToFaceAppraisals: 0,
+                totalAppraisals: 0,
+                totalListings: 0,
+                totalSales: 0,
+                targetKnocks: 0,
+                targetCalls: 0,
+                targetAppraisals: 0,
+                knockProgress: 0,
+                callProgress: 0,
+                appraisalProgress: 0,
+              };
+            }
+            streetProgressMap[streetKey].targetCalls += Number(street.target_calls || 0);
+            streetProgressMap[streetKey].targetAppraisals += Number(street.desktop_appraisals || 0) + Number(street.face_to_face_appraisals || 0);
+            totalTargetCalls += Number(street.target_calls || 0);
+            totalTargetDesktopAppraisals += Number(street.desktop_appraisals || 0);
+            totalTargetFaceToFaceAppraisals += Number(street.face_to_face_appraisals || 0);
+          });
+        }
+        if (!suburbProgressMap[plan.suburb]) {
+          suburbProgressMap[plan.suburb] = {
+            suburb: plan.suburb,
+            totalActivities: 0,
+            completedActivities: 0,
+            totalKnocks: 0,
+            answeredKnocks: 0,
+            totalCalls: 0,
+            connectedCalls: 0,
+            totalDesktopAppraisals: 0,
+            totalFaceToFaceAppraisals: 0,
+            totalAppraisals: 0,
+            totalListings: 0,
+            totalSales: 0,
+            targetKnocks: 0,
+            targetCalls: 0,
+            targetAppraisals: 0,
+            knockProgress: 0,
+            callProgress: 0,
+            appraisalProgress: 0,
+          };
+        }
+        suburbProgressMap[plan.suburb].targetKnocks += (plan.door_knock_streets || []).reduce((sum, s) => sum + Number(s.target_knocks || 0), 0);
+        suburbProgressMap[plan.suburb].targetCalls += (plan.phone_call_streets || []).reduce((sum, s) => sum + Number(s.target_calls || 0), 0);
+        suburbProgressMap[plan.suburb].targetAppraisals += (plan.door_knock_streets || []).reduce(
+          (sum, s) => sum + Number(s.desktop_appraisals || 0) + Number(s.face_to_face_appraisals || 0),
+          0
+        ) + (plan.phone_call_streets || []).reduce(
+          (sum, s) => sum + Number(s.desktop_appraisals || 0) + Number(s.face_to_face_appraisals || 0),
+          0
+        );
+      }
+    });
+
+    const totalTargetAppraisals = totalTargetDesktopAppraisals + totalTargetFaceToFaceAppraisals;
+    const doorKnockProgress = totalTargetKnocks > 0 ? Math.min((totalKnocks / totalTargetKnocks) * 100, 100) : 0;
+    const phoneCallProgress = totalTargetCalls > 0 ? Math.min((totalCalls / totalTargetCalls) * 100, 100) : 0;
+    const appraisalProgress = totalTargetAppraisals > 0 ? Math.min((totalAppraisals / totalTargetAppraisals) * 100, 100) : 0;
+
+    Object.values(streetProgressMap).forEach(street => {
+      street.knockProgress = street.targetKnocks > 0 ? Math.min((street.totalKnocks / street.targetKnocks) * 100, 100) : 0;
+      street.callProgress = street.targetCalls > 0 ? Math.min((street.totalCalls / street.targetCalls) * 100, 100) : 0;
+      street.appraisalProgress = street.targetAppraisals > 0 ? Math.min((street.totalAppraisals / street.targetAppraisals) * 100, 100) : 0;
+    });
+
+    Object.values(suburbProgressMap).forEach(suburb => {
+      suburb.knockProgress = suburb.targetKnocks > 0 ? Math.min((suburb.totalKnocks / suburb.targetKnocks) * 100, 100) : 0;
+      suburb.callProgress = suburb.targetCalls > 0 ? Math.min((suburb.totalCalls / suburb.targetCalls) * 100, 100) : 0;
+      suburb.appraisalProgress = suburb.targetAppraisals > 0 ? Math.min((suburb.totalAppraisals / suburb.targetAppraisals) * 100, 100) : 0;
+    });
 
     const metrics: ProgressMetrics = {
       agentName: agent.name || 'Unknown Agent',
@@ -331,14 +571,18 @@ export function AgentReports() {
       connectedCalls,
       totalKnocks,
       answeredKnocks,
+      totalDesktopAppraisals,
+      totalFaceToFaceAppraisals,
       totalAppraisals,
       totalListings,
       totalSales,
       totalCommission,
-      conversionRate,
-      doorKnockProgress,
-      phoneCallProgress,
-      appraisalProgress,
+      conversionRate: Number(conversionRate.toFixed(1)),
+      doorKnockProgress: Number(doorKnockProgress.toFixed(1)),
+      phoneCallProgress: Number(phoneCallProgress.toFixed(1)),
+      appraisalProgress: Number(appraisalProgress.toFixed(1)),
+      streetProgress: Object.values(streetProgressMap),
+      suburbProgress: Object.values(suburbProgressMap),
     };
 
     setProgressMetrics(metrics);
@@ -349,10 +593,55 @@ export function AgentReports() {
   };
 
   const barChartData = [
-    { name: 'Calls Connected', value: progressMetrics?.totalCalls || 0, target: marketingPlans.reduce((sum, plan) => sum + (plan.phone_call_streets || []).reduce((s, street) => s + Number(street.target_calls || 0), 0), 0) },
-    { name: 'Knocks Made', value: progressMetrics?.totalKnocks || 0, target: marketingPlans.reduce((sum, plan) => sum + (plan.door_knock_streets || []).reduce((s, street) => s + Number(street.target_knocks || 0), 0), 0) },
-    { name: 'Appraisals', value: progressMetrics?.totalAppraisals || 0, target: marketingPlans.reduce((sum, plan) => sum + (plan.door_knock_streets || []).reduce((s, street) => s + Number(street.desktop_appraisals || 0) + Number(street.face_to_face_appraisals || 0), 0) + (plan.phone_call_streets || []).reduce((s, street) => s + Number(street.desktop_appraisals || 0) + Number(street.face_to_face_appraisals || 0), 0), 0) }
+    {
+      name: 'Calls Connected',
+      value: progressMetrics?.totalCalls || 0,
+      target: marketingPlans.reduce((sum, plan) => sum + (plan.phone_call_streets || []).reduce((s, street) => s + Number(street.target_calls || 0), 0), 0),
+    },
+    {
+      name: 'Knocks Made',
+      value: progressMetrics?.totalKnocks || 0,
+      target: marketingPlans.reduce((sum, plan) => sum + (plan.door_knock_streets || []).reduce((s, street) => s + Number(street.target_knocks || 0), 0), 0),
+    },
+    {
+      name: 'Desktop Appraisals',
+      value: progressMetrics?.totalDesktopAppraisals || 0,
+      target: marketingPlans.reduce(
+        (sum, plan) =>
+          sum +
+          (plan.door_knock_streets || []).reduce((s, street) => s + Number(street.desktop_appraisals || 0), 0) +
+          (plan.phone_call_streets || []).reduce((s, street) => s + Number(street.desktop_appraisals || 0), 0),
+        0
+      ),
+    },
+    {
+      name: 'Face-to-Face Appraisals',
+      value: progressMetrics?.totalFaceToFaceAppraisals || 0,
+      target: marketingPlans.reduce(
+        (sum, plan) =>
+          sum +
+          (plan.door_knock_streets || []).reduce((s, street) => s + Number(street.face_to_face_appraisals || 0), 0) +
+          (plan.phone_call_streets || []).reduce((s, street) => s + Number(street.face_to_face_appraisals || 0), 0),
+        0
+      ),
+    },
   ];
+
+  const toggleStreet = (streetKey: string) => {
+    setExpandedStreets(prev =>
+      prev.includes(streetKey)
+        ? prev.filter(key => key !== streetKey)
+        : [...prev, streetKey]
+    );
+  };
+
+  const toggleSuburb = (suburb: string) => {
+    setExpandedSuburbs(prev =>
+      prev.includes(suburb)
+        ? prev.filter(s => s !== suburb)
+        : [...prev, suburb]
+    );
+  };
 
   if (loading) {
     return (
@@ -369,16 +658,6 @@ export function AgentReports() {
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
             <strong className="font-bold">Error: </strong>
             <span>{error}</span>
-            {error.includes('42883') && (
-              <p className="mt-2 text-sm">
-                Type mismatch error. Run: ALTER TABLE agent_activities ALTER COLUMN agent_id TYPE uuid USING (agent_id::uuid);
-              </p>
-            )}
-            {error.includes('42501') && (
-              <p className="mt-2 text-sm">
-                Permission denied. Verify RLS policy: SELECT * FROM pg_policies WHERE tablename = 'agent_activities';
-              </p>
-            )}
           </div>
           <div className="mt-4 flex gap-4">
             <button
@@ -497,7 +776,8 @@ export function AgentReports() {
                 { id: 'marketing', label: 'Marketing Plans', icon: Target },
                 { id: 'activities', label: 'Activities', icon: Activity },
                 { id: 'performance', label: 'Performance', icon: Target },
-                { id: 'properties', label: 'Properties', icon: Home }
+                { id: 'properties', label: 'Properties', icon: Home },
+                { id: 'progress', label: 'Progress', icon: MapPin },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -551,7 +831,7 @@ export function AgentReports() {
                     { label: 'Total Activities', value: progressMetrics.totalActivities, icon: Activity, color: 'bg-blue-500' },
                     { label: 'Completion Rate', value: `${Math.round((progressMetrics.completedActivities / (progressMetrics.totalActivities || 1)) * 100)}%`, icon: CheckCircle, color: 'bg-green-500' },
                     { label: 'Total Commission', value: `$${progressMetrics.totalCommission.toLocaleString()}`, icon: DollarSign, color: 'bg-purple-500' },
-                    { label: 'Conversion Rate', value: `${progressMetrics.conversionRate.toFixed(1)}%`, icon: Target, color: 'bg-orange-500' }
+                    { label: 'Conversion Rate', value: `${progressMetrics.conversionRate}%`, icon: Target, color: 'bg-orange-500' },
                   ].map((metric, index) => (
                     <motion.div
                       key={metric.label}
@@ -730,7 +1010,7 @@ export function AgentReports() {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div className="bg-white rounded-lg p-6 shadow-sm border border-blue-100">
                       <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
                         <Phone className="w-4 h-4 mr-2 text-green-600" />
@@ -747,7 +1027,7 @@ export function AgentReports() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Progress:</span>
-                          <span className="font-medium">{progressMetrics.phoneCallProgress.toFixed(1)}%</span>
+                          <span className="font-medium">{progressMetrics.phoneCallProgress}%</span>
                         </div>
                       </div>
                     </div>
@@ -768,7 +1048,7 @@ export function AgentReports() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Progress:</span>
-                          <span className="font-medium">{progressMetrics.doorKnockProgress.toFixed(1)}%</span>
+                          <span className="font-medium">{progressMetrics.doorKnockProgress}%</span>
                         </div>
                       </div>
                     </div>
@@ -780,12 +1060,41 @@ export function AgentReports() {
                       </h4>
                       <div className="space-y-2">
                         <div className="flex justify-between">
+                          <span className="text-gray-600">Desktop Appraisals:</span>
+                          <span className="font-medium">{progressMetrics.totalDesktopAppraisals}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Face-to-Face Appraisals:</span>
+                          <span className="font-medium">{progressMetrics.totalFaceToFaceAppraisals}</span>
+                        </div>
+                        <div className="flex justify-between">
                           <span className="text-gray-600">Total Appraisals:</span>
                           <span className="font-medium">{progressMetrics.totalAppraisals}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Progress:</span>
-                          <span className="font-medium">{progressMetrics.appraisalProgress.toFixed(1)}%</span>
+                          <span className="font-medium">{progressMetrics.appraisalProgress}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-lg p-6 shadow-sm border border-blue-100">
+                      <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
+                        <DollarSign className="w-4 h-4 mr-2 text-orange-600" />
+                        Sales Performance
+                      </h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Total Listings:</span>
+                          <span className="font-medium">{progressMetrics.totalListings}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Total Sales:</span>
+                          <span className="font-medium">{progressMetrics.totalSales}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Total Commission:</span>
+                          <span className="font-medium">${progressMetrics.totalCommission.toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
@@ -892,6 +1201,223 @@ export function AgentReports() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'progress' && (
+            <motion.div
+              key="progress"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-blue-100">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <MapPin className="w-5 h-5 mr-2 text-blue-600" />
+                  Street-Wise Progress for {agents.find(a => a.id === selectedAgentId)?.name || 'selected agent'}
+                </h3>
+                {progressMetrics?.streetProgress.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">
+                    No street-wise progress data for {agents.find(a => a.id === selectedAgentId)?.name || 'selected agent'}.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {progressMetrics?.streetProgress.map((street) => {
+                      const streetKey = `${street.streetName}-${street.suburb}`;
+                      const isExpanded = expandedStreets.includes(streetKey);
+                      return (
+                        <div key={streetKey} className="border border-gray-200 rounded-lg p-4">
+                          <button
+                            className="w-full flex justify-between items-center text-left"
+                            onClick={() => toggleStreet(streetKey)}
+                          >
+                            <div>
+                              <h4 className="font-semibold text-gray-900">{street.streetName}</h4>
+                              <p className="text-sm text-gray-600">{street.suburb}</p>
+                            </div>
+                            {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                          </button>
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.3 }}
+                                className="mt-4 overflow-hidden"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <p className="text-sm text-gray-600">Door Knocks</p>
+                                    <div className="mt-2">
+                                      <div className="text-sm text-gray-600">Progress: {street.knockProgress.toFixed(1)}%</div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                                        <motion.div
+                                          className="bg-blue-600 h-2.5 rounded-full"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${street.knockProgress}%` }}
+                                          transition={{ duration: 0.5 }}
+                                          title={`Knocks: ${street.totalKnocks}/${street.targetKnocks}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-600">Phone Calls</p>
+                                    <div className="mt-2">
+                                      <div className="text-sm text-gray-600">Progress: {street.callProgress.toFixed(1)}%</div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                                        <motion.div
+                                          className="bg-green-600 h-2.5 rounded-full"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${street.callProgress}%` }}
+                                          transition={{ duration: 0.5 }}
+                                          title={`Calls: ${street.totalCalls}/${street.targetCalls}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-600">Appraisals</p>
+                                    <div className="mt-2">
+                                      <div className="text-sm text-gray-600">Progress: {street.appraisalProgress.toFixed(1)}%</div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                                        <motion.div
+                                          className="bg-purple-600 h-2.5 rounded-full"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${street.appraisalProgress}%` }}
+                                          transition={{ duration: 0.5 }}
+                                          title={`Appraisals: ${street.totalAppraisals}/${street.targetAppraisals}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <p className="text-sm text-gray-600">Activities: {street.totalActivities} (Completed: {street.completedActivities})</p>
+                                    <p className="text-sm text-gray-600">Listings: {street.totalListings}</p>
+                                    <p className="text-sm text-gray-600">Sales: {street.totalSales}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-600">Answered Knocks: {street.answeredKnocks}</p>
+                                    <p className="text-sm text-gray-600">Connected Calls: {street.connectedCalls}</p>
+                                    <p className="text-sm text-gray-600">Desktop/Face-to-Face Appraisals: {street.totalDesktopAppraisals}/{street.totalFaceToFaceAppraisals}</p>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-blue-100">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <MapPin className="w-5 h-5 mr-2 text-blue-600" />
+                  Suburb-Wise Progress for {agents.find(a => a.id === selectedAgentId)?.name || 'selected agent'}
+                </h3>
+                {progressMetrics?.suburbProgress.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">
+                    No suburb-wise progress data for {agents.find(a => a.id === selectedAgentId)?.name || 'selected agent'}.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {progressMetrics?.suburbProgress.map((suburb) => {
+                      const isExpanded = expandedSuburbs.includes(suburb.suburb);
+                      return (
+                        <div key={suburb.suburb} className="border border-gray-200 rounded-lg p-4">
+                          <button
+                            className="w-full flex justify-between items-center text-left"
+                            onClick={() => toggleSuburb(suburb.suburb)}
+                          >
+                            <div>
+                              <h4 className="font-semibold text-gray-900">{suburb.suburb}</h4>
+                              <p className="text-sm text-gray-600">Total Activities: {suburb.totalActivities}</p>
+                            </div>
+                            {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                          </button>
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.3 }}
+                                className="mt-4 overflow-hidden"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <p className="text-sm text-gray-600">Door Knocks</p>
+                                    <div className="mt-2">
+                                      <div className="text-sm text-gray-600">Progress: {suburb.knockProgress.toFixed(1)}%</div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                                        <motion.div
+                                          className="bg-blue-600 h-2.5 rounded-full"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${suburb.knockProgress}%` }}
+                                          transition={{ duration: 0.5 }}
+                                          title={`Knocks: ${suburb.totalKnocks}/${suburb.targetKnocks}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-600">Phone Calls</p>
+                                    <div className="mt-2">
+                                      <div className="text-sm text-gray-600">Progress: {suburb.callProgress.toFixed(1)}%</div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                                        <motion.div
+                                          className="bg-green-600 h-2.5 rounded-full"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${suburb.callProgress}%` }}
+                                          transition={{ duration: 0.5 }}
+                                          title={`Calls: ${suburb.totalCalls}/${suburb.targetCalls}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-600">Appraisals</p>
+                                    <div className="mt-2">
+                                      <div className="text-sm text-gray-600">Progress: {suburb.appraisalProgress.toFixed(1)}%</div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                                        <motion.div
+                                          className="bg-purple-600 h-2.5 rounded-full"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${suburb.appraisalProgress}%` }}
+                                          transition={{ duration: 0.5 }}
+                                          title={`Appraisals: ${suburb.totalAppraisals}/${suburb.targetAppraisals}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <p className="text-sm text-gray-600">Activities: {suburb.totalActivities} (Completed: {suburb.completedActivities})</p>
+                                    <p className="text-sm text-gray-600">Listings: {suburb.totalListings}</p>
+                                    <p className="text-sm text-gray-600">Sales: {suburb.totalSales}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-600">Answered Knocks: {suburb.answeredKnocks}</p>
+                                    <p className="text-sm text-gray-600">Connected Calls: {suburb.connectedCalls}</p>
+                                    <p className="text-sm text-gray-600">Desktop/Face-to-Face Appraisals: {suburb.totalDesktopAppraisals}/{suburb.totalFaceToFaceAppraisals}</p>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

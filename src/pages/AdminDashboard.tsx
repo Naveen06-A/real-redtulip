@@ -45,7 +45,7 @@ export function AdminDashboard() {
     { name: 'Job Enquiries', icon: FileText, path: '/enquiryjob' },
     { name: 'Create Marketing Plan', path: '/marketing-plan', icon: FileText },
     { name: 'Activity Log', path: '/activity-logger', icon: Activity },
-    { name: 'Progress Report', path: '/progress-report-page', icon: BarChart },
+    // { name: 'Progress Report', path: '/progress-report-page', icon: BarChart },
     { name: 'Reports', path: '/reports', icon: FileText },
     // { name: 'Agent Report', path: '/agent-reports', icon: FileText },
     // { name: 'Business Plan', path: '/agent-business-plan', icon: FaBusinessTime },

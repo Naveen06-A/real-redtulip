@@ -233,8 +233,8 @@ export function AgentBusinessPlan() {
     }
 
     // Calculate net commission
-    if (gross_commission_target != null && marketing_expenses != null && persons_salary != null && total_third_party_calls != null && total_cost_appraisals != null) {
-      net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary - total_third_party_calls - total_cost_appraisals);
+    if (gross_commission_target != null && marketing_expenses != null && persons_salary != null ) {
+      net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary);
     }
 
     setTargets(prev => ({

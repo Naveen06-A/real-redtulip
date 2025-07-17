@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
@@ -41,7 +42,7 @@ interface BusinessPlanTargets {
   connects_for_appraisal: number | null;
   calls_for_connect: number | null;
   no_of_working_days_per_year: number | null;
-  no_of_working_days_per_month: number | null;
+  calls_per_day: number | null;
   calls_per_person: number | null;
   no_of_people_required: number | null;
   salary_per_hour: number | null;
@@ -49,6 +50,12 @@ interface BusinessPlanTargets {
   marketing_expenses: number | null;
   persons_salary: number | null;
   net_commission: number | null;
+  cost_per_third_party_call: number | null;
+  cost_for_an_appraisal: number | null;
+  how_many_calls: number | null;
+  how_many_appraisals: number | null;
+  total_third_party_calls: number | null;
+  total_cost_appraisals: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -109,7 +116,7 @@ export function AgentBusinessPlan() {
     connects_for_appraisal: null,
     calls_for_connect: null,
     no_of_working_days_per_year: null,
-    no_of_working_days_per_month: null,
+    calls_per_day: null,
     calls_per_person: null,
     no_of_people_required: null,
     salary_per_hour: null,
@@ -117,6 +124,12 @@ export function AgentBusinessPlan() {
     marketing_expenses: null,
     persons_salary: null,
     net_commission: null,
+    cost_per_third_party_call: null,
+    cost_for_an_appraisal: null,
+    how_many_calls: null,
+    how_many_appraisals: null,
+    total_third_party_calls: null,
+    total_cost_appraisals: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
@@ -135,14 +148,21 @@ export function AgentBusinessPlan() {
 
   useEffect(() => {
     const { 
+      appraisal_to_listing_ratio,
+      listing_to_written_ratio,
       gross_commission_target, 
       avg_commission_per_sale,
       fall_over_rate,
       connects_for_appraisal,
       calls_for_connect,
-      no_of_people_required,
+      no_of_working_days_per_year,
+      calls_per_person,
       salary_per_hour,
-      marketing_expenses
+      marketing_expenses,
+      cost_per_third_party_call,
+      cost_for_an_appraisal,
+      how_many_calls,
+      how_many_appraisals
     } = targets;
 
     let settled_sales_target: number | null = null;
@@ -150,12 +170,13 @@ export function AgentBusinessPlan() {
     let appraisals_target: number | null = null;
     let connects_for_appraisals: number | null = null;
     let phone_calls_to_achieve_appraisals: number | null = null;
-    let no_of_working_days_per_year: number | null = null;
-    let no_of_working_days_per_month: number | null = null;
-    let calls_per_person: number | null = null;
+    let calls_per_day: number | null = null;
+    let no_of_people_required: number | null = null;
     let salary_per_day: number | null = null;
     let persons_salary: number | null = null;
     let net_commission: number | null = null;
+    let total_third_party_calls: number | null = null;
+    let total_cost_appraisals: number | null = null;
 
     // Calculate settled sales target
     if (gross_commission_target != null && avg_commission_per_sale != null && avg_commission_per_sale > 0) {
@@ -172,12 +193,8 @@ export function AgentBusinessPlan() {
     }
 
     // Calculate appraisals target
-    if (listings_target != null) {
-      if (fall_over_rate != null && fall_over_rate > 0) {
-        appraisals_target = Math.round(listings_target * (1 + fall_over_rate / 100));
-      } else {
-        appraisals_target = listings_target;
-      }
+    if (listings_target != null && appraisal_to_listing_ratio != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
+      appraisals_target = Math.round((appraisal_to_listing_ratio / listing_to_written_ratio) * listings_target*100);
     }
 
     // Calculate connects for appraisals
@@ -190,19 +207,14 @@ export function AgentBusinessPlan() {
       phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
     }
 
-    // Calculate working days per year
-    if (phone_calls_to_achieve_appraisals != null) {
-      no_of_working_days_per_year = Math.round(phone_calls_to_achieve_appraisals / 261);
+    // Calculate calls per day
+    if (phone_calls_to_achieve_appraisals != null && no_of_working_days_per_year != null && no_of_working_days_per_year > 0) {
+      calls_per_day = Math.round(phone_calls_to_achieve_appraisals / no_of_working_days_per_year);
     }
 
-    // Calculate working days per month
-    if (no_of_working_days_per_year != null) {
-      no_of_working_days_per_month = Math.round(phone_calls_to_achieve_appraisals / 12);
-    }
-
-    // Calculate calls per person
-    if (phone_calls_to_achieve_appraisals != null && no_of_people_required != null && no_of_people_required > 0) {
-      calls_per_person = Math.round(phone_calls_to_achieve_appraisals / no_of_people_required);
+    // Calculate number of people required
+    if (phone_calls_to_achieve_appraisals != null && calls_per_person != null && calls_per_person > 0 && no_of_working_days_per_year != null && no_of_working_days_per_year > 0) {
+      no_of_people_required = Math.ceil(phone_calls_to_achieve_appraisals / (calls_per_person * no_of_working_days_per_year));
     }
 
     // Calculate salary per day
@@ -210,14 +222,24 @@ export function AgentBusinessPlan() {
       salary_per_day = Math.round(salary_per_hour * 8);
     }
 
-    // Calculate persons salary (yearly, assuming 240 working days)
+    // Calculate persons salary (yearly, assuming 261 working days)
     if (salary_per_day != null && no_of_people_required != null) {
       persons_salary = Math.round(salary_per_day * no_of_people_required * 261);
     }
 
+    // Calculate total third party calls
+    if (cost_per_third_party_call != null && how_many_calls != null) {
+      total_third_party_calls = Math.round(cost_per_third_party_call * how_many_calls);
+    }
+
+    // Calculate total cost for appraisals
+    if (cost_for_an_appraisal != null && how_many_appraisals != null) {
+      total_cost_appraisals = Math.round(cost_for_an_appraisal * how_many_appraisals);
+    }
+
     // Calculate net commission
     if (gross_commission_target != null && marketing_expenses != null && persons_salary != null) {
-      net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary);
+      net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary );
     }
 
     setTargets(prev => ({
@@ -227,11 +249,12 @@ export function AgentBusinessPlan() {
       appraisals_target,
       connects_for_appraisals,
       phone_calls_to_achieve_appraisals,
-      no_of_working_days_per_year,
-      no_of_working_days_per_month,
-      calls_per_person,
+      calls_per_day,
+      no_of_people_required,
       salary_per_day,
       persons_salary,
+      total_third_party_calls,
+      total_cost_appraisals,
       net_commission
     }));
   }, [
@@ -240,9 +263,16 @@ export function AgentBusinessPlan() {
     targets.fall_over_rate,
     targets.connects_for_appraisal,
     targets.calls_for_connect,
-    targets.no_of_people_required,
+    targets.appraisal_to_listing_ratio,
+    targets.listing_to_written_ratio,
+    targets.no_of_working_days_per_year,
+    targets.calls_per_person,
     targets.salary_per_hour,
-    targets.marketing_expenses
+    targets.marketing_expenses,
+    targets.cost_per_third_party_call,
+    targets.cost_for_an_appraisal,
+    targets.how_many_calls,
+    targets.how_many_appraisals
   ]);
 
   const fetchBusinessPlan = async () => {
@@ -271,7 +301,13 @@ export function AgentBusinessPlan() {
           salary_per_day: data.salary_per_day != null ? Math.round(data.salary_per_day) : null,
           persons_salary: data.persons_salary != null ? Math.round(data.persons_salary) : null,
           marketing_expenses: data.marketing_expenses != null ? Math.round(data.marketing_expenses) : null,
-          net_commission: data.net_commission != null ? Math.round(data.net_commission) : null
+          net_commission: data.net_commission != null ? Math.round(data.net_commission) : null,
+          cost_per_third_party_call: data.cost_per_third_party_call != null ? Math.round(data.cost_per_third_party_call) : null,
+          cost_for_an_appraisal: data.cost_for_an_appraisal != null ? Math.round(data.cost_for_an_appraisal) : null,
+          how_many_calls: data.how_many_calls != null ? Math.round(data.how_many_calls) : null,
+          how_many_appraisals: data.how_many_appraisals != null ? Math.round(data.how_many_appraisals) : null,
+          total_third_party_calls: data.total_third_party_calls != null ? Math.round(data.total_third_party_calls) : null,
+          total_cost_appraisals: data.total_cost_appraisals != null ? Math.round(data.total_cost_appraisals) : null
         });
       }
     } catch (error) {
@@ -292,12 +328,18 @@ export function AgentBusinessPlan() {
         agent_id: user.id,
         updated_at: new Date().toISOString(),
         gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) : null,
-        avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(data.avg_commission_per_sale) : null,
+        avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(targets.avg_commission_per_sale) : null,
         salary_per_hour: targets.salary_per_hour != null ? Math.round(targets.salary_per_hour) : null,
         salary_per_day: targets.salary_per_day != null ? Math.round(targets.salary_per_day) : null,
         persons_salary: targets.persons_salary != null ? Math.round(targets.persons_salary) : null,
         marketing_expenses: targets.marketing_expenses != null ? Math.round(targets.marketing_expenses) : null,
-        net_commission: targets.net_commission != null ? Math.round(targets.net_commission) : null
+        net_commission: targets.net_commission != null ? Math.round(targets.net_commission) : null,
+        cost_per_third_party_call: targets.cost_per_third_party_call != null ? Math.round(targets.cost_per_third_party_call) : null,
+        cost_for_an_appraisal: targets.cost_for_an_appraisal != null ? Math.round(targets.cost_for_an_appraisal) : null,
+        how_many_calls: targets.how_many_calls != null ? Math.round(targets.how_many_calls) : null,
+        how_many_appraisals: targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals) : null,
+        total_third_party_calls: targets.total_third_party_calls != null ? Math.round(targets.total_third_party_calls) : null,
+        total_cost_appraisals: targets.total_cost_appraisals != null ? Math.round(targets.total_cost_appraisals) : null
       };
 
       if (targets.id) {
@@ -323,7 +365,13 @@ export function AgentBusinessPlan() {
           salary_per_day: data.salary_per_day != null ? Math.round(data.salary_per_day) : null,
           persons_salary: data.persons_salary != null ? Math.round(data.persons_salary) : null,
           marketing_expenses: data.marketing_expenses != null ? Math.round(data.marketing_expenses) : null,
-          net_commission: data.net_commission != null ? Math.round(data.net_commission) : null
+          net_commission: data.net_commission != null ? Math.round(data.net_commission) : null,
+          cost_per_third_party_call: data.cost_per_third_party_call != null ? Math.round(data.cost_per_third_party_call) : null,
+          cost_for_an_appraisal: data.cost_for_an_appraisal != null ? Math.round(data.cost_for_an_appraisal) : null,
+          how_many_calls: data.how_many_calls != null ? Math.round(data.how_many_calls) : null,
+          how_many_appraisals: data.how_many_appraisals != null ? Math.round(data.how_many_appraisals) : null,
+          total_third_party_calls: data.total_third_party_calls != null ? Math.round(data.total_third_party_calls) : null,
+          total_cost_appraisals: data.total_cost_appraisals != null ? Math.round(data.total_cost_appraisals) : null
         });
       }
 
@@ -377,7 +425,7 @@ export function AgentBusinessPlan() {
       head: [['Field', 'Value']],
       body: [
         ['Type', targets.period_type.charAt(0).toUpperCase() + targets.period_type.slice(1)],
-        ['Working Days', defaultWorkingDays.toString()]
+        ['Working Days per Year', targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A']
       ],
       theme: 'striped',
       styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
@@ -405,7 +453,8 @@ export function AgentBusinessPlan() {
         ['Appraisal to Listing Ratio', targets.appraisal_to_listing_ratio != null ? `${Math.round(targets.appraisal_to_listing_ratio)}%` : 'N/A'],
         ['Listing to Written Ratio', targets.listing_to_written_ratio != null ? `${Math.round(targets.listing_to_written_ratio)}%` : 'N/A'],
         ['Connects for Appraisal', targets.connects_for_appraisal != null ? Math.round(targets.connects_for_appraisal).toLocaleString() : 'N/A'],
-        ['Calls for Connect', targets.calls_for_connect != null ? Math.round(targets.calls_for_connect).toLocaleString() : 'N/A']
+        ['Calls for Connect', targets.calls_for_connect != null ? Math.round(targets.calls_for_connect).toLocaleString() : 'N/A'],
+        ['Working Days per Year', targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A']
       ],
       theme: 'striped',
       styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
@@ -436,14 +485,19 @@ export function AgentBusinessPlan() {
         ['Appraisals', targets.appraisals_target != null ? Math.round(targets.appraisals_target).toLocaleString() : 'N/A'],
         ['Connects for Appraisals', targets.connects_for_appraisals != null ? Math.round(targets.connects_for_appraisals).toLocaleString() : 'N/A'],
         ['Phone Calls to Achieve Appraisals', targets.phone_calls_to_achieve_appraisals != null ? Math.round(targets.phone_calls_to_achieve_appraisals).toLocaleString() : 'N/A'],
-        ['Working Days per Year', targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'],
-        ['Working Days per Month', targets.no_of_working_days_per_month != null ? Math.round(targets.no_of_working_days_per_month).toLocaleString() : 'N/A'],
+        ['Calls per Day', targets.calls_per_day != null ? Math.round(targets.calls_per_day).toLocaleString() : 'N/A'],
         ['Calls per Person', targets.calls_per_person != null ? Math.round(targets.calls_per_person).toLocaleString() : 'N/A'],
         ['Number of People Required', targets.no_of_people_required != null ? Math.round(targets.no_of_people_required).toLocaleString() : 'N/A'],
         ['Salary per Hour', targets.salary_per_hour != null ? `$${Math.round(targets.salary_per_hour).toLocaleString()}` : 'N/A'],
         ['Salary per Day', targets.salary_per_day != null ? `$${Math.round(targets.salary_per_day).toLocaleString()}` : 'N/A'],
-        ['Persons Salary ', targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'],
+        ['Persons Salary', targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'],
         ['Marketing Expenses', targets.marketing_expenses != null ? `$${Math.round(targets.marketing_expenses).toLocaleString()}` : 'N/A'],
+        ['Cost per Third Party Call', targets.cost_per_third_party_call != null ? `$${Math.round(targets.cost_per_third_party_call).toLocaleString()}` : 'N/A'],
+        ['Cost for an Appraisal', targets.cost_for_an_appraisal != null ? `$${Math.round(targets.cost_for_an_appraisal).toLocaleString()}` : 'N/A'],
+        ['How Many Calls', targets.how_many_calls != null ? Math.round(targets.how_many_calls).toLocaleString() : 'N/A'],
+        ['How Many Appraisals', targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals).toLocaleString() : 'N/A'],
+        ['Total Third Party Calls', targets.total_third_party_calls != null ? `$${Math.round(targets.total_third_party_calls).toLocaleString()}` : 'N/A'],
+        ['Total Cost for Appraisals', targets.total_cost_appraisals != null ? `$${Math.round(targets.total_cost_appraisals).toLocaleString()}` : 'N/A'],
         ['Net Commission', targets.net_commission != null ? `$${Math.round(targets.net_commission).toLocaleString()}` : 'N/A']
       ],
       theme: 'striped',
@@ -523,7 +577,7 @@ export function AgentBusinessPlan() {
       connects_for_appraisal: null,
       calls_for_connect: null,
       no_of_working_days_per_year: null,
-      no_of_working_days_per_month: null,
+      calls_per_day: null,
       calls_per_person: null,
       no_of_people_required: null,
       salary_per_hour: null,
@@ -531,6 +585,12 @@ export function AgentBusinessPlan() {
       marketing_expenses: null,
       persons_salary: null,
       net_commission: null,
+      cost_per_third_party_call: null,
+      cost_for_an_appraisal: null,
+      how_many_calls: null,
+      how_many_appraisals: null,
+      total_third_party_calls: null,
+      total_cost_appraisals: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -542,10 +602,12 @@ export function AgentBusinessPlan() {
     { name: 'Settled Sales', value: targets.settled_sales_target ?? 0, fill: '#93C5FD' },
     { name: 'Connects', value: targets.connects_for_appraisals ?? 0, fill: '#BFDBFE' },
     { name: 'Phone Calls', value: targets.phone_calls_to_achieve_appraisals ?? 0, fill: '#DBEAFE' },
+    { name: 'Calls/Day', value: targets.calls_per_day ?? 0, fill: '#1E90FF' },
     { name: 'Gross Commission', value: targets.gross_commission_target ?? 0, fill: '#2563EB' },
-    { name: 'Working Days/Yr', value: targets.no_of_working_days_per_year ?? 0, fill: '#1E40AF' },
-    { name: 'Calls/Person', value:targets. calls_per_person ?? 0, fill: '#1E90FF' },
+    { name: 'Calls/Person', value: targets.calls_per_person ?? 0, fill: '#1E90FF' },
     { name: 'Persons Salary', value: targets.persons_salary ?? 0, fill: '#1D4ED8' },
+    { name: 'Third Party Calls', value: targets.total_third_party_calls ?? 0, fill: '#1E90FF' },
+    { name: 'Total Cost Appraisals', value: targets.total_cost_appraisals ?? 0, fill: '#1D4ED8' },
     { name: 'Net Commission', value: targets.net_commission ?? 0, fill: '#3B82F6' }
   ];
 
@@ -586,7 +648,7 @@ export function AgentBusinessPlan() {
       color: 'bg-blue-500', 
       bgColor: 'bg-blue-100',
       field: 'listings_target',
-      isReadOnly: true
+      isReadOnly: false
     },
     { 
       title: 'Appraisals Target', 
@@ -616,21 +678,12 @@ export function AgentBusinessPlan() {
       isReadOnly: true
     },
     { 
-      title: 'Working Days per Year', 
-      value: targets.no_of_working_days_per_year ?? '', 
-      icon: Calendar, 
+      title: 'Calls per Day', 
+      value: targets.calls_per_day ?? '', 
+      icon: Phone, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
-      field: 'no_of_working_days_per_year',
-      isReadOnly: true
-    },
-    { 
-      title: 'Working Days per Month', 
-      value: targets.no_of_working_days_per_month ?? '', 
-      icon: Calendar, 
-      color: 'bg-blue-600', 
-      bgColor: 'bg-blue-100',
-      field: 'no_of_working_days_per_month',
+      field: 'calls_per_day',
       isReadOnly: true
     },
     { 
@@ -640,7 +693,7 @@ export function AgentBusinessPlan() {
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
       field: 'calls_per_person',
-      isReadOnly: true
+      isReadOnly: false
     },
     { 
       title: 'Number of People Required', 
@@ -649,7 +702,7 @@ export function AgentBusinessPlan() {
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-100',
       field: 'no_of_people_required',
-      isReadOnly: false
+      isReadOnly: true
     },
     { 
       title: 'Salary per Hour', 
@@ -672,7 +725,7 @@ export function AgentBusinessPlan() {
       isReadOnly: true
     },
     { 
-      title: 'Persons Salary ', 
+      title: 'Persons Salary', 
       value: targets.persons_salary ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
@@ -690,6 +743,64 @@ export function AgentBusinessPlan() {
       isCurrency: true,
       field: 'marketing_expenses',
       isReadOnly: false
+    },
+    { 
+      title: 'Cost per Third Party Call', 
+      value: targets.cost_per_third_party_call ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100',
+      isCurrency: true,
+      field: 'cost_per_third_party_call',
+      isReadOnly: false
+    },
+    { 
+      title: 'Cost for an Appraisal', 
+      value: targets.cost_for_an_appraisal ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100',
+      isCurrency: true,
+      field: 'cost_for_an_appraisal',
+      isReadOnly: false
+    },
+    { 
+      title: 'How Many Calls', 
+      value: targets.how_many_calls ?? '', 
+      icon: Phone, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100',
+      field: 'how_many_calls',
+      isReadOnly: false
+    },
+    { 
+      title: 'How Many Appraisals', 
+      value: targets.how_many_appraisals ?? '', 
+      icon: Home, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100',
+      field: 'how_many_appraisals',
+      isReadOnly: false
+    },
+    { 
+      title: 'Total Third Party Calls', 
+      value: targets.total_third_party_calls ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100',
+      isCurrency: true,
+      field: 'total_third_party_calls',
+      isReadOnly: true
+    },
+    { 
+      title: 'Total Cost for Appraisals', 
+      value: targets.total_cost_appraisals ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100',
+      isCurrency: true,
+      field: 'total_cost_appraisals',
+      isReadOnly: true
     },
     { 
       title: 'Net Commission', 
@@ -823,7 +934,7 @@ export function AgentBusinessPlan() {
                         </Disclosure.Button>
                         <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
                           <p><strong>Type:</strong> {targets.period_type.charAt(0).toUpperCase() + targets.period_type.slice(1)}</p>
-                          <p><strong>Working Days:</strong> {targets.period_type === 'weekly' ? 5 : targets.period_type === 'monthly' ? 20 : 240}</p>
+                          <p><strong>Working Days per Year:</strong> {targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'}</p>
                         </Disclosure.Panel>
                       </>
                     )}
@@ -843,6 +954,7 @@ export function AgentBusinessPlan() {
                           <p><strong>Listing to Written Ratio:</strong> {targets.listing_to_written_ratio != null ? `${Math.round(targets.listing_to_written_ratio)}%` : 'N/A'}</p>
                           <p><strong>Connects for Appraisal:</strong> {targets.connects_for_appraisal != null ? Math.round(targets.connects_for_appraisal).toLocaleString() : 'N/A'}</p>
                           <p><strong>Calls for Connect:</strong> {targets.calls_for_connect != null ? Math.round(targets.calls_for_connect).toLocaleString() : 'N/A'}</p>
+                          <p><strong>Working Days per Year:</strong> {targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'}</p>
                         </Disclosure.Panel>
                       </>
                     )}
@@ -864,14 +976,19 @@ export function AgentBusinessPlan() {
                           <p><strong>Appraisals:</strong> {targets.appraisals_target != null ? Math.round(targets.appraisals_target).toLocaleString() : 'N/A'}</p>
                           <p><strong>Connects for Appraisals:</strong> {targets.connects_for_appraisals != null ? Math.round(targets.connects_for_appraisals).toLocaleString() : 'N/A'}</p>
                           <p><strong>Phone Calls to Achieve Appraisals:</strong> {targets.phone_calls_to_achieve_appraisals != null ? Math.round(targets.phone_calls_to_achieve_appraisals).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Working Days per Year:</strong> {targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'}</p>
-                          <p><strong>Working Days per Month:</strong> {targets.no_of_working_days_per_month != null ? Math.round(targets.no_of_working_days_per_month).toLocaleString() : 'N/A'}</p>
+                          <p><strong>Calls per Day:</strong> {targets.calls_per_day != null ? Math.round(targets.calls_per_day).toLocaleString() : 'N/A'}</p>
                           <p><strong>Calls per Person:</strong> {targets.calls_per_person != null ? Math.round(targets.calls_per_person).toLocaleString() : 'N/A'}</p>
                           <p><strong>Number of People Required:</strong> {targets.no_of_people_required != null ? Math.round(targets.no_of_people_required).toLocaleString() : 'N/A'}</p>
                           <p><strong>Salary per Hour:</strong> {targets.salary_per_hour != null ? `$${Math.round(targets.salary_per_hour).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Salary per Day:</strong> {targets.salary_per_day != null ? `$${Math.round(targets.salary_per_day).toLocaleString()}` : 'N/A'}</p>
-                          <p><strong>Persons Salary (Yearly):</strong> {targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Persons Salary:</strong> {targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Marketing Expenses:</strong> {targets.marketing_expenses != null ? `$${Math.round(targets.marketing_expenses).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Cost per Third Party Call:</strong> {targets.cost_per_third_party_call != null ? `$${Math.round(targets.cost_per_third_party_call).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Cost for an Appraisal:</strong> {targets.cost_for_an_appraisal != null ? `$${Math.round(targets.cost_for_an_appraisal).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>How Many Calls:</strong> {targets.how_many_calls != null ? Math.round(targets.how_many_calls).toLocaleString() : 'N/A'}</p>
+                          <p><strong>How Many Appraisals:</strong> {targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals).toLocaleString() : 'N/A'}</p>
+                          <p><strong>Total Third Party Calls:</strong> {targets.total_third_party_calls != null ? `$${Math.round(targets.total_third_party_calls).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Total Cost for Appraisals:</strong> {targets.total_cost_appraisals != null ? `$${Math.round(targets.total_cost_appraisals).toLocaleString()}` : 'N/A'}</p>
                           <p><strong>Net Commission:</strong> {targets.net_commission != null ? `$${Math.round(targets.net_commission).toLocaleString()}` : 'N/A'}</p>
                         </Disclosure.Panel>
                       </>
@@ -1003,6 +1120,15 @@ export function AgentBusinessPlan() {
               suffix=""
               tooltip="Number of calls required to achieve one connect"
             />
+            <RatioInput
+              label="Working Days per Year"
+              value={targets.no_of_working_days_per_year ?? ''}
+              onChange={(value) => setTargets({ ...targets, no_of_working_days_per_year: value })}
+              min={0}
+              step={1}
+              suffix=""
+              tooltip="Number of working days in a year"
+            />
           </div>
         </motion.div>
 
@@ -1035,23 +1161,26 @@ export function AgentBusinessPlan() {
                       <span className="text-blue-700">{card.title}</span>
                     </td>
                     <td className="p-3">
-                      <input
-                        type="number"
-                        min="0"
-                        step={card.isCurrency ? "1" : "1"}
-                        value={card.value}
-                        onChange={(e) => {
-                          if (card.isReadOnly) return;
-                          const value = parseFloat(e.target.value) || null;
-                          setTargets(prev => ({
-                            ...prev,
-                            [card.field as keyof BusinessPlanTargets]: value
-                          }));
-                        }}
-                        disabled={card.isReadOnly}
-                        className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 disabled:bg-blue-200 disabled:cursor-not-allowed"
-                        placeholder={`Enter ${card.title.toLowerCase()}`}
-                      />
+                      <div className="flex items-center">
+                        {card.isCurrency && <span className="mr-1">$</span>}
+                        <input
+                          type="number"
+                          min="0"
+                          step={card.isCurrency ? "1" : "1"}
+                          value={card.value}
+                          onChange={(e) => {
+                            if (card.isReadOnly) return;
+                            const value = parseFloat(e.target.value) || null;
+                            setTargets(prev => ({
+                              ...prev,
+                              [card.field as keyof BusinessPlanTargets]: value
+                            }));
+                          }}
+                          disabled={card.isReadOnly}
+                          className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 disabled:bg-blue-200 disabled:cursor-not-allowed"
+                          placeholder={`Enter ${card.title.toLowerCase()}`}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1125,12 +1254,12 @@ export function AgentBusinessPlan() {
                   yAxisId="right" 
                   orientation="right" 
                   stroke="#2563EB" 
-                  domain={[0, dataMax => Math.max((targets.gross_commission_target ?? 0) * 1.3, (targets.net_commission ?? 0) * 1.3, (targets.persons_salary ?? 0) * 1.3, 1000)]}
+                  domain={[0, dataMax => Math.max((targets.gross_commission_target ?? 0) * 1.3, (targets.net_commission ?? 0) * 1.3, (targets.persons_salary ?? 0) * 1.3, (targets.total_third_party_calls ?? 0) * 1.3, (targets.total_cost_appraisals ?? 0) * 1.3, 1000)]}
                 />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderRadius: 4 }}
                   formatter={(value: number, name: string) => [
-                    name === 'Gross Commission' || name === 'Persons Salary' || name === 'Net Commission' 
+                    name === 'Gross Commission' || name === 'Persons Salary' || name === 'Net Commission' || name === 'Third Party Calls' || name === 'Total Cost Appraisals'
                       ? `$${Math.round(value).toLocaleString()}` 
                       : Math.round(value).toLocaleString(),
                     name
@@ -1158,6 +1287,26 @@ export function AgentBusinessPlan() {
                   />
                 </Bar>
                 <Bar yAxisId="right" dataKey="value" name="Persons Salary" fill="#1D4ED8" data={chartData.filter(d => d.name === 'Persons Salary')}>
+                  <LabelList 
+                    dataKey="value" 
+                    position="top" 
+                    formatter={(value: number) => (value != null ? `$${Math.round(value).toLocaleString()}` : 'N/A')} 
+                    fill="#1D4ED8"
+                    fontSize={10}
+                    offset={8}
+                  />
+                </Bar>
+                <Bar yAxisId="right" dataKey="value" name="Third Party Calls" fill="#1E90FF" data={chartData.filter(d => d.name === 'Third Party Calls')}>
+                  <LabelList 
+                    dataKey="value" 
+                    position="top" 
+                    formatter={(value: number) => (value != null ? `$${Math.round(value).toLocaleString()}` : 'N/A')} 
+                    fill="#1E90FF"
+                    fontSize={10}
+                    offset={8}
+                  />
+                </Bar>
+                <Bar yAxisId="right" dataKey="value" name="Total Cost Appraisals" fill="#1D4ED8" data={chartData.filter(d => d.name === 'Total Cost Appraisals')}>
                   <LabelList 
                     dataKey="value" 
                     position="top" 

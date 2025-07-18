@@ -27,6 +27,7 @@ import 'jspdf-autotable';
 interface BusinessPlanTargets {
   id?: string;
   agent_id: string;
+  agent_name?: string;
   period_type: 'daily' | 'weekly' | 'monthly' | 'yearly';
   appraisals_target: number | null;
   listings_target: number | null;
@@ -54,6 +55,13 @@ interface BusinessPlanTargets {
   how_many_appraisals: number | null;
   total_third_party_calls: number | null;
   total_cost_appraisals: number | null;
+  avg_commission_price_per_property: number | null;
+  franchise_fee: number | null;
+  commission_average: number | null;
+  agent_percentage: number | null;
+  business_percentage: number | null;
+  agent_commission: number | null;
+  business_commission: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -82,24 +90,30 @@ const RatioInput: React.FC<RatioInputProps> = ({
       <span className="text-sm font-medium text-blue-800">{label}</span>
       <span className="text-sm text-blue-600">{value ? `${suffix === '%' ? Math.round(Number(value)) : Number(value).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 })} ${suffix}` : 'N/A'}</span>
     </div>
-    <input
-      type="number"
-      min={min}
-      step={step}
-      value={value}
-      onChange={(e) => onChange(parseFloat(e.target.value) || null)}
-      className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800"
-    />
+    <div className="relative">
+      <input
+        type="number"
+        min={min}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value) || null)}
+        className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 pr-8"
+      />
+      {suffix === '%' && (
+        <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-600">%</span>
+      )}
+    </div>
     <div className="absolute z-10 hidden group-hover:block bg-blue-800 text-white text-xs rounded py-2 px-4 -top-10 left-1/2 transform -translate-x-1/2 w-64">
       {tooltip}
     </div>
   </div>
 );
 
-export function AgentBusinessPlan() {
+export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const { user } = useAuthStore();
   const [targets, setTargets] = useState<BusinessPlanTargets>({
     agent_id: user?.id || '',
+    agent_name: isAdmin ? '' : user?.name || '', // Default to user.name for agent dashboard
     period_type: 'yearly',
     appraisals_target: null,
     listings_target: null,
@@ -127,6 +141,13 @@ export function AgentBusinessPlan() {
     how_many_appraisals: null,
     total_third_party_calls: null,
     total_cost_appraisals: null,
+    avg_commission_price_per_property: null,
+    franchise_fee: null,
+    commission_average: null,
+    agent_percentage: null,
+    business_percentage: null,
+    agent_commission: null,
+    business_commission: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
@@ -138,10 +159,17 @@ export function AgentBusinessPlan() {
   const [pdfDataUri, setPdfDataUri] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user?.id) {
-      fetchBusinessPlan();
-    }
-  }, [user?.id]);
+  // Only update agent_name if we're in agent mode and user.name exists
+  if (!isAdmin && user?.name) {
+    setTargets(prev => {
+      // Only update if the name is different to prevent infinite loops
+      if (prev.agent_name !== user.name) {
+        return { ...prev, agent_name: user.name };
+      }
+      return prev;
+    });
+  }
+}, [user?.name, isAdmin]);
 
   useEffect(() => {
     const { 
@@ -158,7 +186,11 @@ export function AgentBusinessPlan() {
       marketing_expenses,
       cost_per_third_party_call,
       how_many_calls,
-      how_many_appraisals
+      how_many_appraisals,
+      avg_commission_price_per_property,
+      franchise_fee,
+      agent_percentage,
+      business_percentage
     } = targets;
 
     let settled_sales_target: number | null = null;
@@ -173,40 +205,52 @@ export function AgentBusinessPlan() {
     let net_commission: number | null = null;
     let total_third_party_calls: number | null = null;
     let total_cost_appraisals: number | null = null;
+    let commission_average: number | null = null;
+    let agent_commission: number | null = null;
+    let business_commission: number | null = null;
+
+    // Calculate commission average
+    if (avg_commission_price_per_property != null && franchise_fee != null) {
+      commission_average = Math.round(avg_commission_price_per_property * (1 - franchise_fee / 100));
+    }
+
+    // Calculate agent and business commissions
+    if (commission_average != null && agent_percentage != null && business_percentage != null) {
+      agent_commission = Math.round(commission_average * (agent_percentage / 100));
+      business_commission = Math.round(commission_average * (business_percentage / 100));
+    }
+
+    // Set avg_commission_per_sale to agent_commission
+    const avg_commission_per_sale_updated = agent_commission;
 
     // Calculate settled sales target
-    if (gross_commission_target != null && avg_commission_per_sale != null && avg_commission_per_sale > 0) {
-      settled_sales_target = Math.round(gross_commission_target / avg_commission_per_sale);
+    if (gross_commission_target != null && avg_commission_per_sale_updated != null && avg_commission_per_sale_updated > 0) {
+      settled_sales_target = Math.round(gross_commission_target / avg_commission_per_sale_updated);
     }
 
-    // Calculate listings target
-    if (settled_sales_target != null && appraisal_to_listing_ratio != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
-      const fallOverFactor = fall_over_rate != null && fall_over_rate > 0 ? (1 + fall_over_rate / 100) : 1;
-      listings_target = Math.round((appraisal_to_listing_ratio / listing_to_written_ratio) * settled_sales_target * 10 * fallOverFactor);
-    }
+    
 
-      // Calculate listings target
+    // Calculate listings target (alternative)
     if (settled_sales_target != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
       const fallOverFactor = fall_over_rate != null && fall_over_rate > 0 ? (1 + fall_over_rate / 100) : 1;
-      listings_target = Math.round(settled_sales_target  * fallOverFactor);
-  }
+      listings_target = Math.round(settled_sales_target * fallOverFactor);
+    }
 
-  // Calculate appraisals target
-  if (listings_target != null && appraisal_to_listing_ratio != null && appraisal_to_listing_ratio > 0) {
-    const fallOverFactor = fall_over_rate != null && fall_over_rate > 0 ? (1 + fall_over_rate / 100) : 1;
-    appraisals_target = Math.round(listings_target / (appraisal_to_listing_ratio / 100)* fallOverFactor);
-  }
+    // Calculate appraisals target
+    if (listings_target != null && appraisal_to_listing_ratio != null && appraisal_to_listing_ratio > 0) {
+      const fallOverFactor = fall_over_rate != null && fall_over_rate > 0 ? (1 + fall_over_rate / 100) : 1;
+      appraisals_target = Math.round(listings_target / (appraisal_to_listing_ratio / 100) * fallOverFactor);
+    }
 
-  // Calculate connects for appraisals
-  if (appraisals_target != null && connects_for_appraisal != null) {
-    connects_for_appraisals = Math.round(appraisals_target * connects_for_appraisal);
-  }
+    // Calculate connects for appraisals
+    if (appraisals_target != null && connects_for_appraisal != null) {
+      connects_for_appraisals = Math.round(appraisals_target * connects_for_appraisal);
+    }
 
-  // Calculate phone calls to achieve appraisals
-  if (connects_for_appraisals != null && calls_for_connect != null) {
-    phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
-  }
-
+    // Calculate phone calls to achieve appraisals
+    if (connects_for_appraisals != null && calls_for_connect != null) {
+      phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
+    }
 
     // Calculate calls per day
     if (phone_calls_to_achieve_appraisals != null && no_of_working_days_per_year != null && no_of_working_days_per_year > 0) {
@@ -239,7 +283,7 @@ export function AgentBusinessPlan() {
     }
 
     // Calculate net commission
-    if (gross_commission_target != null && marketing_expenses != null && persons_salary != null ) {
+    if (gross_commission_target != null && marketing_expenses != null && persons_salary != null) {
       net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary);
     }
 
@@ -256,7 +300,11 @@ export function AgentBusinessPlan() {
       persons_salary,
       total_third_party_calls,
       total_cost_appraisals,
-      net_commission
+      net_commission,
+      commission_average,
+      agent_commission,
+      business_commission,
+      avg_commission_per_sale: avg_commission_per_sale_updated
     }));
   }, [
     targets.gross_commission_target,
@@ -272,7 +320,11 @@ export function AgentBusinessPlan() {
     targets.marketing_expenses,
     targets.cost_per_third_party_call,
     targets.how_many_calls,
-    targets.how_many_appraisals
+    targets.how_many_appraisals,
+    targets.avg_commission_price_per_property,
+    targets.franchise_fee,
+    targets.agent_percentage,
+    targets.business_percentage
   ]);
 
   const fetchBusinessPlan = async () => {
@@ -295,6 +347,8 @@ export function AgentBusinessPlan() {
       if (data) {
         setTargets({
           ...data,
+          
+          agent_name: isAdmin ? data.agent_name || '' : user?.name || '',
           gross_commission_target: data.gross_commission_target != null ? Math.round(data.gross_commission_target) : null,
           avg_commission_per_sale: data.avg_commission_per_sale != null ? Math.round(data.avg_commission_per_sale) : null,
           salary_per_hour: data.salary_per_hour != null ? Math.round(data.salary_per_hour) : null,
@@ -306,9 +360,24 @@ export function AgentBusinessPlan() {
           how_many_calls: data.how_many_calls != null ? Math.round(data.how_many_calls) : null,
           how_many_appraisals: data.how_many_appraisals != null ? Math.round(data.how_many_appraisals) : null,
           total_third_party_calls: data.total_third_party_calls != null ? Math.round(data.total_third_party_calls) : null,
-          total_cost_appraisals: data.total_cost_appraisals != null ? Math.round(data.total_cost_appraisals) : null
+          total_cost_appraisals: data.total_cost_appraisals != null ? Math.round(data.total_cost_appraisals) : null,
+          avg_commission_price_per_property: data.avg_commission_price_per_property != null ? Math.round(data.avg_commission_price_per_property) : null,
+          franchise_fee: data.franchise_fee != null ? Math.round(data.franchise_fee) : null,
+          commission_average: data.commission_average != null ? Math.round(data.commission_average) : null,
+          agent_percentage: data.agent_percentage != null ? Math.round(data.agent_percentage) : null,
+          business_percentage: data.business_percentage != null ? Math.round(data.business_percentage) : null,
+          agent_commission: data.agent_commission != null ? Math.round(data.agent_commission) : null,
+          business_commission: data.business_commission != null ? Math.round(data.business_commission) : null
         });
-      }
+      }else if (!isAdmin && user?.name) {
+      // If no data exists, ensure agent name is set from user
+      setTargets(prev => ({
+        ...prev,
+        agent_id: isAdmin ? prev.agent_id : user.id,
+        agent_name: isAdmin ? prev.agent_name : user?.name || ''
+        // agent_name: user.name
+      }));
+    }
     } catch (error) {
       console.error('Error fetching business plan:', error);
       toast.error('Failed to load business plan');
@@ -318,15 +387,16 @@ export function AgentBusinessPlan() {
   };
 
   const saveBusinessPlan = async () => {
-    if (!user?.id) return;
+    if (!user?.id && !isAdmin) return;
+    
 
     setSaving(true);
     try {
       const planData = {
         ...targets,
-        agent_id: user.id,
+        agent_id: isAdmin ? targets.agent_id : user?.id,
         updated_at: new Date().toISOString(),
-        gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) :null,
+        gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) : null,
         avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(targets.avg_commission_per_sale) : null,
         salary_per_hour: targets.salary_per_hour != null ? Math.round(targets.salary_per_hour) : null,
         salary_per_day: targets.salary_per_day != null ? Math.round(targets.salary_per_day) : null,
@@ -337,7 +407,14 @@ export function AgentBusinessPlan() {
         how_many_calls: targets.how_many_calls != null ? Math.round(targets.how_many_calls) : null,
         how_many_appraisals: targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals) : null,
         total_third_party_calls: targets.total_third_party_calls != null ? Math.round(targets.total_third_party_calls) : null,
-        total_cost_appraisals: targets.total_cost_appraisals != null ? Math.round(targets.total_cost_appraisals) : null
+        total_cost_appraisals: targets.total_cost_appraisals != null ? Math.round(targets.total_cost_appraisals) : null,
+        avg_commission_price_per_property: targets.avg_commission_price_per_property != null ? Math.round(targets.avg_commission_price_per_property) : null,
+        franchise_fee: targets.franchise_fee != null ? Math.round(targets.franchise_fee) : null,
+        commission_average: targets.commission_average != null ? Math.round(targets.commission_average) : null,
+        agent_percentage: targets.agent_percentage != null ? Math.round(targets.agent_percentage) : null,
+        business_percentage: targets.business_percentage != null ? Math.round(targets.business_percentage) : null,
+        agent_commission: targets.agent_commission != null ? Math.round(targets.agent_commission) : null,
+        business_commission: targets.business_commission != null ? Math.round(targets.business_commission) : null
       };
 
       if (targets.id) {
@@ -357,6 +434,7 @@ export function AgentBusinessPlan() {
         if (error) throw error;
         setTargets({
           ...data,
+          agent_name: isAdmin ? data.agent_name || '' : user?.name || 'Unknown Agent',
           gross_commission_target: data.gross_commission_target != null ? Math.round(data.gross_commission_target) : null,
           avg_commission_per_sale: data.avg_commission_per_sale != null ? Math.round(data.avg_commission_per_sale) : null,
           salary_per_hour: data.salary_per_hour != null ? Math.round(data.salary_per_hour) : null,
@@ -368,7 +446,14 @@ export function AgentBusinessPlan() {
           how_many_calls: data.how_many_calls != null ? Math.round(data.how_many_calls) : null,
           how_many_appraisals: data.how_many_appraisals != null ? Math.round(data.how_many_appraisals) : null,
           total_third_party_calls: data.total_third_party_calls != null ? Math.round(data.total_third_party_calls) : null,
-          total_cost_appraisals: data.total_cost_appraisals != null ? Math.round(data.total_cost_appraisals) : null
+          total_cost_appraisals: data.total_cost_appraisals != null ? Math.round(data.total_cost_appraisals) : null,
+          avg_commission_price_per_property: data.avg_commission_price_per_property != null ? Math.round(data.avg_commission_price_per_property) : null,
+          franchise_fee: data.franchise_fee != null ? Math.round(data.franchise_fee) : null,
+          commission_average: data.commission_average != null ? Math.round(data.commission_average) : null,
+          agent_percentage: data.agent_percentage != null ? Math.round(data.agent_percentage) : null,
+          business_percentage: data.business_percentage != null ? Math.round(data.business_percentage) : null,
+          agent_commission: data.agent_commission != null ? Math.round(data.agent_commission) : null,
+          business_commission: data.business_commission != null ? Math.round(data.business_commission) : null
         });
       }
 
@@ -405,6 +490,30 @@ export function AgentBusinessPlan() {
     doc.text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth - margin - 45, yOffset + 7);
     yOffset += 25;
 
+    // Agent Information
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setFillColor(219, 234, 254);
+    doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+    doc.text('Agent Information', margin + 3, yOffset + 5);
+    yOffset += 10;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.autoTable({
+      startY: yOffset,
+      head: [['Field', 'Value']],
+      body: [
+        ['Agent Name', targets.agent_name || 'N/A']
+      ],
+      theme: 'striped',
+      styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 50, halign: 'left' }, 1: { cellWidth: 90, halign: 'center' } },
+      margin: { left: margin, right: margin }
+    });
+    yOffset = doc.lastAutoTable.finalY + 10;
+
     // Period Configuration
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(9);
@@ -423,6 +532,36 @@ export function AgentBusinessPlan() {
       body: [
         ['Type', targets.period_type.charAt(0).toUpperCase() + targets.period_type.slice(1)],
         ['Working Days per Year', targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A']
+      ],
+      theme: 'striped',
+      styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [59, 130, 246], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 50, halign: 'left' }, 1: { cellWidth: 90, halign: 'center' } },
+      margin: { left: margin, right: margin }
+    });
+    yOffset = doc.lastAutoTable.finalY + 10;
+
+    // Commission Structure
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setFillColor(219, 234, 254);
+    doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+    doc.text('Commission Structure', margin + 3, yOffset + 5);
+    yOffset += 10;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.autoTable({
+      startY: yOffset,
+      head: [['Field', 'Value']],
+      body: [
+        ['Average Commission Price per Property', targets.avg_commission_price_per_property != null ? `$${Math.round(targets.avg_commission_price_per_property).toLocaleString()}` : 'N/A'],
+        ['Franchise Fee', targets.franchise_fee != null ? `${Math.round(targets.franchise_fee)}%` : 'N/A'],
+        ['Commission Average', targets.commission_average != null ? `$${Math.round(targets.commission_average).toLocaleString()}` : 'N/A'],
+        ['Agent Percentage', targets.agent_percentage != null ? `${Math.round(targets.agent_percentage)}%` : 'N/A'],
+        ['Business Percentage', targets.business_percentage != null ? `${Math.round(targets.business_percentage)}%` : 'N/A'],
+        ['Agent Commission', targets.agent_commission != null ? `$${Math.round(targets.agent_commission).toLocaleString()}` : 'N/A'],
+        ['Business Commission', targets.business_commission != null ? `$${Math.round(targets.business_commission).toLocaleString()}` : 'N/A']
       ],
       theme: 'striped',
       styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
@@ -560,6 +699,7 @@ export function AgentBusinessPlan() {
   const resetToDefaults = () => {
     setTargets({
       agent_id: user?.id || '',
+      agent_name: isAdmin ? '' : user?.name || 'Unknown Agent',
       period_type: 'yearly',
       appraisals_target: null,
       listings_target: null,
@@ -587,6 +727,13 @@ export function AgentBusinessPlan() {
       how_many_appraisals: null,
       total_third_party_calls: null,
       total_cost_appraisals: null,
+      avg_commission_price_per_property: null,
+      franchise_fee: null,
+      commission_average: null,
+      agent_percentage: null,
+      business_percentage: null,
+      agent_commission: null,
+      business_commission: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -605,7 +752,9 @@ export function AgentBusinessPlan() {
     { name: 'Persons Salary', value: targets.persons_salary, fill: '#1D4ED8' },
     { name: 'Third Party Calls', value: targets.total_third_party_calls, fill: '#1E90FF' },
     { name: 'Total Cost Appraisals', value: targets.total_cost_appraisals, fill: '#1D4ED8' },
-    { name: 'Net Commission', value: targets.net_commission, fill: '#3B82F6' }
+    { name: 'Net Commission', value: targets.net_commission, fill: '#3B82F6' },
+    { name: 'Agent Commission', value: targets.agent_commission, fill: '#10B981' },
+    { name: 'Business Commission', value: targets.business_commission, fill: '#F59E0B' }
   ];
 
   const targetCards = [
@@ -627,7 +776,7 @@ export function AgentBusinessPlan() {
       bgColor: 'bg-blue-100', 
       isCurrency: true,
       field: 'avg_commission_per_sale',
-      isReadOnly: false
+      isReadOnly: true
     },
     { 
       title: 'Settled Sales Target', 
@@ -683,7 +832,6 @@ export function AgentBusinessPlan() {
       field: 'calls_per_day',
       isReadOnly: true
     },
-    
     { 
       title: 'Calls per Person', 
       value: targets.calls_per_person ?? '', 
@@ -802,6 +950,82 @@ export function AgentBusinessPlan() {
     }
   ];
 
+  const commissionCards = [
+    { 
+      title: 'Average Commission Price per Property', 
+      value: targets.avg_commission_price_per_property ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: true,
+      field: 'avg_commission_price_per_property',
+      isReadOnly: false
+    },
+    { 
+      title: 'Franchise Fee', 
+      value: targets.franchise_fee ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: false,
+      field: 'franchise_fee',
+      isReadOnly: false,
+      isPercentage: true
+    },
+    { 
+      title: 'Commission Average', 
+      value: targets.commission_average ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: true,
+      field: 'commission_average',
+      isReadOnly: true
+    },
+    { 
+      title: 'Agent Percentage', 
+      value: targets.agent_percentage ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: false,
+      field: 'agent_percentage',
+      isReadOnly: false,
+      isPercentage: true
+    },
+    { 
+      title: 'Business Percentage', 
+      value: targets.business_percentage ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: false,
+      field: 'business_percentage',
+      isReadOnly: false,
+      isPercentage: true
+    },
+    { 
+      title: 'Agent Commission', 
+      value: targets.agent_commission ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: true,
+      field: 'agent_commission',
+      isReadOnly: true
+    },
+    { 
+      title: 'Business Commission', 
+      value: targets.business_commission ?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-100', 
+      isCurrency: true,
+      field: 'business_commission',
+      isReadOnly: true
+    }
+  ];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -915,6 +1139,21 @@ export function AgentBusinessPlan() {
                     {({ open }) => (
                       <>
                         <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
+                          <span>Agent Information</span>
+                          <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </Disclosure.Button>
+                        <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
+                          <p><strong>Agent Name:</strong> {targets.agent_name || 'N/A'}</p>
+                        </Disclosure.Panel>
+                      </>
+                    )}
+                  </Disclosure>
+                  <Disclosure defaultOpen>
+                    {({ open }) => (
+                      <>
+                        <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
                           <span>Period Configuration</span>
                           <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -923,6 +1162,27 @@ export function AgentBusinessPlan() {
                         <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
                           <p><strong>Type:</strong> {targets.period_type.charAt(0).toUpperCase() + targets.period_type.slice(1)}</p>
                           <p><strong>Working Days per Year:</strong> {targets.no_of_working_days_per_year != null ? Math.round(targets.no_of_working_days_per_year).toLocaleString() : 'N/A'}</p>
+                        </Disclosure.Panel>
+                      </>
+                    )}
+                  </Disclosure>
+                  <Disclosure defaultOpen>
+                    {({ open }) => (
+                      <>
+                        <Disclosure.Button className="flex justify-between w-full px-4 py-2 text-sm font-medium text-left text-blue-900 bg-blue-100 rounded-lg hover:bg-blue-200 focus:outline-none">
+                          <span>Commission Structure</span>
+                          <svg className={`${open ? 'transform rotate-180' : ''} w-5 h-5 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </Disclosure.Button>
+                        <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-blue-700">
+                          <p><strong>Average Commission Price per Property:</strong> {targets.avg_commission_price_per_property != null ? `$${Math.round(targets.avg_commission_price_per_property).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Franchise Fee:</strong> {targets.franchise_fee != null ? `${Math.round(targets.franchise_fee)}%` : 'N/A'}</p>
+                          <p><strong>Commission Average:</strong> {targets.commission_average != null ? `$${Math.round(targets.commission_average).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Agent Percentage:</strong> {targets.agent_percentage != null ? `${Math.round(targets.agent_percentage)}%` : 'N/A'}</p>
+                          <p><strong>Business Percentage:</strong> {targets.business_percentage != null ? `${Math.round(targets.business_percentage)}%` : 'N/A'}</p>
+                          <p><strong>Agent Commission:</strong> {targets.agent_commission != null ? `$${Math.round(targets.agent_commission).toLocaleString()}` : 'N/A'}</p>
+                          <p><strong>Business Commission:</strong> {targets.business_commission != null ? `$${Math.round(targets.business_commission).toLocaleString()}` : 'N/A'}</p>
                         </Disclosure.Panel>
                       </>
                     )}
@@ -1004,7 +1264,7 @@ export function AgentBusinessPlan() {
                 <button
                   onClick={downloadPlan}
                   disabled={generating}
-                  className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-400"
+                  className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
                 >
                   <Download className="w-4 h-4 mr-2" />
                   {generating ? 'Generating PDF...' : 'Download PDF'}
@@ -1023,6 +1283,115 @@ export function AgentBusinessPlan() {
             </div>
           </div>
         )}
+
+        {/* Agent Information */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+        >
+          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
+            <FileText className="w-5 h-5 mr-2 text-blue-600" />
+            Agent Information
+          </h2>
+          <div className="grid grid-cols-1 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-blue-700 mb-2">Agent Name</label>
+              <input
+                type="text"
+                value={targets.agent_name || ''}
+                onChange={(e) => setTargets({ ...targets, agent_name: e.target.value })}
+                disabled={!isAdmin  && !!user?.name} // Only disabled in agent dashboard
+                className={`w-full px-4 py-3 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 ${!isAdmin ? 'bg-blue-200 cursor-not-allowed' : ''}`}
+                placeholder="Enter agent name"
+              />
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Period Selector */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+        >
+          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
+            <Calendar className="w-5 h-5 mr-2 text-blue-600" />
+            Period Configuration
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-blue-700 mb-2">Target Period</label>
+              <select
+                value={targets.period_type}
+                onChange={(e) => setTargets({ ...targets, period_type: e.target.value as 'daily' | 'weekly' | 'monthly' | 'yearly' })}
+                className="w-full px-4 py-3 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800"
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Commission Structure */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+        >
+          <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
+            <DollarSign className="w-5 h-5 mr-2 text-blue-600" />
+            Commission Structure
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-blue-100">
+                  <th className="p-3 border-b text-green-700">Commission Metric</th>
+                  <th className="p-3 border-b text-green-700">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {commissionCards.map((card) => (
+                  <tr key={card.title} className="border-b hover:bg-green-50">
+                    <td className="p-3 flex items-center">
+                      <div className={`${card.color} p-2 rounded-lg text-white mr-2`}>
+                        <card.icon className="w-5 h-5" />
+                      </div>
+                      <span className="text-green-700">{card.title}</span>
+                    </td>
+                    <td className="p-3">
+                      {card.isReadOnly ? (
+                        <span className="text-green-700">
+                          {card.value != null 
+                            ? `${card.isCurrency ? '$' : ''}${Math.round(Number(card.value)).toLocaleString()}${!card.isCurrency && card.title.includes('Percentage') ? '%' : ''}` 
+                            : 'N/A'}
+                        </span>
+                      ) : (
+                        <input
+                          type="number"
+                          min="0"
+                          step={card.isCurrency ? "100" : "1"}
+                          value={card.value || ''}
+                          onChange={(e) => {
+                            const value = parseFloat(e.target.value) || null;
+                            setTargets({ ...targets, [card.field]: value });
+                          }}
+                          className="w-full px-3 py-2 border border-green-300 rounded-lg focus:ring-green-500 focus:border-green-600 bg-green-50 text-green-800"
+                          placeholder={`Enter ${card.title.toLowerCase()}`}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
 
         {/* Period Selector */}
         <motion.div

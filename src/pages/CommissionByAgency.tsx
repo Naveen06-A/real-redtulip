@@ -29,6 +29,8 @@ import {
   ChevronUp,
   Pencil,
   ArrowLeft,
+  X,
+  Search,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate } from 'react-router-dom';
@@ -114,10 +116,9 @@ interface AgentCommission {
   property_id: string;
   agent_name: string;
   commission_rate: number;
-
 }
 
-// Normalization functions
+// Normalization functions (unchanged)
 const normalizeAgencyName = (name: string | null | undefined): string => {
   if (!name) return 'Unknown';
   return name
@@ -138,10 +139,8 @@ const normalizeAgentName = (name: string | null | undefined): string => {
     .join(' ');
 };
 
-
 const normalizeSuburbName = (name: string | null | undefined): string => {
   if (!name) return 'Unknown';
-  // Split by spaces or hyphens, capitalize first letter of each word, join back
   return name
     .trim()
     .toUpperCase()
@@ -149,41 +148,32 @@ const normalizeSuburbName = (name: string | null | undefined): string => {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 };
+
 const calculateCommission = (
   property: PropertyDetails,
   agentCommissions: AgentCommission[]
 ): { commissionEarned: number; commissionRate: number } => {
-  // Default values
   let commissionEarned = 0;
   let commissionRate = property.commission || 0;
-
-  // Determine the price to use (sold_price for sold properties, price for listed)
   const price = property.sold_price && (property.contract_status === 'sold' || property.sold_date)
     ? property.sold_price
     : property.price || 0;
-
-  // Find agent-specific commission rate if available
   const agentCommission = agentCommissions.find(
     (ac) => ac.property_id === property.id && ac.agent_name === property.agent_name
   );
   if (agentCommission?.commission_rate) {
     commissionRate = agentCommission.commission_rate;
   }
-
-  // Calculate commission if price and commission rate are valid
   if (price > 0 && commissionRate > 0) {
     commissionEarned = price * (commissionRate / 100);
   }
-
   return {
     commissionEarned: isNaN(commissionEarned) ? 0 : commissionEarned,
     commissionRate: isNaN(commissionRate) ? 0 : commissionRate,
   };
 };
 
-// ... (Imports, interfaces, and helper functions remain unchanged as provided in the original code)
-
-// CollapsibleSection and ProgressBar components remain unchanged
+// CollapsibleSection and ProgressBar components (unchanged)
 const CollapsibleSection: React.FC<{
   title: string;
   children: React.ReactNode;
@@ -244,12 +234,78 @@ const ProgressBar: React.FC<{ value: number; label: string; maxValue: number }> 
   );
 };
 
+// Custom MultiSelect component
+const MultiSelect: React.FC<{
+  options: string[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  placeholder: string;
+}> = ({ options, selected, onChange, placeholder }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const toggleOption = (option: string) => {
+    if (selected.includes(option)) {
+      onChange(selected.filter((item) => item !== option));
+    } else {
+      onChange([...selected, option]);
+    }
+  };
+
+  return (
+    <div className="relative w-full">
+      <motion.button
+        type="button"
+        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-left text-sm text-gray-700 flex justify-between items-center hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        onClick={() => setIsOpen(!isOpen)}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <span>{selected.length > 0 ? `${selected.length} selected` : placeholder}</span>
+        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </motion.button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+          >
+            {options.map((option) => (
+              <motion.div
+                key={option}
+                className={`px-4 py-2 text-sm cursor-pointer hover:bg-indigo-50 flex items-center ${
+                  selected.includes(option) ? 'bg-indigo-100 text-indigo-700' : 'text-gray-700'
+                }`}
+                onClick={() => toggleOption(option)}
+                whileHover={{ backgroundColor: '#EEF2FF' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(option)}
+                  onChange={() => {}}
+                  className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+                />
+                {option}
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 function CommissionByAgency() {
-  // State declarations (unchanged, including agentCurrentPage from previous fix)
+  // State declarations (unchanged)\
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'listed' | 'sold'>('all');
   const [dateRange, setDateRange] = useState<'all' | 'last30' | 'last90'>('all');
   const [selectedAgency, setSelectedAgency] = useState<string | null>(null);
+  const [selectedSuburbs, setSelectedSuburbs] = useState<string[]>([]);
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
+  const [selectedAgencies, setSelectedAgencies] = useState<string[]>([]);
+  const [selectedStreetNames, setSelectedStreetNames] = useState<string[]>([]);
   const [internalCommissionData, setInternalCommissionData] = useState<Record<string, Record<string, number>> | null>(null);
   const [internalAgentData, setInternalAgentData] = useState<Record<string, { commission: number; listed: number; sold: number; commissionRate?: number }>>({});
   const [internalProperties, setInternalProperties] = useState<PropertyDetails[]>([]);
@@ -285,7 +341,7 @@ function CommissionByAgency() {
   const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
 
-  // useEffect and calculateSummary remain unchanged
+  // useEffect to fetch data (unchanged)
   useEffect(() => {
     const fetchCommissionData = async () => {
       setIsLoading(true);
@@ -351,6 +407,19 @@ function CommissionByAgency() {
     fetchCommissionData();
   }, []);
 
+  // Reset filters function (unchanged)
+  const resetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setDateRange('all');
+    setSelectedAgency(null);
+    setSelectedSuburbs([]);
+    setSelectedAgents([]);
+    setSelectedAgencies([]);
+    setSelectedStreetNames([]);
+    setShowFilters(false); // Hide filters after reset
+  };
+
   const calculateSummary = useCallback((): CommissionSummary => {
     let totalCommission = 0;
     let totalListedCommission = 0;
@@ -395,17 +464,23 @@ function CommissionByAgency() {
       };
     }
 
-    console.log('Processing properties for summary:', internalProperties.length);
-
     internalProperties.forEach((property) => {
       const agency = normalizeAgencyName(property.agency_name);
       const agent = normalizeAgentName(property.agent_name);
       const suburb = normalizeSuburbName(property.suburb);
-      const { commissionEarned, commissionRate } = calculateCommission(property, agentCommissions);
       const street = `${property.street_name || 'Unknown'}, ${suburb}`;
+      const { commissionEarned, commissionRate } = calculateCommission(property, agentCommissions);
       const isSold = property.contract_status === 'sold' || !!property.sold_date;
 
-      if (agency && !isNaN(commissionEarned)) {
+      // Apply filters
+      const matchesFilters = (
+        (!selectedSuburbs.length || selectedSuburbs.includes(suburb)) &&
+        (!selectedAgents.length || selectedAgents.includes(agent)) &&
+        (!selectedAgencies.length || selectedAgencies.includes(agency)) &&
+        (!selectedStreetNames.length || selectedStreetNames.includes(property.street_name || 'Unknown'))
+      );
+
+      if (matchesFilters && agency && !isNaN(commissionEarned)) {
         agencyPropertyCounts[agency] = (agencyPropertyCounts[agency] || 0) + 1;
         totalProperties += 1;
         if (isSold) {
@@ -423,7 +498,7 @@ function CommissionByAgency() {
         }
       }
 
-      if (suburb && suburb !== 'Unknown') {
+      if (matchesFilters && suburb && suburb !== 'Unknown') {
         suburbMap[suburb] = suburbMap[suburb] || {
           listedCommissionTotal: 0,
           listedPropertyCount: 0,
@@ -443,12 +518,12 @@ function CommissionByAgency() {
         }
       }
 
-      streetMap[street] = streetMap[street] || { listedCount: 0, commission: 0 };
-      streetMap[street].listedCount += 1;
-      streetMap[street].commission += isNaN(commissionEarned) ? 0 : commissionEarned;
+      if (matchesFilters) {
+        streetMap[street] = streetMap[street] || { listedCount: 0, commission: 0 };
+        streetMap[street].listedCount += 1;
+        streetMap[street].commission += isNaN(commissionEarned) ? 0 : commissionEarned;
+      }
     });
-
-    console.log('Suburb map:', suburbMap);
 
     Object.entries(internalCommissionData).forEach(([agency, types]) => {
       const agencyTotal = Object.values(types).reduce((sum, val) => sum + (isNaN(val) ? 0 : val), 0);
@@ -493,8 +568,6 @@ function CommissionByAgency() {
         : 0,
     }));
 
-    console.log('Suburb commissions:', suburbCommissions);
-
     return {
       totalCommission,
       totalListedCommission,
@@ -511,11 +584,11 @@ function CommissionByAgency() {
       topStreet,
       suburbCommissions,
     };
-  }, [internalCommissionData, internalProperties, internalAgentData, agentCommissions]);
+  }, [internalCommissionData, internalProperties, internalAgentData, agentCommissions, selectedSuburbs, selectedAgents, selectedAgencies, selectedStreetNames]);
 
   const summary = calculateSummary();
 
-  // Memoized values (updated to include filteredAgencyTotals)
+  // Memoized values (unchanged)
   const agencyTotals = useMemo<AgencyTotal[]>(() => {
     if (!internalCommissionData) return [];
     const agencySuburbsMap: Record<string, Set<string>> = {};
@@ -600,7 +673,6 @@ function CommissionByAgency() {
       .sort((a, b) => b.totalCommission - a.totalCommission);
   }, [internalCommissionData, internalProperties, internalAgentData, agentCommissions]);
 
-  // New: Define filteredAgencyTotals
   const filteredAgencyTotals = useMemo(() => {
     let filtered = agencyTotals;
     if (searchQuery) {
@@ -625,9 +697,27 @@ function CommissionByAgency() {
         return properties.some((p) => (p.listed_date ? new Date(p.listed_date) >= cutoffDate : false));
       });
     }
-    console.log('Filtered agency totals:', filtered);
+    if (selectedSuburbs.length > 0) {
+      filtered = filtered.filter((row) =>
+        row.suburbs.some((suburb) => selectedSuburbs.includes(suburb))
+      );
+    }
+    if (selectedAgents.length > 0) {
+      filtered = filtered.filter((row) =>
+        row.agents.some((agent) => selectedAgents.includes(agent.name))
+      );
+    }
+    if (selectedAgencies.length > 0) {
+      filtered = filtered.filter((row) => selectedAgencies.includes(row.agency));
+    }
+    if (selectedStreetNames.length > 0) {
+      filtered = filtered.filter((row) => {
+        const properties = internalProperties.filter((p) => normalizeAgencyName(p.agency_name) === row.agency);
+        return properties.some((p) => selectedStreetNames.includes(p.street_name || 'Unknown'));
+      });
+    }
     return filtered;
-  }, [agencyTotals, searchQuery, statusFilter, dateRange, internalProperties]);
+  }, [agencyTotals, searchQuery, statusFilter, dateRange, selectedSuburbs, selectedAgents, selectedAgencies, selectedStreetNames, internalProperties]);
 
   const ourAgency = useMemo(() => {
     const agency = agencyTotals.find((a) => a.agency.toLowerCase() === ourAgencyName.toLowerCase());
@@ -656,6 +746,23 @@ function CommissionByAgency() {
   const topFiveSuburbs = useMemo(
     () => summary.suburbCommissions.slice(0, 5).map((row) => row.suburb),
     [summary.suburbCommissions]
+  );
+
+  const availableSuburbs = useMemo(
+    () => Array.from(new Set(internalProperties.map((p) => normalizeSuburbName(p.suburb)).filter((s) => s !== 'Unknown'))).sort(),
+    [internalProperties]
+  );
+  const availableAgents = useMemo(
+    () => Array.from(new Set(internalProperties.map((p) => normalizeAgentName(p.agent_name)).filter((a) => a !== 'Unknown'))).sort(),
+    [internalProperties]
+  );
+  const availableAgencies = useMemo(
+    () => Array.from(new Set(internalProperties.map((p) => normalizeAgencyName(p.agency_name)).filter((a) => a !== 'Unknown'))).sort(),
+    [internalProperties]
+  );
+  const availableStreetNames = useMemo(
+    () => Array.from(new Set(internalProperties.map((p) => p.street_name || 'Unknown').filter((s) => s !== 'Unknown'))).sort(),
+    [internalProperties]
   );
 
   const handleAgencyPageChange = (page: number) => {
@@ -770,9 +877,26 @@ function CommissionByAgency() {
         return properties.some((p) => normalizeAgencyName(p.agency_name) === selectedAgency);
       });
     }
-    console.log('Filtered agent data:', filtered);
+    if (selectedSuburbs.length > 0) {
+      filtered = filtered.filter((agent) => {
+        const properties = internalProperties.filter((p) => normalizeAgentName(p.agent_name) === agent.name);
+        return properties.some((p) => selectedSuburbs.includes(normalizeSuburbName(p.suburb)));
+      });
+    }
+    if (selectedAgencies.length > 0) {
+      filtered = filtered.filter((agent) => {
+        const properties = internalProperties.filter((p) => normalizeAgentName(p.agent_name) === agent.name);
+        return properties.some((p) => selectedAgencies.includes(normalizeAgencyName(p.agency_name)));
+      });
+    }
+    if (selectedStreetNames.length > 0) {
+      filtered = filtered.filter((agent) => {
+        const properties = internalProperties.filter((p) => normalizeAgentName(p.agent_name) === agent.name);
+        return properties.some((p) => selectedStreetNames.includes(p.street_name || 'Unknown'));
+      });
+    }
     return filtered;
-  }, [internalAgentData, selectedAgency, internalProperties]);
+  }, [internalAgentData, selectedAgency, selectedSuburbs, selectedAgencies, selectedStreetNames, internalProperties]);
 
   const paginatedFilteredAgentData = useMemo(() => {
     return filteredAgentData.slice(
@@ -876,7 +1000,6 @@ function CommissionByAgency() {
         },
       ],
     };
-    console.log('Suburb chart data:', data);
     return data;
   }, [topFiveSuburbs, summary.suburbCommissions]);
 
@@ -936,11 +1059,30 @@ function CommissionByAgency() {
         return properties.some((p) => (p.listed_date ? new Date(p.listed_date) >= cutoffDate : false));
       });
     }
-    console.log('Filtered suburb commissions:', filtered);
+    if (selectedSuburbs.length > 0) {
+      filtered = filtered.filter((row) => selectedSuburbs.includes(row.suburb));
+    }
+    if (selectedAgents.length > 0) {
+      filtered = filtered.filter((row) => {
+        const properties = internalProperties.filter((p) => normalizeSuburbName(p.suburb) === row.suburb);
+        return properties.some((p) => selectedAgents.includes(normalizeAgentName(p.agent_name)));
+      });
+    }
+    if (selectedAgencies.length > 0) {
+      filtered = filtered.filter((row) => {
+        const properties = internalProperties.filter((p) => normalizeSuburbName(p.suburb) === row.suburb);
+        return properties.some((p) => selectedAgencies.includes(normalizeAgencyName(p.agency_name)));
+      });
+    }
+    if (selectedStreetNames.length > 0) {
+      filtered = filtered.filter((row) => {
+        const properties = internalProperties.filter((p) => normalizeSuburbName(p.suburb) === row.suburb);
+        return properties.some((p) => selectedStreetNames.includes(p.street_name || 'Unknown'));
+      });
+    }
     return filtered;
-  }, [summary.suburbCommissions, searchQuery, statusFilter, dateRange, internalProperties]);
+  }, [summary.suburbCommissions, searchQuery, statusFilter, dateRange, selectedSuburbs, selectedAgents, selectedAgencies, selectedStreetNames, internalProperties]);
 
-  // Updated: Define paginatedFilteredAgencyTotals using filteredAgencyTotals
   const paginatedFilteredAgencyTotals = useMemo(() => {
     return filteredAgencyTotals.slice(
       (agencyCurrentPage - 1) * itemsPerPage,
@@ -1023,17 +1165,16 @@ function CommissionByAgency() {
       </motion.div>
     );
   };
+
   const exportCommissionPDF = () => {
     try {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 10;
 
-      // Title
       doc.setFontSize(18);
       doc.text('Commission Dashboard Report', margin, 20);
 
-      // Summary Section
       doc.setFontSize(14);
       doc.text('Performance Summary', margin, 30);
       autoTable(doc, {
@@ -1051,7 +1192,6 @@ function CommissionByAgency() {
         margin: { left: margin, right: margin },
       });
 
-      // Agency Performance Section
       let finalY = (doc as any).lastAutoTable.finalY + 10;
       doc.setFontSize(14);
       doc.text('Agency Performance', margin, finalY);
@@ -1070,7 +1210,6 @@ function CommissionByAgency() {
         margin: { left: margin, right: margin },
       });
 
-      // Suburb Performance Section
       finalY = (doc as any).lastAutoTable.finalY + 10;
       doc.setFontSize(14);
       doc.text('Suburb Performance', margin, finalY);
@@ -1090,7 +1229,6 @@ function CommissionByAgency() {
         margin: { left: margin, right: margin },
       });
 
-      // Save the PDF
       doc.save('Commission_Dashboard_Report.pdf');
       toast.success('PDF exported successfully!');
     } catch (error: any) {
@@ -1098,11 +1236,11 @@ function CommissionByAgency() {
       toast.error('Failed to export PDF.');
     }
   };
+
   const exportCommissionCSV = () => {
     try {
       let csvContent = 'data:text/csv;charset=utf-8,';
 
-      // Summary Section
       csvContent += 'Performance Summary\n';
       csvContent += 'Metric,Value\n';
       csvContent += `Total Commission,${formatCurrency(summary.totalCommission)}\n`;
@@ -1113,7 +1251,6 @@ function CommissionByAgency() {
       csvContent += `Top Agent,"${summary.topAgent.name} (${formatCurrency(summary.topAgent.commission)})"\n`;
       csvContent += '\n';
 
-      // Agency Performance Section
       csvContent += 'Agency Performance\n';
       csvContent += 'Agency,Commission Rate,Total Commission,Listed,Sold,Suburbs\n';
       filteredAgencyTotals.forEach((row) => {
@@ -1121,14 +1258,12 @@ function CommissionByAgency() {
       });
       csvContent += '\n';
 
-      // Suburb Performance Section
       csvContent += 'Suburb Performance\n';
       csvContent += 'Suburb,Avg Listed Rate,Listed Commission,Listed Properties,Avg Sold Rate,Sold Commission,Sold Properties\n';
       filteredSuburbCommissions.forEach((row) => {
         csvContent += `"${row.suburb.replace(/"/g, '""')}",${row.avgListedCommissionRate.toFixed(2)}%,${formatCurrency(row.listedCommissionTotal)},${row.listedPropertyCount},${row.avgSoldCommissionRate.toFixed(2)}%,${formatCurrency(row.soldCommissionTotal)},${row.soldPropertyCount}\n`;
       });
 
-      // Encode and trigger download
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement('a');
       link.setAttribute('href', encodedUri);
@@ -1143,7 +1278,7 @@ function CommissionByAgency() {
     }
   };
 
-  // JSX Return Statement (unchanged, as the error was in the memoized values)
+  // Updated JSX with innovative filter design
   return (
     <motion.div
       className="min-h-screen bg-gray-50 p-4 sm:p-6"
@@ -1161,7 +1296,7 @@ function CommissionByAgency() {
           <h1 className="text-3xl font-bold text-gray-800">Commission Dashboard</h1>
           <motion.button
             onClick={() => navigate('/reports')}
-            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700"
+            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -1171,57 +1306,107 @@ function CommissionByAgency() {
         </motion.div>
 
         <motion.div
-          className="bg-white p-4 rounded-xl shadow-lg flex flex-col sm:flex-row gap-4"
+          className="bg-white p-6 rounded-xl shadow-lg border border-gray-100"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="relative w-full sm:w-64 group">
-            <input
-              type="text"
-              placeholder="Search agencies or suburbs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full bg-gray-50"
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Filter Options</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="relative">
+              <motion.div
+                className="relative"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <input
+                  type="text"
+                  placeholder="Search agencies or suburbs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50 text-sm"
+                />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </motion.div>
+            </div>
+
+            <div className="flex space-x-2">
+              {['all', 'listed', 'sold'].map((status) => (
+                <motion.button
+                  key={status}
+                  onClick={() => setStatusFilter(status as 'all' | 'listed' | 'sold')}
+                  className={`px-4 py-2 rounded-full text-sm capitalize font-medium transition-colors ${
+                    statusFilter === status
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {status}
+                </motion.button>
+              ))}
+            </div>
+
+            <div className="flex space-x-2">
+              {[
+                { value: 'all', label: 'All Time' },
+                { value: 'last30', label: 'Last 30 Days' },
+                { value: 'last90', label: 'Last 90 Days' },
+              ].map((range) => (
+                <motion.button
+                  key={range.value}
+                  onClick={() => setDateRange(range.value as 'all' | 'last30' | 'last90')}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    dateRange === range.value
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {range.label}
+                </motion.button>
+              ))}
+            </div>
+
+            <MultiSelect
+              options={availableSuburbs}
+              selected={selectedSuburbs}
+              onChange={setSelectedSuburbs}
+              placeholder="Select Suburbs"
             />
-            <svg
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+
+            <MultiSelect
+              options={availableAgents}
+              selected={selectedAgents}
+              onChange={setSelectedAgents}
+              placeholder="Select Agents"
+            />
+
+            <MultiSelect
+              options={availableAgencies}
+              selected={selectedAgencies}
+              onChange={setSelectedAgencies}
+              placeholder="Select Agencies"
+            />
+
+            <MultiSelect
+              options={availableStreetNames}
+              selected={selectedStreetNames}
+              onChange={setSelectedStreetNames}
+              placeholder="Select Street Names"
+            />
+
+            <motion.button
+              onClick={resetFilters}
+              className="flex items-center px-4 py-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-sm font-medium"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <div className="flex gap-2">
-            {['all', 'listed', 'sold'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status as 'all' | 'listed' | 'sold')}
-                className={`px-4 py-2 rounded-full text-sm capitalize ${
-                  statusFilter === status ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            {[
-              { value: 'all', label: 'All Time' },
-              { value: 'last30', label: 'Last 30 Days' },
-              { value: 'last90', label: 'Last 90 Days' },
-            ].map((range) => (
-              <button
-                key={range.value}
-                onClick={() => setDateRange(range.value as 'all' | 'last30' | 'last90')}
-                className={`px-4 py-2 rounded-full text-sm ${
-                  dateRange === range.value ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {range.label}
-              </button>
-            ))}
+              <X className="w-4 h-4 mr-2" />
+              Reset Filters
+            </motion.button>
           </div>
         </motion.div>
 
@@ -1392,7 +1577,7 @@ function CommissionByAgency() {
                   <select
                     value={selectedAgency || ''}
                     onChange={(e) => setSelectedAgency(e.target.value || null)}
-                    className="p-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50 text-sm"
                   >
                     <option value="">All Agencies</option>
                     {agencyTotals.map((agency) => (

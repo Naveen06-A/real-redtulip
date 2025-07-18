@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
@@ -186,21 +185,28 @@ export function AgentBusinessPlan() {
       listings_target = Math.round((appraisal_to_listing_ratio / listing_to_written_ratio) * settled_sales_target * 10 * fallOverFactor);
     }
 
-    // Calculate appraisals target
-    if (listings_target != null && appraisal_to_listing_ratio != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
+      // Calculate listings target
+    if (settled_sales_target != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
       const fallOverFactor = fall_over_rate != null && fall_over_rate > 0 ? (1 + fall_over_rate / 100) : 1;
-      appraisals_target = Math.round((appraisal_to_listing_ratio / listing_to_written_ratio) * listings_target * 100 * fallOverFactor);
-    }
+      listings_target = Math.round(settled_sales_target  * fallOverFactor);
+  }
 
-    // Calculate connects for appraisals
-    if (appraisals_target != null && connects_for_appraisal != null) {
-      connects_for_appraisals = Math.round(appraisals_target * connects_for_appraisal);
-    }
+  // Calculate appraisals target
+  if (listings_target != null && appraisal_to_listing_ratio != null && appraisal_to_listing_ratio > 0) {
+    const fallOverFactor = fall_over_rate != null && fall_over_rate > 0 ? (1 + fall_over_rate / 100) : 1;
+    appraisals_target = Math.round(listings_target / (appraisal_to_listing_ratio / 100)* fallOverFactor);
+  }
 
-    // Calculate phone calls to achieve appraisals
-    if (connects_for_appraisals != null && calls_for_connect != null) {
-      phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
-    }
+  // Calculate connects for appraisals
+  if (appraisals_target != null && connects_for_appraisal != null) {
+    connects_for_appraisals = Math.round(appraisals_target * connects_for_appraisal);
+  }
+
+  // Calculate phone calls to achieve appraisals
+  if (connects_for_appraisals != null && calls_for_connect != null) {
+    phone_calls_to_achieve_appraisals = Math.round(connects_for_appraisals * calls_for_connect);
+  }
+
 
     // Calculate calls per day
     if (phone_calls_to_achieve_appraisals != null && no_of_working_days_per_year != null && no_of_working_days_per_year > 0) {
@@ -320,7 +326,7 @@ export function AgentBusinessPlan() {
         ...targets,
         agent_id: user.id,
         updated_at: new Date().toISOString(),
-        gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) : null,
+        gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) :null,
         avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(targets.avg_commission_per_sale) : null,
         salary_per_hour: targets.salary_per_hour != null ? Math.round(targets.salary_per_hour) : null,
         salary_per_day: targets.salary_per_day != null ? Math.round(targets.salary_per_day) : null,
@@ -587,19 +593,19 @@ export function AgentBusinessPlan() {
   };
 
   const chartData = [
-    { name: 'Appraisals', value: targets.appraisals_target ?? 0, fill: '#1E3A8A' },
-    { name: 'Listings', value: targets.listings_target ?? 0, fill: '#3B82F6' },
-    { name: 'Settled Sales', value: targets.settled_sales_target ?? 0, fill: '#93C5FD' },
-    { name: 'Connects', value: targets.connects_for_appraisals ?? 0, fill: '#BFDBFE' },
-    { name: 'Phone Calls', value: targets.phone_calls_to_achieve_appraisals ?? 0, fill: '#DBEAFE' },
-    { name: 'Calls/Day', value: targets.calls_per_day ?? 0, fill: '#1E90FF' },
-    { name: 'Gross Commission', value: targets.gross_commission_target ?? 0, fill: '#2563EB' },
-    { name: 'Working Days/Yr', value: targets.no_of_working_days_per_year ?? 0, fill: '#1E40AF' },
-    { name: 'Calls/Person', value: targets.calls_per_person ?? 0, fill: '#1E90FF' },
-    { name: 'Persons Salary', value: targets.persons_salary ?? 0, fill: '#1D4ED8' },
-    { name: 'Third Party Calls', value: targets.total_third_party_calls ?? 0, fill: '#1E90FF' },
-    { name: 'Total Cost Appraisals', value: targets.total_cost_appraisals ?? 0, fill: '#1D4ED8' },
-    { name: 'Net Commission', value: targets.net_commission ?? 0, fill: '#3B82F6' }
+    { name: 'Appraisals', value: targets.appraisals_target, fill: '#1E3A8A' },
+    { name: 'Listings', value: targets.listings_target, fill: '#3B82F6' },
+    { name: 'Settled Sales', value: targets.settled_sales_target, fill: '#93C5FD' },
+    { name: 'Connects', value: targets.connects_for_appraisals, fill: '#BFDBFE' },
+    { name: 'Phone Calls', value: targets.phone_calls_to_achieve_appraisals, fill: '#DBEAFE' },
+    { name: 'Calls/Day', value: targets.calls_per_day, fill: '#1E90FF' },
+    { name: 'Gross Commission', value: targets.gross_commission_target, fill: '#2563EB' },
+    { name: 'Working Days/Yr', value: targets.no_of_working_days_per_year, fill: '#1E40AF' },
+    { name: 'Calls/Person', value: targets.calls_per_person, fill: '#1E90FF' },
+    { name: 'Persons Salary', value: targets.persons_salary, fill: '#1D4ED8' },
+    { name: 'Third Party Calls', value: targets.total_third_party_calls, fill: '#1E90FF' },
+    { name: 'Total Cost Appraisals', value: targets.total_cost_appraisals, fill: '#1D4ED8' },
+    { name: 'Net Commission', value: targets.net_commission, fill: '#3B82F6' }
   ];
 
   const targetCards = [
@@ -1247,8 +1253,8 @@ export function AgentBusinessPlan() {
                   contentStyle={{ backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderRadius: 4 }}
                   formatter={(value: number, name: string) => [
                     name === 'Gross Commission' || name === 'Persons Salary' || name === 'Net Commission' || name === 'Third Party Calls' || name === 'Total Cost Appraisals'
-                      ? `$${Math.round(value).toLocaleString()}` 
-                      : Math.round(value).toLocaleString(),
+                      ? value != null ? `$${Math.round(value).toLocaleString()}` : 'N/A'
+                      : value != null ? Math.round(value).toLocaleString() : 'N/A',
                     name
                   ]}
                 />

@@ -5,44 +5,64 @@ import { useAuthStore } from '../store/authStore';
 import { Lock, Mail, AlertCircle, CheckCircle, LogIn, Loader2 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
+interface Particle {
+  x: number;
+  y: number;
+  size: number;
+  speedX: number;
+  speedY: number;
+  update: () => void;
+  draw: (ctx: CanvasRenderingContext2D) => void;
+}
+
 export function AdminLogin() {
   const [formData, setFormData] = useState({ email: '', password: '' });
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resetMessage, setResetMessage] = useState(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, profile, initializeAuth, fetchProfile, loading: authLoading } = useAuthStore();
+  const { user, profile, initializeAuth, loading: authLoading, checkAuth } = useAuthStore();
   const successMessage = location.state?.message;
 
   // Particle animation setup
   useEffect(() => {
-    const canvas = document.getElementById('particleCanvas');
+    const canvas = document.getElementById('particleCanvas') as HTMLCanvasElement | null;
     const ctx = canvas?.getContext('2d');
-    if (!ctx) return;
+    if (!canvas || !ctx) return;
 
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    const particles = [];
+    const particles: Particle[] = [];
     const particleCount = 60;
 
     class Particle {
+      x: number;
+      y: number;
+      size: number;
+      speedX: number;
+      speedY: number;
+
       constructor() {
+        if (!canvas) return;
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
         this.size = Math.random() * 2.5 + 1;
         this.speedX = Math.random() * 0.4 - 0.2;
         this.speedY = Math.random() * 0.4 - 0.2;
       }
+
       update() {
+        if (!canvas) return;
         this.x += this.speedX;
         this.y += this.speedY;
         if (this.size > 0.2) this.size -= 0.008;
         if (this.x < 0 || this.x > canvas.width) this.speedX *= -1;
         if (this.y < 0 || this.y > canvas.height) this.speedY *= -1;
       }
-      draw() {
+
+      draw(ctx: CanvasRenderingContext2D) {
         ctx.fillStyle = 'rgba(125, 211, 252, 0.7)';
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
@@ -57,10 +77,11 @@ export function AdminLogin() {
     }
 
     function animate() {
+      if (!ctx || !canvas) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (let i = 0; i < particles.length; i++) {
         particles[i].update();
-        particles[i].draw();
+        particles[i].draw(ctx);
         if (particles[i].size <= 0.2) {
           particles.splice(i, 1);
           i--;
@@ -74,108 +95,70 @@ export function AdminLogin() {
     animate();
 
     const handleResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      if (canvas) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Redirect if already logged in as admin
+  // Pre-login role check and redirect
   useEffect(() => {
-    if (user && profile?.role === 'admin') {
-      console.log('Redirecting to admin-dashboard: User and profile verified', { user, profile });
-      navigate('/admin-dashboard');
-    }
-  }, [user, profile, navigate]);
+    const checkAndRedirect = async () => {
+      const isAdmin = await checkAuth('admin');
+      if (isAdmin) {
+        console.log('Redirecting to admin-dashboard: User and profile verified', { user, profile });
+        navigate('/admin-dashboard', { replace: true });
+      } else if (user && profile && profile.role === 'agent') {
+        console.log('Admin portal accessed by agent, redirecting to agent-login');
+        navigate('/agent-login', {
+          state: { message: 'This portal is for admins only. Please use the agent login.' },
+          replace: true,
+        });
+      }
+    };
+    checkAndRedirect();
+  }, [user, profile, navigate, checkAuth]);
 
-  const handleChange = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError(null);
     setResetMessage(null);
   };
 
-  const handleAdminLogin = async (e) => {
+  const handleAdminLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setResetMessage(null);
     setLoading(true);
 
     try {
-      // Step 1: Test Supabase connectivity
-      console.log('Testing Supabase connectivity...');
-      const { data: testQuery, error: testError } = await supabase
-        .from('profiles')
-        .select('count')
-        .limit(1);
-      if (testError) {
-        console.error('Supabase connectivity test failed:', testError);
-        throw new Error(`Database connectivity error: ${testError.message} (Code: ${testError.code || 'N/A'})`);
-      }
-      console.log('Supabase connectivity test successful:', { testQuery });
-
-      // Step 2: Authenticate user
-      console.log('Attempting admin authentication with email:', formData.email);
-      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+      // Authenticate user
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
-      if (signInError) {
-        console.error('Authentication failed:', signInError);
-        throw new Error(signInError.message || 'Invalid email or password.');
-      }
-      if (!authData.user) {
-        console.error('No user data returned from authentication');
-        throw new Error('No user data returned from login.');
-      }
-      console.log('Authentication successful:', { userId: authData.user.id, session: !!authData.session });
 
-      // Step 3: Initialize auth
-      console.log('Initializing auth for user:', authData.user.id);
+      if (signInError) throw new Error('Invalid email or password.');
+      if (!data.user) throw new Error('No user data returned from login.');
+
+      // Initialize auth store
       await initializeAuth();
-      let currentProfile = useAuthStore.getState().profile;
-      console.log('Profile after initializeAuth:', currentProfile);
 
-      // Step 4: Fetch profile if not found
-      if (!currentProfile) {
-        console.log('Profile not found after initializeAuth, attempting direct fetch...');
-        await fetchProfile();
-        currentProfile = useAuthStore.getState().profile;
-        console.log('Profile after fetchProfile:', currentProfile);
+      // Verify role
+      const isAdmin = await checkAuth('admin');
+      if (!isAdmin) {
+        await supabase.auth.signOut();
+        throw new Error('Access denied: This portal is for admins only. Please use the agent login portal.');
       }
 
-      // Step 5: Validate profile
-      if (!currentProfile) {
-        console.error('No profile found for user:', authData.user.id);
-        throw new Error(
-          'Profile not found. Ensure a profile exists in the profiles table with an ID matching the user ID from auth.users. ' +
-          'Contact support to create an admin profile.'
-        );
-      }
-
-      // Step 6: Check role
-      if (currentProfile.role === 'admin') {
-        console.log('Role verified as admin, navigating to dashboard');
-        toast.success('Login successful! Redirecting to admin dashboard...');
-        navigate('/admin-dashboard');
-      } else {
-        console.log('Non-admin role detected:', currentProfile.role);
-        navigate('/agent-login', {
-          state: { message: 'Access denied: This page is for admins only. Please use the agent login.' },
-        });
-      }
-    } catch (err) {
-      console.error('Login Error:', err, { code: err.code, details: err.details, hint: err.hint });
-      let errorMessage = err.message || 'Login failed. Please check your credentials and try again.';
-      if (err.message.includes('permission denied') || err.code === '42501') {
-        errorMessage = 'Permission error: Unable to access profiles table. Verify Supabase RLS policies for authenticated users.';
-      } else if (err.message.includes('no rows found') || err.code === 'PGRST116') {
-        errorMessage = 'No profile found for this user. Contact support to create an admin profile.';
-      } else if (err.message.includes('column') || err.message.includes('does not exist')) {
-        errorMessage = 'Database schema error: Verify the profiles table schema (id, role columns).';
-      } else if (err.message.includes('granting user')) {
-        errorMessage = 'Database error: Issue with user permissions or profile creation. Check database triggers, functions, and RLS policies.';
-      }
+      toast.success('Admin login successful! Redirecting to dashboard...');
+      navigate('/admin-dashboard', { replace: true });
+    } catch (err: unknown) {
+      console.error('Admin Login Error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Login failed. Please check your credentials and try again.';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -199,13 +182,14 @@ export function AdminLogin() {
         redirectTo: 'http://localhost:3000/reset-password',
       });
 
-      if (error) throw new Error(error.message || 'Failed to send password reset email.');
+      if (error) throw new Error('Failed to send password reset email.');
       setResetMessage('Password reset email sent! Check your inbox.');
       toast.success('Password reset email sent!');
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Forgot Password Error:', err);
-      setError(err.message || 'Failed to send password reset email.');
-      toast.error(err.message || 'Failed to send password reset email.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send password reset email.';
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -224,15 +208,8 @@ export function AdminLogin() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-100 via-cyan-100 to-blue-200 relative overflow-hidden">
-      {/* Particle Canvas */}
-      <canvas
-        id="particleCanvas"
-        className="absolute inset-0 pointer-events-none"
-      />
-
+      <canvas id="particleCanvas" className="absolute inset-0 pointer-events-none" />
       <Toaster position="top-center" toastOptions={{ duration: 3000 }} />
-
-      {/* Glassmorphic Card */}
       <div className="relative bg-white/15 backdrop-blur-xl rounded-3xl shadow-2xl p-10 w-full max-w-lg border border-cyan-200/30 animate-slideIn">
         <div className="flex items-center justify-center mb-8">
           <LogIn className="w-10 h-10 text-cyan-400 mr-3 drop-shadow-md" />
@@ -260,9 +237,7 @@ export function AdminLogin() {
 
         <form onSubmit={handleAdminLogin} className="space-y-8">
           <div>
-            <label className="block text-sm font-medium text-sky-800 mb-2">
-              Admin Email
-            </label>
+            <label className="block text-sm font-medium text-sky-800 mb-2">Admin Email</label>
             <div className="relative group">
               <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-6 h-6 text-cyan-400 group-hover:text-cyan-300 transition-all duration-300 group-hover:scale-110" />
               <input
@@ -278,9 +253,7 @@ export function AdminLogin() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-sky-800 mb-2">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-sky-800 mb-2">Password</label>
             <div className="relative group">
               <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-6 h-6 text-cyan-400 group-hover:text-cyan-300 transition-all duration-300 group-hover:scale-110" />
               <input
@@ -330,44 +303,45 @@ export function AdminLogin() {
         </div>
       </div>
 
-      {/* Custom CSS for animations */}
-      <style jsx>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(JwtAuthorizationFilter30px);
+      <style>
+        {`
+          @keyframes slideIn {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
           }
-          to {
-            opacity: 1;
-            transform: translateY(0);
+          .animate-slideIn {
+            animation: slideIn 0.8s ease-out forwards;
           }
-        }
-        .animate-slideIn {
-          animation: slideIn 0.8s ease-out forwards;
-        }
-        @keyframes pulseSuccess {
-          0%, 100% {
-            transform: scale(1);
+          @keyframes pulseSuccess {
+            0%, 100% {
+              transform: scale(1);
+            }
+            50% {
+              transform: scale(1.02);
+            }
           }
-          50% {
-            transform: scale(1.02);
+          .animate-pulseSuccess {
+            animation: pulseSuccess 0.6s ease-in-out;
           }
-        }
-        .animate-pulseSuccess {
-          animation: pulseSuccess 0.6s ease-in-out;
-        }
-        @keyframes pulseError {
-          0%, 100% {
-            transform: scale(1);
+          @keyframes pulseError {
+            0%, 100% {
+              transform: scale(1);
+            }
+            50% {
+              transform: scale(1.02);
+            }
           }
-          50% {
-            transform: scale(1.02);
+          .animate-pulseError {
+            animation: pulseError 0.6s ease-in-out;
           }
-        }
-        .animate-pulseError {
-          animation: pulseError 0.6s ease-in-out;
-        }
-      `}</style>
+        `}
+      </style>
     </div>
   );
 }

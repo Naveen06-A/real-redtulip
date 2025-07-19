@@ -34,15 +34,15 @@ interface AgentFinancials {
   franchise_amount: number | null;
   marketing_expenses: number | null;
   super_amount: number | null;
-  business_commission_percentage: number | null;
-  agent_commission_percentage: number | null;
-  franchise_fee: number | null;
 }
 
 interface AdminBusinessPlan {
   id?: string;
   agent_id: string;
   agents: AgentFinancials[];
+  business_commission_percentage: number | null;
+  agent_commission_percentage: number | null;
+  franchise_fee: number | null;
   business_expenses_percentage: number | null;
   agent_expenses_percentage: number | null;
   rent: number | null;
@@ -73,8 +73,6 @@ interface AgentData {
   business_earnings: number | null;
   agent_earnings: number | null;
   franchise_fee: number | null;
-  business_commission_percentage: number | null;
-  agent_commission_percentage: number | null;
 }
 
 interface RatioSliderProps {
@@ -160,14 +158,14 @@ const RatioInput: React.FC<RatioInputProps> = ({
   <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200 relative group">
     <div className="flex justify-between items-center mb-2">
       <span className="text-sm font-medium text-blue-800">{label}</span>
-      <span className="text-sm text-blue-600">{value ? `${suffix}${Math.round(Number(value)).toLocaleString()}` : 'N/A'}</span>
+      <span className="text-sm text-blue-600">{value ? `${suffix}${Math.round(value).toLocaleString()}` : 'N/A'}</span>
     </div>
     <input
       type="number"
       min={min}
       step={step}
-      value={value ?? ''}
-      onChange={(e) => onChange(parseFloat(e.target.value) || null)}
+      value={value}
+      onChange={(e) => onChange(parseInt(e.target.value) || null)}
       disabled={disabled}
       className={`w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     />
@@ -177,14 +175,15 @@ const RatioInput: React.FC<RatioInputProps> = ({
   </div>
 );
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export function AdminBusinessPlan() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [plan, setPlan] = useState<AdminBusinessPlan>({
     agent_id: user?.id || '',
     agents: [],
+    business_commission_percentage: null,
+    agent_commission_percentage: null,
+    franchise_fee: null,
     business_expenses_percentage: 0,
     agent_expenses_percentage: 0,
     rent: null,
@@ -210,82 +209,22 @@ export function AdminBusinessPlan() {
   useEffect(() => {
     if (user?.id) {
       fetchBusinessPlan();
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (user?.id && plan.agents.length > 0) {
       fetchAgentBusinessPlan();
     }
-  }, [user?.id, plan.agents]);
-
-  useEffect(() => {
-    if (!user?.id || !plan.agents.length) return;
-
-    const subscription = supabase
-      .channel('agent_business_plans')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'agent_business_plans', 
-        filter: `agent_id=in.(${plan.agents.map(agent => agent.name).join(',')})` 
-      }, (payload) => {
-        console.log('Real-time update received:', payload);
-        setPlan(prev => ({
-          ...prev,
-          agents: prev.agents.map(agent => {
-            if (agent.name === payload.new.agent_id) {
-              return {
-                ...agent,
-                business_commission_percentage: payload.new.business_commission_percentage ?? null,
-                agent_commission_percentage: payload.new.agent_commission_percentage ?? null,
-                franchise_fee: payload.new.franchise_percentage ?? null
-              };
-            }
-            return agent;
-          })
-        }));
-        toast.success(`Agent ${payload.new.agent_id} business plan updated`);
-      })
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-      });
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, [user?.id, plan.agents]);
-
-  const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): Promise<T> => {
-    for (let i = 0; i < retries; i++) {
-      try {
-        return await fn();
-      } catch (error: any) {
-        console.error(`Retry ${i + 1}/${retries} failed:`, error);
-        if (i === retries - 1) throw error;
-        await delay(delayMs * (i + 1));
-      }
-    }
-    throw new Error('Max retries reached');
-  };
+  }, [user?.id]);
 
   const fetchBusinessPlan = async () => {
     if (!user?.id) return;
 
     setLoading(true);
     try {
-      const { data, error } = await withRetry(() =>
-        supabase
-          .from('admin_business_plans')
-          .select('*')
-          .eq('agent_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single()
-      );
-
-      console.log('Admin Business Plan Data:', data);
-      console.log('Admin Business Plan Error:', error);
+      const { data, error } = await supabase
+        .from('admin_business_plans')
+        .select('*')
+        .eq('agent_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
       if (error && error.code !== 'PGRST116') {
         throw error;
@@ -295,6 +234,7 @@ export function AdminBusinessPlan() {
         setPlan({
           ...data,
           agents: data.agents || [],
+          franchise_fee: data.franchise_fee != null ? Math.round(data.franchise_fee) : null,
           rent: data.rent != null ? Math.round(data.rent) : null,
           staff_salary: data.staff_salary != null ? Math.round(data.staff_salary) : null,
           internet: data.internet != null ? Math.round(data.internet) : null,
@@ -306,15 +246,13 @@ export function AdminBusinessPlan() {
           setShowInputs(true);
         }
         setTimeFrame('yearly');
-      } else {
-        console.log('No admin business plan found, using defaults');
       }
     } catch (error: any) {
-      console.error('Error fetching business plan:', JSON.stringify(error, null, 2));
+      console.error('Error fetching business plan:', error);
       if (error.code === '42P01') {
         toast.error('Admin business plan table not found. Please contact support.');
       } else {
-        toast.error(`Failed to load business plan: ${error.message || 'Unknown error'}`);
+        toast.error('Failed to load business plan');
       }
     } finally {
       setLoading(false);
@@ -322,96 +260,68 @@ export function AdminBusinessPlan() {
   };
 
   const fetchAgentBusinessPlan = async () => {
-    if (!user?.id || !plan.agents.length) {
-      console.log('No user ID or agents to fetch plans for');
-      return;
-    }
+    if (!user?.id) return;
 
-    setLoading(true);
     try {
-      const agentIds = plan.agents.map(agent => agent.name);
-      console.log('Fetching agent business plans for IDs:', agentIds);
+      const { data, error } = await supabase
+        .from('agent_business_plans')
+        .select('business_commission_percentage, agent_commission_percentage, franchise_percentage')
+        .eq('agent_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-      const { data, error } = await withRetry(() =>
-        supabase
-          .from('agent_business_plans')
-          .select('agent_id, business_commission_percentage, agent_commission_percentage, franchise_percentage, created_at')
-          .in('agent_id', agentIds)
-          .order('created_at', { ascending: false })
-      );
-
-      console.log('Fetched Agent Business Plan Data:', data);
-      console.log('Fetched Agent Business Plan Error:', error);
-
-      if (error) throw error;
-
-      // Create a map to store the most recent plan for each agent
-      const agentPlansMap = new Map<string, AgentBusinessPlan>();
-      data.forEach(plan => {
-        if (!agentPlansMap.has(plan.agent_id) || new Date(plan.created_at) > new Date(agentPlansMap.get(plan.agent_id)!.created_at!)) {
-          agentPlansMap.set(plan.agent_id, plan);
-        }
-      });
-
-      console.log('Agent Plans Map:', Array.from(agentPlansMap.entries()));
-
-      // Update plan.agents with fetched percentages
-      setPlan(prev => {
-        const updatedAgents = prev.agents.map(agent => {
-          const agentPlan = agentPlansMap.get(agent.name);
-          console.log(`Updating agent ${agent.name} with plan:`, agentPlan);
-          return {
-            ...agent,
-            business_commission_percentage: agentPlan?.business_commission_percentage ?? null,
-            agent_commission_percentage: agentPlan?.agent_commission_percentage ?? null,
-            franchise_fee: agentPlan?.franchise_percentage ?? null
-          };
-        });
-        console.log('Updated Agents State:', updatedAgents);
-        return { ...prev, agents: updatedAgents };
-      });
-
-      if (data.length === 0) {
-        toast.warn('No agent business plans found. Using default values.');
+      if (error && error.code !== 'PGRST116') {
+        throw error;
       }
-    } catch (error: any) {
-      console.error('Error fetching agent business plans:', JSON.stringify(error, null, 2));
-      if (error.code === 'PGRST116') {
-        toast.warn('No agent business plans found. Using default values.');
+
+      if (data) {
         setPlan(prev => ({
           ...prev,
-          agents: prev.agents.map(agent => ({
-            ...agent,
-            business_commission_percentage: null,
-            agent_commission_percentage: null,
-            franchise_fee: null
-          }))
+          business_commission_percentage: data.business_commission_percentage ?? null,
+          agent_commission_percentage: data.agent_commission_percentage ?? null,
+          franchise_fee: data.franchise_percentage ?? null
         }));
-      } else if (error.code === '42703') {
+      } else {
+        // Fallback to default values if no data is found
+        setPlan(prev => ({
+          ...prev,
+          business_commission_percentage: null,
+          agent_commission_percentage: null,
+          franchise_fee: null
+        }));
+      }
+    } catch (error: any) {
+      console.error('Error fetching agent business plan:', error);
+      if (error.code === '42703') {
         toast.error('Agent business plan columns not found. Using default values.');
       } else {
-        toast.error(`Failed to load agent business plan data: ${error.message || 'Unknown error'}`);
+        toast.error('Failed to load agent business plan data');
       }
-    } finally {
-      setLoading(false);
+      // Set fallback values
+      setPlan(prev => ({
+        ...prev,
+        business_commission_percentage: null,
+        agent_commission_percentage: null,
+        franchise_fee: null
+      }));
     }
   };
 
   const calculateAgentData = () => {
-    const { business_expenses_percentage, agent_expenses_percentage } = plan;
-    const additionalExpensesTotal = calculateAdditionalExpensesTotal();
+    const {
+      agents,
+      business_commission_percentage,
+      agent_commission_percentage,
+      franchise_fee,
+      business_expenses_percentage,
+      agent_expenses_percentage
+    } = plan;
 
-    return plan.agents.map((agent) => {
-      const { 
-        name, 
-        commission_amount, 
-        franchise_amount, 
-        marketing_expenses, 
-        super_amount,
-        business_commission_percentage,
-        agent_commission_percentage,
-        franchise_fee
-      } = agent;
+    const additionalExpenses = calculateAdditionalExpensesTotal();
+
+    return agents.map((agent) => {
+      const { name, commission_amount, franchise_amount, marketing_expenses, super_amount } = agent;
 
       const scaleFactor = timeFrame === 'monthly' ? 12 : timeFrame === 'weekly' ? 52 : 1;
       const scaledCommission = commission_amount ? commission_amount * scaleFactor : null;
@@ -439,8 +349,8 @@ export function AdminBusinessPlan() {
       const agentExpenses = scaledMarketing && agent_expenses_percentage
         ? Math.round((scaledMarketing * agent_expenses_percentage) / 100)
         : null;
-      const businessEarnings = businessCommission && businessExpenses && scaledSuper && additionalExpensesTotal
-        ? Math.round(businessCommission - businessExpenses - scaledSuper - additionalExpensesTotal)
+      const businessEarnings = businessCommission && businessExpenses && scaledSuper && additionalExpenses
+        ? Math.round(businessCommission - businessExpenses - scaledSuper - additionalExpenses)
         : null;
       const agentEarnings = agentCommission && scaledMarketing && scaledSuper
         ? scaledMarketing > 0
@@ -456,9 +366,7 @@ export function AdminBusinessPlan() {
         agent_expenses: agentExpenses,
         business_earnings: businessEarnings,
         agent_earnings: agentEarnings,
-        franchise_fee: calculatedFranchiseAmount,
-        business_commission_percentage,
-        agent_commission_percentage
+        franchise_fee: calculatedFranchiseAmount
       };
     });
   };
@@ -499,11 +407,12 @@ export function AdminBusinessPlan() {
   };
 
   useEffect(() => {
-    const data = calculateAgentData();
-    console.log('Calculated Agent Data:', data);
-    setAgentsData(data);
+    setAgentsData(calculateAgentData());
   }, [
     plan.agents,
+    plan.business_commission_percentage,
+    plan.agent_commission_percentage,
+    plan.franchise_fee,
     plan.business_expenses_percentage,
     plan.agent_expenses_percentage,
     plan.rent,
@@ -527,6 +436,7 @@ export function AdminBusinessPlan() {
         ...plan,
         agent_id: user.id,
         updated_at: new Date().toISOString(),
+        franchise_fee: plan.franchise_fee != null ? Math.round(plan.franchise_fee) : null,
         rent: plan.rent != null ? Math.round(plan.rent) : null,
         staff_salary: plan.staff_salary != null ? Math.round(plan.staff_salary) : null,
         internet: plan.internet != null ? Math.round(plan.internet) : null,
@@ -542,25 +452,24 @@ export function AdminBusinessPlan() {
       };
 
       if (plan.id) {
-        const { error } = await withRetry(() =>
-          supabase
-            .from('admin_business_plans')
-            .update(planData)
-            .eq('id', plan.id)
-        );
+        const { error } = await supabase
+          .from('admin_business_plans')
+          .update(planData)
+          .eq('id', plan.id);
+        
         if (error) throw error;
       } else {
-        const { data, error } = await withRetry(() =>
-          supabase
-            .from('admin_business_plans')
-            .insert([{ ...planData, created_at: new Date().toISOString() }])
-            .select()
-            .single()
-        );
+        const { data, error } = await supabase
+          .from('admin_business_plans')
+          .insert([{ ...planData, created_at: new Date().toISOString() }])
+          .select()
+          .single();
+        
         if (error) throw error;
         setPlan({
           ...data,
           agents: data.agents || [],
+          franchise_fee: data.franchise_fee != null ? Math.round(data.franchise_fee) : null,
           rent: data.rent != null ? Math.round(data.rent) : null,
           staff_salary: data.staff_salary != null ? Math.round(data.staff_salary) : null,
           internet: data.internet != null ? Math.round(data.internet) : null,
@@ -569,26 +478,10 @@ export function AdminBusinessPlan() {
         });
       }
 
-      for (const agent of plan.agents) {
-        const { error } = await withRetry(() =>
-          supabase
-            .from('agent_business_plans')
-            .upsert({
-              agent_id: agent.name,
-              business_commission_percentage: agent.business_commission_percentage,
-              agent_commission_percentage: agent.agent_commission_percentage,
-              franchise_percentage: agent.franchise_fee,
-              updated_at: new Date().toISOString(),
-              created_at: new Date().toISOString()
-            })
-        );
-        if (error) throw error;
-      }
-
-      toast.success('Business plan and agent percentages saved successfully!');
+      toast.success('Business plan saved successfully!');
     } catch (error: any) {
-      console.error('Error saving business plan:', JSON.stringify(error, null, 2));
-      toast.error(`Failed to save business plan or agent percentages: ${error.message || 'Unknown error'}`);
+      console.error('Error saving business plan:', error);
+      toast.error('Failed to save business plan');
     } finally {
       setSaving(false);
     }
@@ -605,10 +498,7 @@ export function AdminBusinessPlan() {
         commission_amount: null,
         franchise_amount: null,
         marketing_expenses: null,
-        super_amount: null,
-        business_commission_percentage: null,
-        agent_commission_percentage: null,
-        franchise_fee: null
+        super_amount: null
       };
       setPlan({
         ...plan,
@@ -644,23 +534,9 @@ export function AdminBusinessPlan() {
 
   const updateAgentFinancials = (field: keyof AgentFinancials, value: number | null) => {
     if (!selectedAgent) return;
-
-    if (value !== null && (value < 0 || value > 100) && ['business_commission_percentage', 'agent_commission_percentage', 'franchise_fee'].includes(field)) {
-      toast.error(`${field.replace('_', ' ')} must be between 0% and 100%`);
-      return;
-    }
-
     const updatedAgents = plan.agents.map(agent => {
       if (agent.name === selectedAgent) {
-        const updatedAgent = { ...agent, [field]: value };
-        if (field === 'business_commission_percentage' || field === 'agent_commission_percentage') {
-          const totalPercentage = (updatedAgent.business_commission_percentage || 0) + (updatedAgent.agent_commission_percentage || 0);
-          if (totalPercentage > 100) {
-            toast.error('Business and Agent Commission percentages cannot exceed 100%');
-            return agent;
-          }
-        }
-        return updatedAgent;
+        return { ...agent, [field]: value };
       }
       return agent;
     });
@@ -673,10 +549,7 @@ export function AdminBusinessPlan() {
       commission_amount: null,
       franchise_amount: null,
       marketing_expenses: null,
-      super_amount: null,
-      business_commission_percentage: null,
-      agent_commission_percentage: null,
-      franchise_fee: null
+      super_amount: null
     };
   };
 
@@ -715,10 +588,7 @@ export function AdminBusinessPlan() {
       startY: yOffset,
       head: [['Agent', 'Metric', `${timeFrame ? timeFrame.charAt(0).toUpperCase() + timeFrame.slice(1) : 'Total'}`]],
       body: agentsData.flatMap(agent => [
-        [agent.name, 'Business Commission %', agent.business_commission_percentage != null ? `${Math.round(agent.business_commission_percentage)}%` : 'N/A'],
-        ['', 'Agent Commission %', agent.agent_commission_percentage != null ? `${Math.round(agent.agent_commission_percentage)}%` : 'N/A'],
-        ['', 'Franchise Fee %', agent.franchise_fee != null ? `${Math.round(agent.franchise_fee)}%` : 'N/A'],
-        ['', 'Commission Amount', agent.business_commission != null ? `$${Math.round(agent.business_commission).toLocaleString()}` : 'N/A'],
+        [agent.name, 'Commission Amount', agent.business_commission != null ? `$${Math.round(agent.business_commission).toLocaleString()}` : 'N/A'],
         ['', 'Franchise Fee', agent.franchise_fee != null ? `$${Math.round(agent.franchise_fee).toLocaleString()}` : 'N/A'],
         ['', 'Agent Commission', agent.agent_commission != null ? `$${Math.round(agent.agent_commission).toLocaleString()}` : 'N/A'],
         ['', 'Business Expenses', agent.business_expenses != null ? `$${Math.round(agent.business_expenses).toLocaleString()}` : 'N/A'],
@@ -727,8 +597,8 @@ export function AdminBusinessPlan() {
         ['', 'Agent Earnings', agent.agent_earnings != null ? `$${Math.round(agent.agent_earnings).toLocaleString()}` : 'N/A']
       ]).concat([
         ['Total', 'Business Commission', totals.business_commission ? `$${Math.round(totals.business_commission).toLocaleString()}` : 'N/A'],
-        ['', 'Agent Commission', totals.agent_commission ? `$${Math.round(totals.agent_commission).toLocaleString()}` : 'N/A'],
         ['', 'Franchise Fee', totals.franchise_fee ? `$${Math.round(totals.franchise_fee).toLocaleString()}` : 'N/A'],
+        ['', 'Agent Commission', totals.agent_commission ? `$${Math.round(totals.agent_commission).toLocaleString()}` : 'N/A'],
         ['', 'Business Expenses', totals.business_expenses ? `$${Math.round(totals.business_expenses).toLocaleString()}` : 'N/A'],
         ['', 'Agent Expenses', totals.agent_expenses ? `$${Math.round(totals.agent_expenses).toLocaleString()}` : 'N/A'],
         ['', 'Business Earnings', totals.business_earnings ? `$${Math.round(totals.business_earnings).toLocaleString()}` : 'N/A'],
@@ -752,7 +622,6 @@ export function AdminBusinessPlan() {
     doc.setFillColor(219, 234, 254);
     doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
     doc.text('Additional Expenses', margin + 3, yOffset + 5);
-  //  /locales/en-US.ts
     yOffset += 10;
 
     doc.setFont('Helvetica', 'normal');
@@ -851,6 +720,9 @@ export function AdminBusinessPlan() {
     setPlan({
       agent_id: user?.id || '',
       agents: [],
+      business_commission_percentage: null,
+      agent_commission_percentage: null,
+      franchise_fee: null,
       business_expenses_percentage: 0,
       agent_expenses_percentage: 0,
       rent: null,
@@ -871,13 +743,13 @@ export function AdminBusinessPlan() {
   const totals = calculateTotals();
   const additionalExpensesTotal = calculateAdditionalExpensesTotal();
 
-  const pieChartData = selectedAgent ? [
-    { name: 'Business Commission', value: getSelectedAgent().business_commission_percentage || 0, color: '#1E3A8A' },
-    { name: 'Agent Commission', value: getSelectedAgent().agent_commission_percentage || 0, color: '#3B82F6' },
-    { name: 'Franchise Fee', value: getSelectedAgent().franchise_fee || 0, color: '#1D4ED8' },
+  const pieChartData = [
+    { name: 'Business Commission', value: plan.business_commission_percentage || 0, color: '#1E3A8A' },
+    { name: 'Agent Commission', value: plan.agent_commission_percentage || 0, color: '#3B82F6' },
+    { name: 'Franchise Fee', value: plan.franchise_fee || 0, color: '#1D4ED8' },
     { name: 'Business Expenses', value: plan.business_expenses_percentage || 0, color: '#2563EB' },
     { name: 'Agent Expenses', value: plan.agent_expenses_percentage || 0, color: '#60A5FA' }
-  ] : [];
+  ];
 
   const chartData = agentsData.map(agent => ({
     name: agent.name,
@@ -894,7 +766,6 @@ export function AdminBusinessPlan() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>
-        <p className="ml-4 text-blue-600">Loading agent business plans...</p>
       </div>
     );
   }
@@ -1146,7 +1017,7 @@ export function AdminBusinessPlan() {
           </motion.div>
         )}
 
-        {timeFrame && showInputs && selectedAgent && (
+        {timeFrame && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1156,7 +1027,7 @@ export function AdminBusinessPlan() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-blue-900 flex items-center">
                 <Settings className="w-5 h-5 mr-2 text-blue-600" />
-                Percentage Configuration for {selectedAgent} ({timeFrame})
+                Percentage Configuration
               </h2>
               <button
                 onClick={() => setShowPercentages(!showPercentages)}
@@ -1170,29 +1041,15 @@ export function AdminBusinessPlan() {
                 <div className="space-y-8">
                   {[
                     { field: 'business_commission_percentage', label: 'Business Commission %', tooltip: 'Percentage of net commission allocated to business' },
-                    { field: 'agent_commission_percentage', label: 'Agent Commission %', tooltip: 'Percentage of net commission allocated to agent' },
-                    { field: 'franchise_fee', label: 'Franchise Fee %', tooltip: 'Percentage of commission deducted as franchise fee' }
-                  ].map(({ field, label, tooltip }) => (
-                    <RatioSlider
-                      key={field}
-                      label={label}
-                      value={selectedAgentData[field as keyof AgentFinancials] ?? 0}
-                      onChange={(value) => updateAgentFinancials(field as keyof AgentFinancials, value)}
-                      min={0}
-                      max={100}
-                      step={1}
-                      suffix="%"
-                      tooltip={tooltip}
-                    />
-                  ))}
-                  {[
+                    { field: 'agent_commission_percentage', label: 'Agent Commission %', tooltip: 'Percentage of net commission allocated to agents' },
+                    { field: 'franchise_fee', label: 'Franchise Fee %', tooltip: 'Percentage of commission deducted as franchise fee' },
                     { field: 'business_expenses_percentage', label: 'Business Expenses %', tooltip: 'Percentage of marketing expenses allocated to business' },
                     { field: 'agent_expenses_percentage', label: 'Agent Expenses %', tooltip: 'Percentage of marketing expenses allocated to agents' }
                   ].map(({ field, label, tooltip }) => (
                     <RatioSlider
                       key={field}
                       label={label}
-                      value={plan[field as keyof AdminBusinessPlan] ?? 0}
+                      value={plan[field as keyof AdminBusinessPlan] as number ?? 0}
                       onChange={(value) => setPlan({ ...plan, [field]: value })}
                       min={0}
                       max={100}
@@ -1260,7 +1117,7 @@ export function AdminBusinessPlan() {
                       <td className="p-3 text-blue-600 text-center">{agent.business_commission != null ? `$${Math.round(agent.business_commission).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.agent_commission != null ? `$${Math.round(agent.agent_commission).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.franchise_fee != null ? `$${Math.round(agent.franchise_fee).toLocaleString()}` : 'N/A'}</td>
-                      <td className="p-3 text-blue-600 text-center">{agent.business_expenses != null ? `$${Math.round(agent.business_expenses).toLocaleString()}` : 'N anthropogenic emissions N/A'}</td>
+                      <td className="p-3 text-blue-600 text-center">{agent.business_expenses != null ? `$${Math.round(agent.business_expenses).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.agent_expenses != null ? `$${Math.round(agent.agent_expenses).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.business_earnings != null ? `$${Math.round(agent.business_earnings).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.agent_earnings != null ? `$${Math.round(agent.agent_earnings).toLocaleString()}` : 'N/A'}</td>

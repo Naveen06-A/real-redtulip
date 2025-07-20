@@ -119,11 +119,11 @@ const RatioInput: React.FC<RatioInputProps> = ({
 );
 
 export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
-  const { user, profile } = useAuthStore();
+  const { user} = useAuthStore();
   const navigate = useNavigate();
   const [targets, setTargets] = useState<BusinessPlanTargets>({
-    agent_id: user?.id || '',
-    agent_name: isAdmin ? '' : user?.user_metadata?.full_name || 'Unknown Agent',
+    agent_id:  '',
+    agent_name:  '' ,
     period_type: 'yearly',
     appraisals_target: null,
     listings_target: null,
@@ -175,28 +175,58 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const [agentSearch, setAgentSearch] = useState('');
   const [showAgentSuggestions, setShowAgentSuggestions] = useState(false);
   const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
+  const filteredAgents = agents.filter(agent =>
+    agent.name.toLowerCase().includes(agentSearch.toLowerCase())
+  );
 
   useEffect(() => {
     const initializeAgentData = async () => {
-      if (isAdmin) {
-        if (!targets.agent_id) {
-          navigate('/admin-dashboard');
-          return;
+      setLoading(true);
+      try {
+        if (isAdmin) {
+          // For admin, initialize with empty fields and fetch agent list
+          await fetchAgents();
+          setTargets(prev => ({
+            ...prev,
+            agent_id: '',
+            agent_name: ''
+          }));
+          setAgentSearch('');
+        } else if (user?.id) {
+          // For non-admin (agent), fetch their own profile
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, name, role')
+            .eq('id', user.id)
+            .single();
+          
+          if (profileError || !profileData || profileData.role !== 'agent') {
+            toast.error('Unable to load agent profile. Please ensure you are logged in as an agent.');
+            setTargets(prev => ({
+              ...prev,
+              agent_id: user.id,
+              agent_name: ''
+            }));
+            setAgentSearch('');
+          } else {
+            setTargets(prev => ({
+              ...prev,
+              agent_id: user.id,
+              agent_name: profileData.name || ''
+            }));
+            setAgentSearch(profileData.name || '');
+            await fetchBusinessPlan(user.id);
+          }
         }
-        await fetchAgents();
-      } else if (user?.id) {
-        const agentName = user.user_metadata?.full_name || 'Unknown Agent';
-        setTargets(prev => ({
-          ...prev,
-          agent_id: user.id,
-          agent_name: agentName
-        }));
-        setAgentSearch(agentName);
-        await fetchBusinessPlan(user.id);
+      } catch (error) {
+        console.error('Error initializing agent data:', error);
+        toast.error('Failed to initialize agent data');
+      } finally {
+        setLoading(false);
       }
     };
     initializeAgentData();
-  }, [user?.id, user?.user_metadata?.full_name, isAdmin, navigate]);
+  }, [user?.id, isAdmin]);
 
   useEffect(() => {
     const { 
@@ -340,15 +370,43 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const fetchAgents = async () => {
     try {
       const { data, error } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, name')
+        .eq('role', 'agent')
         .order('name', { ascending: true });
       
       if (error) throw error;
-      setAgents(data || []);
+      setAgents(data?.map(item => ({ id: item.id, name: item.name || 'Unknown Agent' })) || []);
+      // setAgents(data || []);
     } catch (error) {
       console.error('Error fetching agents:', error);
       toast.error('Failed to load agents');
+    }
+  };
+  const createNewAgent = async (agentName: string) => {
+    if (!agentName.trim()) {
+      toast.error('Agent name cannot be empty');
+      return null;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert([{ name: agentName, role: 'agent' }])
+        .select('id, name')
+        .single();
+      
+      if (error) throw error;
+      if (data) {
+        const newAgent = { id: data.id, name: data.name };
+        setAgents(prev => [...prev, newAgent]);
+        toast.success(`New agent "${agentName}" created successfully`);
+        return newAgent;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error creating new agent:', error);
+      toast.error('Failed to create new agent: ' + (error.message || 'Unknown error'));
+      return null;
     }
   };
 
@@ -360,14 +418,16 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     
     setLoading(true);
     try {
-      // Verify the user session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        throw new Error('No active session. Please log in.');
-      }
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', agentId)
+        .single();
+
+      let agentName = profileError || !profileData?.name ? 'Unknown Agent' : profileData.name;
 
       const { data: planData, error: planError } = await supabase
-        .from('agent_business_plan')
+        .from('agent_business_plans')
         .select('*')
         .eq('agent_id', agentId)
         .order('created_at', { ascending: false })
@@ -375,23 +435,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         .single();
 
       if (planError) {
-        if (planError.code === 'PGRST116') { // No rows found
-          let agentName = '';
-          if (isAdmin) {
-            const { data: userData, error: userError } = await supabase
-              .from('users')
-              .select('name')
-              .eq('id', agentId)
-              .single();
-            if (userError) {
-              console.error('Error fetching user data:', userError);
-              agentName = 'Unknown Agent';
-            } else {
-              agentName = userData?.name || 'Unknown Agent';
-            }
-          } else {
-            agentName = user?.user_metadata?.full_name   || admin.name|| agent.name || 'Unknown Agent';
-          }
+        if (planError.code === 'PGRST116') {
           setTargets(prev => ({
             ...prev,
             agent_id: agentId,
@@ -404,22 +448,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       }
 
       if (planData) {
-        let agentName = planData.agent_name || 'Unknown Agent';
-        if (isAdmin && !planData.agent_name) {
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('name')
-            .eq('id', agentId)
-            .single();
-          if (userError) {
-            console.error('Error fetching user data:', userError);
-          } else {
-            agentName = userData?.name || 'Unknown Agent';
-          }
-        } else if (!isAdmin) {
-          agentName = user?.user_metadata?.full_name || user?.email || 'Unknown Agent';
-        }
-        
         setTargets({
           ...planData,
           agent_id: agentId,
@@ -478,14 +506,14 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
 
       const plansWithAgentNames = await Promise.all(
         data?.map(async (plan) => {
-          const agentData = await supabase
-            .from('users')
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
             .select('name')
             .eq('id', plan.agent_id)
             .single();
           return {
             ...plan,
-            agent_name: agentData.data?.name || plan.agent_name || 'Unknown Agent'
+            agent_name: profileError || !profileData?.name ? 'Unknown Agent' : profileData.name
           };
         }) || []
       );
@@ -540,14 +568,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       toast.error('Please log in to save a plan');
       return;
     }
-    
-    if (isAdmin && !targets.agent_id) {
-      toast.error('Please select an agent before saving the plan');
-      return;
-    }
 
-    if (!targets.agent_name) {
-      toast.error('Agent name is required');
+    if (!targets.agent_id || !targets.agent_name) {
+      toast.error('Please select an agent');
       return;
     }
 
@@ -559,29 +582,11 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
 
     setSaving(true);
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        throw new Error('No active session. Please log in.');
-      }
-
-      let agentIdToUse = targets.agent_id;
-      if (isAdmin && !agentIdToUse) {
-        // If no agent_id, try to find or create based on agent_name
-        const { data: agentData, error: agentError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('name', targets.agent_name)
-          .single();
-        if (agentError && agentError.code !== 'PGRST116') {
-          throw agentError;
-        }
-        agentIdToUse = agentData?.id || (await createNewAgent(targets.agent_name)).id;
-      }
-
 
       const planData = {
         ...targets,
-        agent_id: isAdmin ? targets.agent_id : user?.id,
+        // agent_id: isAdmin ? targets.agent_id : user?.id,
+        agent_id: targets.agent_id,
         agent_name: targets.agent_name,
         updated_at: new Date().toISOString(),
         gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) : null,
@@ -608,37 +613,33 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       let savedPlan: BusinessPlanTargets | null = null;
 
       if (targets.id) {
-        const { data, error } = await supabase
-          .from('agent_business_plan')
-          .update(planData)
-          .eq('id', targets.id)
-          .eq('agent_id', planData.agent_id)
-          .select()
-          .single();
-        
-        if (error) {
-          throw new Error(`Failed to update plan: ${error.message}`);
-        }
-        savedPlan = data;
-        toast.success('Business plan updated successfully!');
-      } else {
-        const { data, error } = await supabase
-          .from('agent_business_plan')
-          .insert([{ ...planData, created_at: new Date().toISOString() }])
-          .select()
-          .single();
-        
-        if (error) {
-          throw new Error(`Failed to create plan: ${error.message}`);
-        }
-        savedPlan = data;
-        toast.success('Business plan created successfully!');
-      }
+      const { data, error } = await supabase
+        .from('agent_business_plans')
+        .update(planData)
+        .eq('id', targets.id)
+        .eq('agent_id', planData.agent_id)
+        .select()
+        .single();
 
-      if (savedPlan) {
+      if (error) throw error;
+      savedPlan = data;
+      toast.success('Business plan updated successfully!');
+    } else {
+      const { data, error } = await supabase
+        .from('agent_business_plans')
+        .insert([{ ...planData, created_at: new Date().toISOString() }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      savedPlan = data;
+      toast.success('Business plan created successfully!');
+    }
+
+    if (savedPlan) {
         setTargets({
           ...savedPlan,
-          agent_name: isAdmin ? savedPlan.agent_name || 'Unknown Agent' : user?.user_metadata?.full_name || user?.email || 'Unknown Agent',
+          agent_name:  savedPlan.agent_name || 'Unknown Agent',
           gross_commission_target: savedPlan.gross_commission_target != null ? Math.round(savedPlan.gross_commission_target) : null,
           avg_commission_per_sale: savedPlan.avg_commission_per_sale != null ? Math.round(savedPlan.avg_commission_per_sale) : null,
           salary_per_hour: savedPlan.salary_per_hour != null ? savedPlan.salary_per_hour : null,
@@ -669,15 +670,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       setSaving(false);
     }
   };
-  const createNewAgent = async (agentName: string) => {
-    const { data, error } = await supabase
-      .from('users')
-      .insert([{ name: agentName, email: `${agentName.toLowerCase().replace(/ /g, '.')}@example.com` }])
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  };
+  
 
   const deleteBusinessPlan = async () => {
     if (!targets.id || (!user?.id && !isAdmin)) {
@@ -700,7 +693,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       
       setTargets({
         agent_id: isAdmin ? '' : user?.id || '',
-        agent_name: isAdmin ? '' : user?.user_metadata?.full_name || user?.email || 'Unknown Agent',
+        agent_name: isAdmin ? '' : user?.user_metadata?.name ||  '',
         period_type: 'yearly',
         appraisals_target: null,
         listings_target: null,
@@ -738,7 +731,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
-      setAgentSearch('');
+      setAgentSearch(isAdmin ? '' : user?.user_metadata?.name || '');
+      setShowPlan(false);
+      setPdfDataUri(null);
       toast.success('Business plan deleted successfully!');
     } catch (error) {
       console.error('Error deleting business plan:', error);
@@ -959,7 +954,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const resetToDefaults = () => {
     setTargets({
       agent_id: isAdmin ? '' : user?.id || '',
-      agent_name: isAdmin ? '' : user?.user_metadata?.full_name || user?.email || 'Unknown Agent',
+      agent_name: isAdmin ? '' : user?.user_metadata?.name ||  '',
       period_type: 'yearly',
       appraisals_target: null,
       listings_target: null,
@@ -1005,25 +1000,25 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     setTargets(prev => ({
       ...prev,
       agent_id: agent.id,
-      agent_name: agent.name
+      agent_name: agent.
+      name
     }));
     setAgentSearch(agent.name);
     setShowAgentSuggestions(false);
+    // Fetch business plan for the selected agent
     fetchBusinessPlan(agent.id);
   };
-   const handleManualAgentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleManualAgentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setAgentSearch(value);
     setTargets(prev => ({
       ...prev,
+      agent_id: '',
       agent_name: value
     }));
-    setShowAgentSuggestions(true); // Show suggestions if they match
+    setShowAgentSuggestions(true);
   };
-
-  const filteredAgents = agents.filter(agent =>
-    agent.name.toLowerCase().includes(agentSearch.toLowerCase())
-  );
+  
 
   const chartData = [
     { name: 'Appraisals', value: targets.appraisals_target, fill: '#1E3A8A' },
@@ -1710,28 +1705,31 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                 {isAdmin ? (
                   <>
                     <input
+                      // key="agent-name-input"
                       type="text"
                       value={agentSearch}
                       // onChange={(e) => {
-                      onChange={handleManualAgentChange}
+                      onChange={(e) => setAgentSearch(e.target.value)}
                       onFocus={() => setShowAgentSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowAgentSuggestions(false), 200)}
+                      autoComplete="off"
                       className="mt-1 w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-100 text-blue-800"
                       placeholder="Search for an agent"
                     />
-                    {showAgentSuggestions && agentSearch && (
+                    {showAgentSuggestions && (
                       <div className="absolute z-10 w-full mt-1 bg-white border border-blue-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                         {filteredAgents.length > 0 ? (
                           filteredAgents.map(agent => (
                             <div
                               key={agent.id}
                               className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-blue-800"
-                              onClick={() => handleAgentSelect(agent)}
+                              onMouseDown={() => handleAgentSelect(agent)}
                             >
                               {agent.name}
                             </div>
                           ))
                         ) : (
-                          <div className="px-3 py-2 text-blue-600">No agents found</div>
+                          <div className="px-3 py-2 text-blue-600">{agentSearch ? 'No agents found. Type to create a new agent.' : 'Start typing to search agents.'}</div>
                         )}
                       </div>
                     )}

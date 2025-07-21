@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -27,7 +28,6 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useNavigate } from 'react-router-dom';
 
-
 interface BusinessPlanTargets {
   id?: string;
   agent_id: string;
@@ -55,6 +55,7 @@ interface BusinessPlanTargets {
   persons_salary: number | null;
   net_commission: number | null;
   cost_per_third_party_call: number | null;
+  cost_per_appraisals:number | null;
   how_many_calls: number | null;
   how_many_appraisals: number | null;
   total_third_party_calls: number | null;
@@ -83,6 +84,7 @@ interface RatioInputProps {
   step: number;
   suffix: string;
   tooltip: string;
+  isCurrency?: boolean;
 }
 
 const RatioInput: React.FC<RatioInputProps> = ({
@@ -92,12 +94,19 @@ const RatioInput: React.FC<RatioInputProps> = ({
   min,
   step,
   suffix,
-  tooltip
+  tooltip,
+  isCurrency = false
 }) => (
   <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200 relative group">
     <div className="flex justify-between items-center mb-2">
       <span className="text-sm font-medium text-blue-800">{label}</span>
-      <span className="text-sm text-blue-600">{value ? `${suffix === '%' ? Math.round(Number(value)) : Math.round(Number(value)).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 })} ${suffix}` : 'N/A'}</span>
+      <span className="text-sm text-blue-600">
+        {value != null
+          ? isCurrency
+            ? `$${Math.round(Number(value)).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
+            : `${Math.round(Number(value)).toLocaleString()} ${suffix}`
+          : 'N/A'}
+      </span>
     </div>
     <div className="relative">
       <input
@@ -108,8 +117,8 @@ const RatioInput: React.FC<RatioInputProps> = ({
         onChange={(e) => onChange(e.target.value === '' ? null : Math.round(parseFloat(e.target.value)))}
         className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-100 text-blue-800 pr-8"
       />
-      {suffix === '%' && (
-        <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-600">%</span>
+      {suffix && (
+        <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-600">{suffix}</span>
       )}
     </div>
     <div className="absolute z-10 hidden group-hover:block bg-blue-800 text-white text-xs rounded py-2 px-4 -top-10 left-1/2 transform -translate-x-1/2 w-64">
@@ -119,11 +128,11 @@ const RatioInput: React.FC<RatioInputProps> = ({
 );
 
 export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
-  const { user} = useAuthStore();
+  const { user } = useAuthStore();
   const navigate = useNavigate();
   const [targets, setTargets] = useState<BusinessPlanTargets>({
-    agent_id:  '',
-    agent_name:  '' ,
+    agent_id: '',
+    agent_name: '',
     period_type: 'yearly',
     appraisals_target: null,
     listings_target: null,
@@ -147,6 +156,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     persons_salary: null,
     net_commission: null,
     cost_per_third_party_call: null,
+    cost_per_appraisals: null,
     how_many_calls: null,
     how_many_appraisals: null,
     total_third_party_calls: null,
@@ -166,6 +176,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const [deleting, setDeleting] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showSavedPlans, setShowSavedPlans] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [savedPlans, setSavedPlans] = useState<BusinessPlanTargets[]>([]);
   const [generating, setGenerating] = useState(false);
   const [viewMode, setViewMode] = useState<'details' | 'pdf'>('details');
@@ -184,7 +195,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       setLoading(true);
       try {
         if (isAdmin) {
-          // For admin, initialize with empty fields and fetch agent list
           await fetchAgents();
           setTargets(prev => ({
             ...prev,
@@ -193,7 +203,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           }));
           setAgentSearch('');
         } else if (user?.id) {
-          // For non-admin (agent), fetch their own profile
           const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('id, name, role')
@@ -205,16 +214,17 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
             setTargets(prev => ({
               ...prev,
               agent_id: user.id,
-              agent_name: ''
+              agent_name: user.user_metadata?.name || 'Agent'
             }));
-            setAgentSearch('');
+            setAgentSearch(user.user_metadata?.name || 'Agent');
           } else {
+            const agentName = profileData.name || user.user_metadata?.name || 'Agent';
             setTargets(prev => ({
               ...prev,
               agent_id: user.id,
-              agent_name: profileData.name || ''
+              agent_name: agentName
             }));
-            setAgentSearch(profileData.name || '');
+            setAgentSearch(agentName);
             await fetchBusinessPlan(user.id);
           }
         }
@@ -242,6 +252,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       salary_per_hour,
       marketing_expenses,
       cost_per_third_party_call,
+      cost_per_appraisals,
       how_many_calls,
       how_many_appraisals,
       avg_commission_price_per_property,
@@ -319,8 +330,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       total_third_party_calls = Math.round(cost_per_third_party_call * how_many_calls);
     }
 
-    if (how_many_appraisals != null && how_many_appraisals > 0) {
-      total_cost_appraisals = Math.round(how_many_appraisals * how_many_appraisals);
+    if (cost_per_appraisals!= null && how_many_appraisals != null) {
+      total_cost_appraisals = Math.round(cost_per_appraisals * how_many_appraisals);
     }
 
     if (gross_commission_target != null && marketing_expenses != null && persons_salary != null) {
@@ -359,6 +370,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     targets.salary_per_hour,
     targets.marketing_expenses,
     targets.cost_per_third_party_call,
+    targets.cost_per_appraisals,
     targets.how_many_calls,
     targets.how_many_appraisals,
     targets.avg_commission_price_per_property,
@@ -377,21 +389,37 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       
       if (error) throw error;
       setAgents(data?.map(item => ({ id: item.id, name: item.name || 'Unknown Agent' })) || []);
-      // setAgents(data || []);
     } catch (error) {
       console.error('Error fetching agents:', error);
-      toast.error('Failed to load agents');
+      toast.error('Failed to load agents: ' + (error.message || 'Unknown error'));
     }
   };
+
   const createNewAgent = async (agentName: string) => {
     if (!agentName.trim()) {
       toast.error('Agent name cannot be empty');
       return null;
     }
     try {
+      // Check if agent already exists to prevent duplicates
+      const { data: existingAgent, error: checkError } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .eq('name', agentName.trim())
+        .eq('role', 'agent')
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116: No rows found
+        throw checkError;
+      }
+
+      if (existingAgent) {
+        return { id: existingAgent.id, name: existingAgent.name };
+      }
+
       const { data, error } = await supabase
         .from('profiles')
-        .insert([{ name: agentName, role: 'agent' }])
+        .insert([{ name: agentName.trim(), role: 'agent' }])
         .select('id, name')
         .single();
       
@@ -460,6 +488,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           marketing_expenses: planData.marketing_expenses != null ? Math.round(planData.marketing_expenses) : null,
           net_commission: planData.net_commission != null ? Math.round(planData.net_commission) : null,
           cost_per_third_party_call: planData.cost_per_third_party_call != null ? Math.round(planData.cost_per_third_party_call) : null,
+          cost_per_appraisals:planData.cost_per_appraisals != null ? Math.round(planData.cost_per_appraisals) : null,
           how_many_calls: planData.how_many_calls != null ? Math.round(planData.how_many_calls) : null,
           how_many_appraisals: planData.how_many_appraisals != null ? Math.round(planData.how_many_appraisals) : null,
           total_third_party_calls: planData.total_third_party_calls != null ? Math.round(planData.total_third_party_calls) : null,
@@ -506,11 +535,15 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
 
       const plansWithAgentNames = await Promise.all(
         data?.map(async (plan) => {
+          if (plan.agent_name) {
+            return { ...plan, agent_name: plan.agent_name };
+          }
           const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('name')
             .eq('id', plan.agent_id)
             .single();
+          
           return {
             ...plan,
             agent_name: profileError || !profileData?.name ? 'Unknown Agent' : profileData.name
@@ -545,7 +578,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       persons_salary: plan.persons_salary != null ? Math.round(plan.persons_salary) : null,
       marketing_expenses: plan.marketing_expenses != null ? Math.round(plan.marketing_expenses) : null,
       net_commission: plan.net_commission != null ? Math.round(plan.net_commission) : null,
+
       cost_per_third_party_call: plan.cost_per_third_party_call != null ? Math.round(plan.cost_per_third_party_call) : null,
+      cost_per_appraisals:planData.cost_per_appraisals != null ? Math.round(planData.cost_per_appraisals) : null,
       how_many_calls: plan.how_many_calls != null ? Math.round(plan.how_many_calls) : null,
       how_many_appraisals: plan.how_many_appraisals != null ? Math.round(plan.how_many_appraisals) : null,
       total_third_party_calls: plan.total_third_party_calls != null ? Math.round(plan.total_third_party_calls) : null,
@@ -564,30 +599,60 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   };
 
   const saveBusinessPlan = async () => {
-    if (!user?.id && !isAdmin) {
+    // Require user to be logged in
+    if (!user?.id) {
       toast.error('Please log in to save a plan');
       return;
     }
 
-    if (!targets.agent_id || !targets.agent_name) {
-      toast.error('Please select an agent');
+    // For admins, ensure agent_id and agent_name are set
+    if (isAdmin && (!targets.agent_id || !targets.agent_name)) {
+      toast.error('Please select or create an agent');
       return;
     }
 
-    // Validate required fields
-    if (!targets.gross_commission_target || !targets.avg_commission_price_per_property) {
+    // For non-admins, ensure required fields are filled
+    if (!isAdmin && (!targets.gross_commission_target || !targets.avg_commission_price_per_property)) {
       toast.error('Please fill in Gross Commission Target and Average Commission Price per Property');
+      return;
+    }
+
+    // For admins, require at least one field to save a plan
+    if (isAdmin && !targets.gross_commission_target && !targets.avg_commission_price_per_property) {
+      toast.error('Please fill in at least one of Gross Commission Target or Average Commission Price per Property');
       return;
     }
 
     setSaving(true);
     try {
+      let agentId = targets.agent_id;
+      let agentName = targets.agent_name;
+
+      // If no agent_id but agent_name is provided, attempt to create or find agent
+      if (isAdmin && !agentId && agentName) {
+        const newAgent = await createNewAgent(agentName);
+        if (!newAgent) {
+          throw new Error('Failed to create or find agent');
+        }
+        agentId = newAgent.id;
+        agentName = newAgent.name;
+        setTargets(prev => ({
+          ...prev,
+          agent_id: agentId,
+          agent_name: agentName
+        }));
+        setAgentSearch(agentName);
+      }
+
+      // Final validation for agent_id
+      if (!agentId) {
+        throw new Error('Invalid agent ID');
+      }
 
       const planData = {
         ...targets,
-        // agent_id: isAdmin ? targets.agent_id : user?.id,
-        agent_id: targets.agent_id,
-        agent_name: targets.agent_name,
+        agent_id: agentId,
+        agent_name: agentName,
         updated_at: new Date().toISOString(),
         gross_commission_target: targets.gross_commission_target != null ? Math.round(targets.gross_commission_target) : null,
         avg_commission_per_sale: targets.avg_commission_per_sale != null ? Math.round(targets.avg_commission_per_sale) : null,
@@ -597,6 +662,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         marketing_expenses: targets.marketing_expenses != null ? Math.round(targets.marketing_expenses) : null,
         net_commission: targets.net_commission != null ? Math.round(targets.net_commission) : null,
         cost_per_third_party_call: targets.cost_per_third_party_call != null ? Math.round(targets.cost_per_third_party_call) : null,
+        cost_per_appraisals:targets.cost_per_appraisals != null ? Math.round(targets.cost_per_appraisals) : null,
         how_many_calls: targets.how_many_calls != null ? Math.round(targets.how_many_calls) : null,
         how_many_appraisals: targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals) : null,
         total_third_party_calls: targets.total_third_party_calls != null ? Math.round(targets.total_third_party_calls) : null,
@@ -613,33 +679,33 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       let savedPlan: BusinessPlanTargets | null = null;
 
       if (targets.id) {
-      const { data, error } = await supabase
-        .from('agent_business_plans')
-        .update(planData)
-        .eq('id', targets.id)
-        .eq('agent_id', planData.agent_id)
-        .select()
-        .single();
+        const { data, error } = await supabase
+          .from('agent_business_plans')
+          .update(planData)
+          .eq('id', targets.id)
+          .eq('agent_id', agentId)
+          .select()
+          .single();
 
-      if (error) throw error;
-      savedPlan = data;
-      toast.success('Business plan updated successfully!');
-    } else {
-      const { data, error } = await supabase
-        .from('agent_business_plans')
-        .insert([{ ...planData, created_at: new Date().toISOString() }])
-        .select()
-        .single();
+        if (error) throw error;
+        savedPlan = data;
+        toast.success('Business plan updated successfully!');
+      } else {
+        const { data, error } = await supabase
+          .from('agent_business_plans')
+          .insert([{ ...planData, created_at: new Date().toISOString() }])
+          .select()
+          .single();
 
-      if (error) throw error;
-      savedPlan = data;
-      toast.success('Business plan created successfully!');
-    }
+        if (error) throw error;
+        savedPlan = data;
+        toast.success('Business plan created successfully!');
+      }
 
-    if (savedPlan) {
+      if (savedPlan) {
         setTargets({
           ...savedPlan,
-          agent_name:  savedPlan.agent_name || 'Unknown Agent',
+          agent_name: savedPlan.agent_name || agentName,
           gross_commission_target: savedPlan.gross_commission_target != null ? Math.round(savedPlan.gross_commission_target) : null,
           avg_commission_per_sale: savedPlan.avg_commission_per_sale != null ? Math.round(savedPlan.avg_commission_per_sale) : null,
           salary_per_hour: savedPlan.salary_per_hour != null ? savedPlan.salary_per_hour : null,
@@ -648,6 +714,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           marketing_expenses: savedPlan.marketing_expenses != null ? Math.round(savedPlan.marketing_expenses) : null,
           net_commission: savedPlan.net_commission != null ? Math.round(savedPlan.net_commission) : null,
           cost_per_third_party_call: savedPlan.cost_per_third_party_call != null ? Math.round(savedPlan.cost_per_third_party_call) : null,
+          cost_per_appraisals:savedPlan.cost_per_appraisals != null ? Math.round(savedPlan.cost_per_appraisals) : null,
           how_many_calls: savedPlan.how_many_calls != null ? Math.round(savedPlan.how_many_calls) : null,
           how_many_appraisals: savedPlan.how_many_appraisals != null ? Math.round(savedPlan.how_many_appraisals) : null,
           total_third_party_calls: savedPlan.total_third_party_calls != null ? Math.round(savedPlan.total_third_party_calls) : null,
@@ -660,8 +727,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           agent_commission: savedPlan.agent_commission != null ? Math.round(savedPlan.agent_commission) : null,
           business_commission: savedPlan.business_commission != null ? Math.round(savedPlan.business_commission) : null
         });
-        setAgentSearch(savedPlan.agent_name || '');
+        setAgentSearch(savedPlan.agent_name || agentName);
         setShowSaveConfirmation(true);
+        await fetchSavedPlans();
       }
     } catch (error) {
       console.error('Error saving business plan:', error);
@@ -670,7 +738,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       setSaving(false);
     }
   };
-  
 
   const deleteBusinessPlan = async () => {
     if (!targets.id || (!user?.id && !isAdmin)) {
@@ -678,22 +745,30 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       return;
     }
     
+    setShowDeleteConfirmation(true);
+  };
+
+  const confirmDelete = async () => {
     setDeleting(true);
     try {
       const agentId = isAdmin ? targets.agent_id : user?.id;
+      if (!agentId || !targets.id) {
+        throw new Error('Invalid plan or agent ID');
+      }
+
       const { error } = await supabase
         .from('agent_business_plans')
         .delete()
         .eq('id', targets.id)
         .eq('agent_id', agentId);
-      
+
       if (error) {
         throw new Error(`Failed to delete plan: ${error.message}`);
       }
-      
+
       setTargets({
         agent_id: isAdmin ? '' : user?.id || '',
-        agent_name: isAdmin ? '' : user?.user_metadata?.name ||  '',
+        agent_name: isAdmin ? '' : user?.user_metadata?.name || '',
         period_type: 'yearly',
         appraisals_target: null,
         listings_target: null,
@@ -717,6 +792,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         persons_salary: null,
         net_commission: null,
         cost_per_third_party_call: null,
+        cost_per_appraisals: null,
         how_many_calls: null,
         how_many_appraisals: null,
         total_third_party_calls: null,
@@ -734,12 +810,97 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       setAgentSearch(isAdmin ? '' : user?.user_metadata?.name || '');
       setShowPlan(false);
       setPdfDataUri(null);
+      setShowDeleteConfirmation(false);
       toast.success('Business plan deleted successfully!');
+      await fetchSavedPlans();
     } catch (error) {
       console.error('Error deleting business plan:', error);
       toast.error('Failed to delete business plan: ' + (error.message || 'Unknown error'));
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const deleteSavedPlan = async (planId: string, agentId: string) => {
+    if (!user?.id && !isAdmin) {
+      toast.error('Please log in to delete a plan');
+      return;
+    }
+
+    if (!planId || !agentId) {
+      toast.error('Invalid plan or agent selected');
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('agent_business_plans')
+        .delete()
+        .eq('id', planId)
+        .eq('agent_id', agentId);
+
+      if (error) {
+        throw new Error(`Failed to delete plan: ${error.message}`);
+      }
+
+      setSavedPlans((prev) => prev.filter((plan) => plan.id !== planId));
+
+      if (targets.id === planId) {
+        setTargets({
+          agent_id: isAdmin ? '' : user?.id || '',
+          agent_name: isAdmin ? '' : user?.user_metadata?.name || '',
+          period_type: 'yearly',
+          appraisals_target: null,
+          listings_target: null,
+          settled_sales_target: null,
+          gross_commission_target: null,
+          connects_for_appraisals: null,
+          phone_calls_to_achieve_appraisals: null,
+          appraisal_to_listing_ratio: null,
+          listing_to_written_ratio: null,
+          fall_over_rate: null,
+          avg_commission_per_sale: null,
+          connects_for_appraisal: null,
+          calls_for_connect: null,
+          no_of_working_days_per_year: null,
+          calls_per_day: null,
+          calls_per_person: null,
+          no_of_people_required: null,
+          salary_per_hour: null,
+          salary_per_day: null,
+          marketing_expenses: null,
+          persons_salary: null,
+          net_commission: null,
+          cost_per_third_party_call: null,
+          cost_per_appraisals: null,
+          how_many_calls: null,
+          how_many_appraisals: null,
+          total_third_party_calls: null,
+          total_cost_appraisals: null,
+          avg_commission_price_per_property: null,
+          franchise_fee: null,
+          commission_average: null,
+          agent_percentage: null,
+          business_percentage: null,
+          agent_commission: null,
+          business_commission: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        setAgentSearch(isAdmin ? '' : user?.user_metadata?.name || '');
+        setShowPlan(false);
+        setPdfDataUri(null);
+      }
+
+      toast.success('Business plan deleted successfully!');
+      await fetchSavedPlans();
+    } catch (error) {
+      console.error('Error deleting business plan:', error);
+      toast.error('Failed to delete business plan: ' + (error.message || 'Unknown error'));
+    } finally {
+      setDeleting(false);
+      setShowSavedPlans(false);
     }
   };
 
@@ -847,6 +1008,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           ['Persons Salary', targets.persons_salary != null ? `$${Math.round(targets.persons_salary).toLocaleString()}` : 'N/A'],
           ['Marketing Expenses', targets.marketing_expenses != null ? `$${Math.round(targets.marketing_expenses).toLocaleString()}` : 'N/A'],
           ['Cost per Third Party Call', targets.cost_per_third_party_call != null ? `$${Math.round(targets.cost_per_third_party_call).toLocaleString()}` : 'N/A'],
+          ['Cost per Appraisals', targets.cost_per_appraisals != null ? `$${Math.round(targets.cost_per_appraisals).toLocaleString()}` : 'N/A'],
           ['How Many Calls', targets.how_many_calls != null ? Math.round(targets.how_many_calls).toLocaleString() : 'N/A'],
           ['How Many Appraisals', targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals).toLocaleString() : 'N/A'],
           ['Total Third Party Calls', targets.total_third_party_calls != null ? `$${Math.round(targets.total_third_party_calls).toLocaleString()}` : 'N/A'],
@@ -952,9 +1114,12 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   };
 
   const resetToDefaults = () => {
+    const defaultAgentName = isAdmin ? '' : targets.agent_name || user?.user_metadata?.name || 'Agent';
+    const defaultAgentId = isAdmin ? '' : user?.id || '';
+    
     setTargets({
-      agent_id: isAdmin ? '' : user?.id || '',
-      agent_name: isAdmin ? '' : user?.user_metadata?.name ||  '',
+      agent_id: defaultAgentId,
+      agent_name: defaultAgentName,
       period_type: 'yearly',
       appraisals_target: null,
       listings_target: null,
@@ -978,6 +1143,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       persons_salary: null,
       net_commission: null,
       cost_per_third_party_call: null,
+      cost_per_appraisals: null,
       how_many_calls: null,
       how_many_appraisals: null,
       total_third_party_calls: null,
@@ -992,7 +1158,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
-    setAgentSearch('');
+    setAgentSearch(defaultAgentName);
+    setShowAgentSuggestions(false);
     toast.success('Form reset to defaults');
   };
 
@@ -1000,25 +1167,24 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     setTargets(prev => ({
       ...prev,
       agent_id: agent.id,
-      agent_name: agent.
-      name
+      agent_name: agent.name
     }));
     setAgentSearch(agent.name);
     setShowAgentSuggestions(false);
-    // Fetch business plan for the selected agent
     fetchBusinessPlan(agent.id);
   };
-  const handleManualAgentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+
+  const handleManualAgentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setAgentSearch(value);
+    setShowAgentSuggestions(true);
+    // Only update agent_name, keep agent_id until confirmed
     setTargets(prev => ({
       ...prev,
-      agent_id: '',
       agent_name: value
     }));
-    setShowAgentSuggestions(true);
   };
-  
+
 
   const chartData = [
     { name: 'Appraisals', value: targets.appraisals_target, fill: '#1E3A8A' },
@@ -1208,6 +1374,16 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       bgColor: 'bg-blue-50',
       isCurrency: true,
       field: 'cost_per_third_party_call',
+      isReadOnly: false
+    },
+    { 
+      title: 'Cost per Apprasisals', 
+      value: targets.cost_per_appraisals?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-50',
+      isCurrency: true,
+      field: 'cost_per_appraisals',
       isReadOnly: false
     },
     { 
@@ -1467,13 +1643,23 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                             Period: {plan.period_type.charAt(0).toUpperCase() + plan.period_type.slice(1)}
                           </p>
                         </div>
-                        <button
-                          onClick={() => loadPlan(plan)}
-                          className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                          <FileText className="w-4 h-4 mr-2" />
-                          Edit Plan
-                        </button>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => loadPlan(plan)}
+                          className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            Load
+                          </button>
+                          <button
+                            onClick={() => deleteSavedPlan(plan.id!, plan.agent_id)}
+                            disabled={deleting}
+                            className="flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-400"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            {deleting ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1533,6 +1719,51 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
             </motion.div>
           )}
         </AnimatePresence>
+        <AnimatePresence>
+        {showDeleteConfirmation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          >
+            <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-blue-900 flex items-center">
+                  <Trash2 className="w-6 h-6 mr-2 text-blue-600" />
+                  Confirm Delete
+                </h2>
+                <button
+                  onClick={() => setShowDeleteConfirmation(false)}
+                  className="p-2 rounded-full hover:bg-blue-100"
+                >
+                  <X className="w-5 h-5 text-blue-600" />
+                </button>
+              </div>
+              <p className="text-blue-600 mb-4">
+                Are you sure you want to delete the plan for <strong>{targets.agent_name}</strong> created on{' '}
+                {new Date(targets.created_at || '').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}?
+              </p>
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowDeleteConfirmation(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-400"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {deleting ? 'Deleting...' : 'Delete Plan'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
         <AnimatePresence>
           {showPlan && (
@@ -1693,8 +1924,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           )}
         </AnimatePresence>
 
-        <div className="space-y-8">
-          <div className="bg-white p-6 rounded-lg shadow-md border border-blue-200">
+        <div className="bg-white p-6 rounded-lg shadow-md border border-blue-200">
             <h2 className="text-xl font-semibold text-blue-900 mb-4 flex items-center">
               <Settings className="w-5 h-5 mr-2 text-blue-600" />
               Agent Information
@@ -1702,46 +1932,53 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="relative">
                 <label className="block text-sm font-medium text-blue-700">Agent Name</label>
-                {isAdmin ? (
-                  <>
-                    <input
-                      // key="agent-name-input"
-                      type="text"
-                      value={agentSearch}
-                      // onChange={(e) => {
-                      onChange={(e) => setAgentSearch(e.target.value)}
-                      onFocus={() => setShowAgentSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowAgentSuggestions(false), 200)}
-                      autoComplete="off"
-                      className="mt-1 w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-100 text-blue-800"
-                      placeholder="Search for an agent"
-                    />
-                    {showAgentSuggestions && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-blue-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                        {filteredAgents.length > 0 ? (
-                          filteredAgents.map(agent => (
-                            <div
-                              key={agent.id}
-                              className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-blue-800"
-                              onMouseDown={() => handleAgentSelect(agent)}
-                            >
-                              {agent.name}
-                            </div>
-                          ))
-                        ) : (
-                          <div className="px-3 py-2 text-blue-600">{agentSearch ? 'No agents found. Type to create a new agent.' : 'Start typing to search agents.'}</div>
-                        )}
+                <input
+                  type="text"
+                  value={agentSearch}
+                  onChange={handleManualAgentChange}
+                  onFocus={() => isAdmin && setShowAgentSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowAgentSuggestions(false), 200)}
+                  className="mt-1 w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-100 text-blue-800"
+                  placeholder="Enter or select agent name"
+                  disabled={false}
+                />
+                {isAdmin && showAgentSuggestions && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-blue-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredAgents.length > 0 ? (
+                      filteredAgents.map(agent => (
+                        <div
+                          key={agent.id}
+                          onClick={() => {
+                            handleAgentSelect(agent);
+                            setShowAgentSuggestions(false);
+                          }}
+                          className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-blue-800"
+                        >
+                          {agent.name}
+                        </div>
+                      ))
+                    ) : (
+                      agentSearch .trim()&& (
+                      <div
+                        onClick={async () => {
+                          const newAgent = await createNewAgent(agentSearch.trim());
+                          if (newAgent) {
+                            setTargets(prev => ({
+                              ...prev,
+                              agent_id: newAgent.id,
+                              agent_name: newAgent.name
+                            }));
+                            setAgentSearch(newAgent.name);
+                            setShowAgentSuggestions(false);
+                          }
+                        }}
+                        className="px-3 py-2 text-blue-800 hover:bg-blue-100 cursor-pointer"
+                      >
+                        Create new agent: "{agentSearch}"
                       </div>
+                      )
                     )}
-                  </>
-                ) : (
-                  <input
-                    type="text"
-                    value={targets.agent_name || ''}
-                    disabled
-                    className="mt-1 w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-200 text-blue-800 cursor-not-allowed"
-                    placeholder="Agent name"
-                  />
+                  </div>
                 )}
               </div>
               <div>
@@ -1929,7 +2166,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           </div>
         </div>
       </div>
-    </div>
   );
 }
 

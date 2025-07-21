@@ -214,11 +214,11 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
             setTargets(prev => ({
               ...prev,
               agent_id: user.id,
-              agent_name: user.user_metadata?.name || 'Agent'
+              agent_name: user.user_metadata?.name || ''
             }));
-            setAgentSearch(user.user_metadata?.name || 'Agent');
+            setAgentSearch(user.user_metadata?.name || '');
           } else {
-            const agentName = profileData.name || user.user_metadata?.name || 'Agent';
+            const agentName = profileData.name || user.user_metadata?.name || '';
             setTargets(prev => ({
               ...prev,
               agent_id: user.id,
@@ -334,8 +334,13 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       total_cost_appraisals = Math.round(cost_per_appraisals * how_many_appraisals);
     }
 
-    if (gross_commission_target != null && marketing_expenses != null && persons_salary != null) {
-      net_commission = Math.round(gross_commission_target - marketing_expenses - persons_salary);
+        if (gross_commission_target != null) {
+      net_commission = Math.round(
+        gross_commission_target - 
+        (marketing_expenses ?? 0) - 
+        (total_cost_appraisals ?? 0) - 
+        (total_third_party_calls ?? 0)
+      );
     }
 
     setTargets(prev => ({
@@ -379,21 +384,28 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     targets.business_percentage
   ]);
 
-  const fetchAgents = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .eq('role', 'agent')
-        .order('name', { ascending: true });
-      
-      if (error) throw error;
-      setAgents(data?.map(item => ({ id: item.id, name: item.name || 'Unknown Agent' })) || []);
-    } catch (error) {
-      console.error('Error fetching agents:', error);
-      toast.error('Failed to load agents: ' + (error.message || 'Unknown error'));
-    }
-  };
+  // Fetch agents from profiles table
+  useEffect(() => {
+    const fetchAgents = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name')
+          .eq('role', 'agent')
+          .order('name', { ascending: true });
+
+        if (error) throw error;
+        setAgents(data?.map(item => ({ id: item.id, name: item.name || 'Unknown Agent' })) || []);
+      } catch (error) {
+        console.error('Error fetching agents:', error);
+        toast.error('Failed to load agents: ' + (error.message || 'Unknown error'));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAgents();
+  }, []);
 
   const createNewAgent = async (agentName: string) => {
     if (!agentName.trim()) {
@@ -414,7 +426,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       }
 
       if (existingAgent) {
-        return { id: existingAgent.id, name: existingAgent.name };
+        handleAgentSelect(existingAgent);
+        return ;
       }
 
       const { data, error } = await supabase
@@ -427,14 +440,16 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       if (data) {
         const newAgent = { id: data.id, name: data.name };
         setAgents(prev => [...prev, newAgent]);
-        toast.success(`New agent "${agentName}" created successfully`);
-        return newAgent;
+        setAgentSearch(newAgent.name);
+        setShowAgentSuggestions(false);
+        toast.success(`New agent "${newAgent.name}" created successfully`);
+        navigate('/agent-business-plan', { state: { agentId: newAgent.id, agentName: newAgent.name, isAdmin: true } });
       }
-      return null;
+      // return null;
     } catch (error) {
       console.error('Error creating new agent:', error);
       toast.error('Failed to create new agent: ' + (error.message || 'Unknown error'));
-      return null;
+      // return null;
     }
   };
 
@@ -1114,7 +1129,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   };
 
   const resetToDefaults = () => {
-    const defaultAgentName = isAdmin ? '' : targets.agent_name || user?.user_metadata?.name || 'Agent';
+    const defaultAgentName = isAdmin ? '' : targets.agent_name || user?.user_metadata?.name || '';
     const defaultAgentId = isAdmin ? '' : user?.id || '';
     
     setTargets({
@@ -1377,16 +1392,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       isReadOnly: false
     },
     { 
-      title: 'Cost per Apprasisals', 
-      value: targets.cost_per_appraisals?? '', 
-      icon: DollarSign, 
-      color: 'bg-blue-600', 
-      bgColor: 'bg-blue-50',
-      isCurrency: true,
-      field: 'cost_per_appraisals',
-      isReadOnly: false
-    },
-    { 
       title: 'How Many Calls', 
       value: targets.how_many_calls ?? '', 
       icon: Phone, 
@@ -1396,16 +1401,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       isReadOnly: false
     },
     { 
-      title: 'How Many Appraisals', 
-      value: targets.how_many_appraisals ?? '', 
-      icon: Home, 
-      color: 'bg-blue-600', 
-      bgColor: 'bg-blue-50',
-      field: 'how_many_appraisals',
-      isReadOnly: false
-    },
-    { 
-      title: 'Total Third Party Calls', 
+      title: 'Total Cost for Third Party Calls', 
       value: targets.total_third_party_calls ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
@@ -1414,6 +1410,27 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       field: 'total_third_party_calls',
       isReadOnly: true
     },
+    { 
+      title: 'Cost per Apprasisals', 
+      value: targets.cost_per_appraisals?? '', 
+      icon: DollarSign, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-50',
+      isCurrency: true,
+      field: 'cost_per_appraisals',
+      isReadOnly: false
+    },
+    
+    { 
+      title: 'How Many Appraisals', 
+      value: targets.how_many_appraisals ?? '', 
+      icon: Home, 
+      color: 'bg-blue-600', 
+      bgColor: 'bg-blue-50',
+      field: 'how_many_appraisals',
+      isReadOnly: false
+    },
+    
     { 
       title: 'Total Cost for Appraisals', 
       value: targets.total_cost_appraisals ?? '', 
@@ -1936,13 +1953,13 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                   type="text"
                   value={agentSearch}
                   onChange={handleManualAgentChange}
-                  onFocus={() => isAdmin && setShowAgentSuggestions(true)}
+                  onFocus={() => setShowAgentSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowAgentSuggestions(false), 200)}
                   className="mt-1 w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-100 text-blue-800"
                   placeholder="Enter or select agent name"
-                  disabled={false}
+                  // disabled={false}
                 />
-                {isAdmin && showAgentSuggestions && (
+                {showAgentSuggestions && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-blue-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     {filteredAgents.length > 0 ? (
                       filteredAgents.map(agent => (
@@ -1974,7 +1991,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                         }}
                         className="px-3 py-2 text-blue-800 hover:bg-blue-100 cursor-pointer"
                       >
-                        Create new agent: "{agentSearch}"
+                        {/* Create new agent: "{agentSearch}" */}
                       </div>
                       )
                     )}
@@ -1982,6 +1999,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                 )}
               </div>
               <div>
+                
                 <label className="block text-sm font-medium text-blue-700">Period Type</label>
                 <select
                   value={targets.period_type}

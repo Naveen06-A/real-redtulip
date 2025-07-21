@@ -30,6 +30,7 @@ import 'jspdf-autotable';
 
 interface AgentFinancials {
   name: string;
+  agent_id: string; // Add this field 
   commission_amount: number | null;
   franchise_amount: number | null;
   marketing_expenses: number | null;
@@ -527,10 +528,60 @@ export function AdminBusinessPlan() {
     }
   };
 
-  const selectAgent = (name: string) => {
+  const selectAgent = async (name: string, agentId?: string) => {
     setSelectedAgent(name);
     setShowInputs(true);
+
+    // Fetch agent-specific data from agent_business_plans
+    try {
+      const agent_id = agentId || plan.agents.find(agent => agent.name === name)?.agent_id || user?.id;
+      if (!agent_id) {
+        toast.error('No agent ID found for selected agent');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('agent_business_plans')
+        .select('business_commission_percentage, agent_commission_percentage, franchise_percentage')
+        .eq('agent_id', agent_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+
+      if (data) {
+        setPlan(prev => ({
+          ...prev,
+          business_commission_percentage: data.business_commission_percentage ?? null,
+          agent_commission_percentage: data.agent_commission_percentage ?? null,
+          franchise_fee: data.franchise_percentage ?? null
+        }));
+      } else {
+        // Fallback to default values if no data is found
+        setPlan(prev => ({
+          ...prev,
+          business_commission_percentage: null,
+          agent_commission_percentage: null,
+          franchise_fee: null
+        }));
+        toast.info(`No business plan data found for ${name}. Using default values.`);
+      }
+    } catch (error: any) {
+      console.error('Error fetching agent business plan:', error);
+      toast.error(`Failed to load business plan data for ${name}`);
+      // Set fallback values
+      setPlan(prev => ({
+        ...prev,
+        business_commission_percentage: null,
+        agent_commission_percentage: null,
+        franchise_fee: null
+      }));
+    }
   };
+
 
   const updateAgentFinancials = (field: keyof AgentFinancials, value: number | null) => {
     if (!selectedAgent) return;

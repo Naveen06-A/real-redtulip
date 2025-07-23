@@ -126,7 +126,7 @@ const routes = [
   { path: '/agent-dashboard/phone-calls', element: <AgentRoute><PhoneCalls /></AgentRoute> },
   { path: '/marketing-plan', element: <MarketingPlanPage /> },
   { path: '/property-report-page', element: <PropertyReportPage /> },
-  { path: '/create-agent-modal', element: <AdminRoute><CreateAgentModal /></AdminRoute> },
+  { path: '/create-agent-modal', element: <CreateAgentModal /> },
   { path: '/progress-report-page', element: <ProgressReportPage /> },
   { path: '/activity-logger', element: <AgentRoute><ActivityLogger /></AgentRoute> },
   { path: '/reports', element: <AgentRoute><Reports /></AgentRoute> },

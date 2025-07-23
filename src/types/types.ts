@@ -119,6 +119,21 @@ export interface PropertyMetrics {
   [key: string]: any;
 
 }
+export interface AgentDetails {
+  email: string;
+  name: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  phone: string;
+  role: 'admin' | 'agent';
+}
 
 // Helper function to normalize suburb names to uppercase
 export const normalizeSuburb = (suburb: string | undefined | null): string => {

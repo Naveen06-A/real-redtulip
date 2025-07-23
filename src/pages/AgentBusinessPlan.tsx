@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -55,7 +54,7 @@ interface BusinessPlanTargets {
   persons_salary: number | null;
   net_commission: number | null;
   cost_per_third_party_call: number | null;
-  cost_per_appraisals:number | null;
+  cost_per_appraisals: number | null;
   how_many_calls: number | null;
   how_many_appraisals: number | null;
   total_third_party_calls: number | null;
@@ -199,7 +198,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           setTargets(prev => ({
             ...prev,
             agent_id: '',
-            agent_name: ''
+            agent_name: '',
+            franchise_fee: null,
+            agent_percentage: null,
+            business_percentage: null
           }));
           setAgentSearch('');
         } else if (user?.id) {
@@ -214,7 +216,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
             setTargets(prev => ({
               ...prev,
               agent_id: user.id,
-              agent_name: user.user_metadata?.name || ''
+              agent_name: user.user_metadata?.name || '',
+              franchise_fee: null,
+              agent_percentage: null,
+              business_percentage: null
             }));
             setAgentSearch(user.user_metadata?.name || '');
           } else {
@@ -222,7 +227,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
             setTargets(prev => ({
               ...prev,
               agent_id: user.id,
-              agent_name: agentName
+              agent_name: agentName,
+              franchise_fee: null,
+              agent_percentage: null,
+              business_percentage: null
             }));
             setAgentSearch(agentName);
             await fetchBusinessPlan(user.id);
@@ -286,10 +294,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       business_commission = Math.round(commission_average * (business_percentage / 100));
     }
 
-    const avg_commission_per_sale_updated = agent_commission;
-
-    if (gross_commission_target != null && avg_commission_per_sale_updated != null && avg_commission_per_sale_updated > 0) {
-      settled_sales_target = Math.round(gross_commission_target / avg_commission_per_sale_updated);
+    if (gross_commission_target != null && agent_commission != null && agent_commission > 0) {
+      settled_sales_target = Math.round(gross_commission_target / agent_commission);
     }
 
     if (settled_sales_target != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
@@ -330,11 +336,11 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       total_third_party_calls = Math.round(cost_per_third_party_call * how_many_calls);
     }
 
-    if (cost_per_appraisals!= null && how_many_appraisals != null) {
+    if (cost_per_appraisals != null && how_many_appraisals != null) {
       total_cost_appraisals = Math.round(cost_per_appraisals * how_many_appraisals);
     }
 
-        if (gross_commission_target != null) {
+    if (gross_commission_target != null) {
       net_commission = Math.round(
         gross_commission_target - 
         (marketing_expenses ?? 0) - 
@@ -360,7 +366,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       commission_average,
       agent_commission,
       business_commission,
-      avg_commission_per_sale: avg_commission_per_sale_updated
+      avg_commission_per_sale: agent_commission
     }));
   }, [
     targets.gross_commission_target,
@@ -427,7 +433,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
 
       if (existingAgent) {
         handleAgentSelect(existingAgent);
-        return ;
+        return existingAgent;
       }
 
       const { data, error } = await supabase
@@ -444,12 +450,13 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         setShowAgentSuggestions(false);
         toast.success(`New agent "${newAgent.name}" created successfully`);
         navigate('/agent-business-plan', { state: { agentId: newAgent.id, agentName: newAgent.name, isAdmin: true } });
+        return newAgent;
       }
-      // return null;
+      return null;
     } catch (error) {
       console.error('Error creating new agent:', error);
       toast.error('Failed to create new agent: ' + (error.message || 'Unknown error'));
-      // return null;
+      return null;
     }
   };
 
@@ -482,7 +489,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           setTargets(prev => ({
             ...prev,
             agent_id: agentId,
-            agent_name: agentName
+            agent_name: agentName,
+            franchise_fee: prev.franchise_fee ?? null,
+            agent_percentage: prev.agent_percentage ?? null,
+            business_percentage: prev.business_percentage ?? null
           }));
           setAgentSearch(agentName);
           return;
@@ -503,7 +513,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           marketing_expenses: planData.marketing_expenses != null ? Math.round(planData.marketing_expenses) : null,
           net_commission: planData.net_commission != null ? Math.round(planData.net_commission) : null,
           cost_per_third_party_call: planData.cost_per_third_party_call != null ? Math.round(planData.cost_per_third_party_call) : null,
-          cost_per_appraisals:planData.cost_per_appraisals != null ? Math.round(planData.cost_per_appraisals) : null,
+          cost_per_appraisals: planData.cost_per_appraisals != null ? Math.round(planData.cost_per_appraisals) : null,
           how_many_calls: planData.how_many_calls != null ? Math.round(planData.how_many_calls) : null,
           how_many_appraisals: planData.how_many_appraisals != null ? Math.round(planData.how_many_appraisals) : null,
           total_third_party_calls: planData.total_third_party_calls != null ? Math.round(planData.total_third_party_calls) : null,
@@ -561,7 +571,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           
           return {
             ...plan,
-            agent_name: profileError || !profileData?.name ? 'Unknown Agent' : profileData.name
+            agent_name: profileError || !profileData?.name ? 'Unknown Agent' : profileData.name,
+            franchise_fee: plan.franchise_fee ?? 0,
+            agent_percentage: plan.agent_percentage ?? 50,
+            business_percentage: plan.business_percentage ?? 50
           };
         }) || []
       );
@@ -593,9 +606,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       persons_salary: plan.persons_salary != null ? Math.round(plan.persons_salary) : null,
       marketing_expenses: plan.marketing_expenses != null ? Math.round(plan.marketing_expenses) : null,
       net_commission: plan.net_commission != null ? Math.round(plan.net_commission) : null,
-
       cost_per_third_party_call: plan.cost_per_third_party_call != null ? Math.round(plan.cost_per_third_party_call) : null,
-      cost_per_appraisals:planData.cost_per_appraisals != null ? Math.round(planData.cost_per_appraisals) : null,
+      cost_per_appraisals: plan.cost_per_appraisals != null ? Math.round(plan.cost_per_appraisals) : null,
       how_many_calls: plan.how_many_calls != null ? Math.round(plan.how_many_calls) : null,
       how_many_appraisals: plan.how_many_appraisals != null ? Math.round(plan.how_many_appraisals) : null,
       total_third_party_calls: plan.total_third_party_calls != null ? Math.round(plan.total_third_party_calls) : null,
@@ -614,52 +626,54 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   };
 
   const saveBusinessPlan = async () => {
-    // Require user to be logged in
+    console.log('Attempting to save plan...', { 
+      agent_id: targets.agent_id, 
+      agent_name: targets.agent_name,
+      user_id: user?.id,
+      isAdmin,
+      gross_commission_target: targets.gross_commission_target,
+      franchise_fee: targets.franchise_fee,
+      agent_percentage: targets.agent_percentage,
+      business_percentage: targets.business_percentage
+    });
+
     if (!user?.id) {
       toast.error('Please log in to save a plan');
       return;
     }
-
-    // For admins, ensure agent_id and agent_name are set
-    if (isAdmin && (!targets.agent_id || !targets.agent_name)) {
-      toast.error('Please select or create an agent');
+    
+    if (!targets.gross_commission_target) {
+      toast.error('Please enter a gross commission target');
       return;
     }
 
-    // For non-admins, ensure required fields are filled
-    if (!isAdmin && (!targets.gross_commission_target || !targets.avg_commission_price_per_property)) {
-      toast.error('Please fill in Gross Commission Target and Average Commission Price per Property');
-      return;
-    }
-
-    // For admins, require at least one field to save a plan
-    if (isAdmin && !targets.gross_commission_target && !targets.avg_commission_price_per_property) {
-      toast.error('Please fill in at least one of Gross Commission Target or Average Commission Price per Property');
+    if (targets.agent_percentage == null || targets.business_percentage == null || targets.agent_percentage + targets.business_percentage !== 100) {
+      toast.error('Agent and Business percentages must sum to 100%');
       return;
     }
 
     setSaving(true);
     try {
-      let agentId = targets.agent_id;
-      let agentName = targets.agent_name;
+      let agentId = isAdmin ? targets.agent_id : user.id;
+      let agentName = targets.agent_name || user.user_metadata?.name || 'Unknown Agent';
 
-      // If no agent_id but agent_name is provided, attempt to create or find agent
-      if (isAdmin && !agentId && agentName) {
-        const newAgent = await createNewAgent(agentName);
-        if (!newAgent) {
-          throw new Error('Failed to create or find agent');
+      if (isAdmin) {
+        if (!agentId && agentName && agentName !== 'Unknown Agent') {
+          const newAgent = await createNewAgent(agentName);
+          if (!newAgent) {
+            throw new Error('Failed to create or find agent');
+          }
+          agentId = newAgent.id;
+          agentName = newAgent.name;
+        } else if (!agentId) {
+          toast.error('Please select or create an agent');
+          return;
         }
-        agentId = newAgent.id;
-        agentName = newAgent.name;
-        setTargets(prev => ({
-          ...prev,
-          agent_id: agentId,
-          agent_name: agentName
-        }));
-        setAgentSearch(agentName);
+      } else {
+        agentId = user.id;
+        agentName = user.user_metadata?.name || targets.agent_name || 'Unknown Agent';
       }
 
-      // Final validation for agent_id
       if (!agentId) {
         throw new Error('Invalid agent ID');
       }
@@ -677,7 +691,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         marketing_expenses: targets.marketing_expenses != null ? Math.round(targets.marketing_expenses) : null,
         net_commission: targets.net_commission != null ? Math.round(targets.net_commission) : null,
         cost_per_third_party_call: targets.cost_per_third_party_call != null ? Math.round(targets.cost_per_third_party_call) : null,
-        cost_per_appraisals:targets.cost_per_appraisals != null ? Math.round(targets.cost_per_appraisals) : null,
+        cost_per_appraisals: targets.cost_per_appraisals != null ? Math.round(targets.cost_per_appraisals) : null,
         how_many_calls: targets.how_many_calls != null ? Math.round(targets.how_many_calls) : null,
         how_many_appraisals: targets.how_many_appraisals != null ? Math.round(targets.how_many_appraisals) : null,
         total_third_party_calls: targets.total_third_party_calls != null ? Math.round(targets.total_third_party_calls) : null,
@@ -702,7 +716,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
         savedPlan = data;
         toast.success('Business plan updated successfully!');
       } else {
@@ -712,7 +728,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
         savedPlan = data;
         toast.success('Business plan created successfully!');
       }
@@ -729,7 +747,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           marketing_expenses: savedPlan.marketing_expenses != null ? Math.round(savedPlan.marketing_expenses) : null,
           net_commission: savedPlan.net_commission != null ? Math.round(savedPlan.net_commission) : null,
           cost_per_third_party_call: savedPlan.cost_per_third_party_call != null ? Math.round(savedPlan.cost_per_third_party_call) : null,
-          cost_per_appraisals:savedPlan.cost_per_appraisals != null ? Math.round(savedPlan.cost_per_appraisals) : null,
+          cost_per_appraisals: savedPlan.cost_per_appraisals != null ? Math.round(savedPlan.cost_per_appraisals) : null,
           how_many_calls: savedPlan.how_many_calls != null ? Math.round(savedPlan.how_many_calls) : null,
           how_many_appraisals: savedPlan.how_many_appraisals != null ? Math.round(savedPlan.how_many_appraisals) : null,
           total_third_party_calls: savedPlan.total_third_party_calls != null ? Math.round(savedPlan.total_third_party_calls) : null,
@@ -979,10 +997,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         head: [['Field', 'Value']],
         body: [
           ['Average Commission Price per Property', targets.avg_commission_price_per_property != null ? `$${Math.round(targets.avg_commission_price_per_property).toLocaleString()}` : 'N/A'],
-          ['Franchise Fee', targets.franchise_fee != null ? `${Math.round(targets.franchise_fee)}%` : 'N/A'],
+          ['Franchise Fee', targets.franchise_fee != null ? `${Math.round(targets.franchise_fee)}%` : '0%'],
           ['Commission Average', targets.commission_average != null ? `$${Math.round(targets.commission_average).toLocaleString()}` : 'N/A'],
-          ['Agent Percentage', targets.agent_percentage != null ? `${Math.round(targets.agent_percentage)}%` : 'N/A'],
-          ['Business Percentage', targets.business_percentage != null ? `${Math.round(targets.business_percentage)}%` : 'N/A'],
+          ['Agent Percentage', targets.agent_percentage != null ? `${Math.round(targets.agent_percentage)}%` : '50%'],
+          ['Business Percentage', targets.business_percentage != null ? `${Math.round(targets.business_percentage)}%` : '50%'],
           ['Agent Commission', targets.agent_commission != null ? `$${Math.round(targets.agent_commission).toLocaleString()}` : 'N/A'],
           ['Business Commission', targets.business_commission != null ? `$${Math.round(targets.business_commission).toLocaleString()}` : 'N/A']
         ],
@@ -1115,6 +1133,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       toast.error('Please fill in Agent Name and Gross Commission Target to view the plan');
       return;
     }
+    if (targets.agent_percentage == null || targets.business_percentage == null || targets.agent_percentage + targets.business_percentage !== 100) {
+      toast.error('Agent and Business percentages must sum to 100%');
+      return;
+    }
     setShowPlan(true);
     setViewMode('pdf');
     generatePDF(true);
@@ -1123,6 +1145,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const downloadPlan = () => {
     if (!targets.agent_name || !targets.gross_commission_target) {
       toast.error('Please fill in Agent Name and Gross Commission Target to download the plan');
+      return;
+    }
+    if (targets.agent_percentage == null || targets.business_percentage == null || targets.agent_percentage + targets.business_percentage !== 100) {
+      toast.error('Agent and Business percentages must sum to 100%');
       return;
     }
     generatePDF(false);
@@ -1164,10 +1190,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       total_third_party_calls: null,
       total_cost_appraisals: null,
       avg_commission_price_per_property: null,
-      franchise_fee: null,
+      franchise_fee: 0,
       commission_average: null,
-      agent_percentage: null,
-      business_percentage: null,
+      agent_percentage: 50,
+      business_percentage: 50,
       agent_commission: null,
       business_commission: null,
       created_at: new Date().toISOString(),
@@ -1182,7 +1208,10 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     setTargets(prev => ({
       ...prev,
       agent_id: agent.id,
-      agent_name: agent.name
+      agent_name: agent.name,
+      franchise_fee: prev.franchise_fee ?? null,
+      agent_percentage: prev.agent_percentage ?? null,
+      business_percentage: prev.business_percentage ?? null
     }));
     setAgentSearch(agent.name);
     setShowAgentSuggestions(false);
@@ -1192,14 +1221,28 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const handleManualAgentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setAgentSearch(value);
-    setShowAgentSuggestions(true);
-    // Only update agent_name, keep agent_id until confirmed
+    
+    if (!isAdmin) {
+      setTargets(prev => ({
+        ...prev,
+        agent_name: user?.user_metadata?.name || value,
+        franchise_fee: prev.franchise_fee ?? null,
+        agent_percentage: prev.agent_percentage ?? null,
+        business_percentage: prev.business_percentage ?? null
+      }));
+      return;
+    }
+
     setTargets(prev => ({
       ...prev,
-      agent_name: value
+      agent_name: value,
+      franchise_fee: prev.franchise_fee ?? null,
+      agent_percentage: prev.agent_percentage ?? null,
+      business_percentage: prev.business_percentage ?? null
     }));
+    
+    setShowAgentSuggestions(true);
   };
-
 
   const chartData = [
     { name: 'Appraisals', value: targets.appraisals_target, fill: '#1E3A8A' },
@@ -1411,8 +1454,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       isReadOnly: true
     },
     { 
-      title: 'Cost per Apprasisals', 
-      value: targets.cost_per_appraisals?? '', 
+      title: 'Cost per Appraisals', 
+      value: targets.cost_per_appraisals ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-50',
@@ -1420,7 +1463,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       field: 'cost_per_appraisals',
       isReadOnly: false
     },
-    
     { 
       title: 'How Many Appraisals', 
       value: targets.how_many_appraisals ?? '', 
@@ -1430,7 +1472,6 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       field: 'how_many_appraisals',
       isReadOnly: false
     },
-    
     { 
       title: 'Total Cost for Appraisals', 
       value: targets.total_cost_appraisals ?? '', 
@@ -1574,11 +1615,11 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                 className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
               >
                 <Save className="w-4 h-4 mr-2" />
-                {saving ? 'Saving...' : targets.id ? 'Update Plan' : 'Save Plan'}
+                {saving ? 'Saving...'  : 'Save Plan'}
               </button>
               <button
                 onClick={deleteBusinessPlan}
-                disabled={deleting || !targets.id}
+                disabled={deleting }
                 className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
               >
                 <Trash2 className="w-4 h-4 mr-2" />

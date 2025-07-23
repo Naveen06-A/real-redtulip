@@ -561,22 +561,15 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         propertyTypes: '',
         categories: '',
       });
-      setExpandedFilters({
-        suburbs: false,
-        streetNames: false,
-        streetNumbers: false,
-        agents: false,
-        agency_names: false,
-        propertyTypes: false,
-        categories: false,
-      });
+       setLocalFilters(emptyFilters);
       const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
       prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
      );
       setFilteredProperties(initialFilteredProperties);
       setLocalFilterPreviewCount(initialFilteredProperties.length);
       setDynamicFilterSuggestions({
-        suburbs: filterSuggestions?.suburbs || [],
+        // suburbs: filterSuggestions?.suburbs || [],
+        suburbs: ALLOWED_SUBURBS,
         streetNames: filterSuggestions?.streetNames || [],
         streetNumbers: filterSuggestions?.streetNumbers || [],
         agents: filterSuggestions?.agents || [],

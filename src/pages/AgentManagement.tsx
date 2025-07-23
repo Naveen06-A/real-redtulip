@@ -4,7 +4,8 @@ import { useAuthStore } from '../store/authStore';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Plus, Loader2, Pencil, Trash2, Home, Copy, Download, Share2, Eye } from 'lucide-react';
-import { Agent } from '../types';
+import { Agent } from '../types/agent';
+import { isNull } from 'lodash';
 
 interface AgentDetails {
   email: string;
@@ -21,7 +22,14 @@ interface CreateAgentModalProps {
   fetchProperties: () => Promise<void>;
 }
 
-export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties }: CreateAgentModalProps) {
+interface EditAgentModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  agent: Agent | null;
+  fetchAgents: () => Promise<void>;
+}
+
+const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: CreateAgentModalProps) => {
   const { profile } = useAuthStore();
   const [agentDetails, setAgentDetails] = useState<AgentDetails>({
     email: '',
@@ -33,6 +41,8 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ id: string; email: string; name: string; phone: string; password: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  console.log('Rendering CreateAgentModal, isOpen:', isOpen);
 
   const generatePassword = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
@@ -66,6 +76,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
       }
 
       if (!profile || profile.role !== 'admin') {
+        console.error('Admin authorization failed:', { profile });
         throw new Error('Only admins can create new agent accounts');
       }
 
@@ -268,20 +279,39 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
   };
 
   const handleClose = () => {
+    console.log('handleClose called, resetting agentDetails and closing modal');
     setAgentDetails({ email: '', name: '', phone: '', password: '', confirmPassword: '' });
     setSuccess(null);
     setError(null);
+    setIsLoading(false);
     onClose();
   };
 
-  if (!isOpen) return null;
+  // Add backdrop click handler to close modal
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      console.log('Backdrop clicked, triggering handleClose');
+      handleClose();
+    }
+  };
+
+  if (!isOpen) {
+    console.log('CreateAgentModal not rendering, isOpen is false');
+    return null;
+  }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog" aria-labelledby="create-agent-title">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+      role="dialog"
+      aria-labelledby="create-agent-title"
+      onClick={handleBackdropClick}
+    >
       <Toaster position="top-center" />
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 20 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
       >
@@ -302,50 +332,91 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
               <div className="text-left space-y-2">
                 <p className="text-gray-700">
                   Agent ID: <span className="font-mono font-semibold">{success.id}</span>
-                  <button onClick={() => copyToClipboard(success.id, 'Agent ID')} className="ml-2 text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={() => copyToClipboard(success.id, 'Agent ID')}
+                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Copy Agent ID"
+                  >
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
                 <p className="text-gray-700">
                   Name: <span className="font-mono font-semibold">{success.name}</span>
-                  <button onClick={() => copyToClipboard(success.name, 'Name')} className="ml-2 text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={() => copyToClipboard(success.name, 'Name')}
+                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Copy Name"
+                  >
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
                 <p className="text-gray-700">
                   Email: <span className="font-mono font-semibold">{success.email}</span>
-                  <button onClick={() => copyToClipboard(success.email, 'Email')} className="ml-2 text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={() => copyToClipboard(success.email, 'Email')}
+                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Copy Email"
+                  >
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
                 <p className="text-gray-700">
                   Phone: <span className="font-mono font-semibold">{success.phone}</span>
-                  <button onClick={() => copyToClipboard(success.phone, 'Phone')} className="ml-2 text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={() => copyToClipboard(success.phone, 'Phone')}
+                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Copy Phone"
+                  >
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
                 <p className="text-gray-700">
                   Password: <span className="font-mono font-semibold">{success.password}</span>
-                  <button onClick={() => copyToClipboard(success.password, 'Password')} className="ml-2 text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={() => copyToClipboard(success.password, 'Password')}
+                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Copy Password"
+                  >
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
               </div>
               <div className="flex justify-between gap-2">
-                <button onClick={handleShareDetails} className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700">
+                <button
+                  onClick={handleShareDetails}
+                  className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                  aria-label="Share Agent Details"
+                >
                   <Share2 className="w-5 h-5 mr-2" /> Share
                 </button>
-                <button onClick={handleShareLink} className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                <button
+                  onClick={handleShareLink}
+                  className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                  aria-label="Share Link"
+                >
                   <Share2 className="w-5 h-5 mr-2" /> Share Link
                 </button>
-                <button onClick={handleDownloadDetails} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">
+                <button
+                  onClick={handleDownloadDetails}
+                  className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                  aria-label="Download Agent Details"
+                >
                   <Download className="w-5 h-5 mr-2" /> Download
                 </button>
-                <button onClick={() => setSuccess(null)} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                <button
+                  onClick={() => setSuccess(null)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  aria-label="Create Another Agent"
+                >
                   Create Another
                 </button>
               </div>
-              <button onClick={handleClose} className="w-full mt-2 py-2 text-gray-600 rounded-md hover:bg-gray-100">
+              <button
+                onClick={handleClose}
+                className="w-full mt-2 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+                disabled={isLoading}
+                aria-label="Close Modal"
+              >
                 Close
               </button>
             </motion.div>
@@ -421,6 +492,8 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                     type="button"
                     onClick={() => setAgentDetails({ ...agentDetails, password: generatePassword(), confirmPassword: '' })}
                     className="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                    disabled={isLoading}
+                    aria-label="Generate Password"
                   >
                     Generate
                   </button>
@@ -442,20 +515,306 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                 />
               </div>
               {error && <p className="text-red-600 mb-4 text-sm">{error}</p>}
-              <button
-                onClick={handleCreateAgent}
-                disabled={isLoading}
-                className={`w-full py-3 rounded-lg text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-              >
-                {isLoading ? 'Creating...' : 'Create Agent'}
-              </button>
+              <div className="flex justify-between gap-2">
+                <button
+                  onClick={handleClose}
+                  disabled={isLoading}
+                  className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+                  aria-label="Cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateAgent}
+                  disabled={isLoading}
+                  className={`px-4 py-2 rounded-lg text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  aria-label="Create Agent"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      Creating...
+                    </span>
+                  ) : (
+                    'Create Agent'
+                  )}
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </motion.div>
     </div>
   );
-}
+};
+
+const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalProps) => {
+  const [editDetails, setEditDetails] = useState({
+    name: agent?.name || '',
+    phone: agent?.phone || '',
+    password: '',
+    confirmPassword: '',
+    canRegisterProperties: agent?.permissions?.canRegisterProperties || false,
+    canEditProperties: agent?.permissions?.canEditProperties || false,
+    canDeleteProperties: agent?.permissions?.canDeleteProperties || false,
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { profile } = useAuthStore();
+
+  useEffect(() => {
+    if (agent) {
+      console.log('Agent data passed to EditAgentModal:', agent);
+      setEditDetails({
+        name: agent.name || '',
+        phone: agent.phone || '',
+        password: '',
+        confirmPassword: '',
+        canRegisterProperties: agent.permissions?.canRegisterProperties || false,
+        canEditProperties: agent.permissions?.canEditProperties || false,
+        canDeleteProperties: agent.permissions?.canDeleteProperties || false,
+      });
+    }
+  }, [agent]);
+
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    let password = '';
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+  };
+
+  const handleUpdateAgent = async () => {
+    if (!agent || !profile || profile.role !== 'admin') {
+      setError('Unauthorized or invalid agent');
+      toast.error('Unauthorized or invalid agent');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      if (!editDetails.name) {
+        throw new Error('Name is required');
+      }
+      if (editDetails.password && editDetails.password.length < 6) {
+        throw new Error('Password must be at least 6 characters long');
+      }
+      if (editDetails.password && editDetails.password !== editDetails.confirmPassword) {
+        throw new Error('Passwords do not match');
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          name: editDetails.name,
+          phone: editDetails.phone,
+          permissions: {
+            canRegisterProperties: editDetails.canRegisterProperties,
+            canEditProperties: editDetails.canEditProperties,
+            canDeleteProperties: editDetails.canDeleteProperties,
+          },
+        })
+        .eq('id', agent.id);
+
+      if (profileError) {
+        throw new Error(`Failed to update profile: ${profileError.message}`);
+      }
+
+      const { error: agentError } = await supabase
+        .from('agents')
+        .update({
+          name: editDetails.name,
+          phone: editDetails.phone,
+        })
+        .eq('id', agent.id);
+
+      if (agentError) {
+        throw new Error(`Failed to update agent record: ${agentError.message}`);
+      }
+
+      if (editDetails.password) {
+        const { error: authError } = await supabase.auth.admin.updateUserById(agent.id, {
+          password: editDetails.password,
+        });
+        if (authError) {
+          throw new Error(`Failed to update password: ${authError.message}`);
+        }
+
+        const { error: credentialError } = await supabase
+          .from('agent_credentials')
+          .upsert(
+            {
+              agent_id: agent.id,
+              password: editDetails.password,
+              expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            },
+            { onConflict: 'agent_id' }
+          );
+
+        if (credentialError) {
+          throw new Error(`Failed to store credentials: ${credentialError.message}`);
+        }
+      }
+
+      toast.success('Agent updated successfully!');
+      await fetchAgents();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred');
+      toast.error(`Failed to update agent: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen || !agent) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
+      >
+        <h1 className="text-2xl font-bold mb-6 text-gray-900 text-center">Edit Agent</h1>
+        {editDetails.name === '' && (
+          <p className="text-yellow-600 mb-4 text-sm">Warning: No name found for this agent. Please provide a name.</p>
+        )}
+        <div className="mb-4">
+          <label htmlFor="edit-name" className="block text-sm font-medium text-gray-700 mb-1">
+            Name
+          </label>
+          <input
+            id="edit-name"
+            type="text"
+            value={editDetails.name}
+            onChange={(e) => setEditDetails({ ...editDetails, name: e.target.value })}
+            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+            placeholder="Enter agent name"
+            disabled={isLoading}
+            required
+          />
+        </div>
+        <div className="mb-4">
+          <label htmlFor="edit-phone" className="block text-sm font-medium text-gray-700 mb-1">
+            Phone
+          </label>
+          <input
+            id="edit-phone"
+            type="tel"
+            value={editDetails.phone}
+            onChange={(e) => setEditDetails({ ...editDetails, phone: e.target.value })}
+            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+            placeholder="Enter phone number"
+            disabled={isLoading}
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Permissions</label>
+          <div className="space-y-2">
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={editDetails.canRegisterProperties}
+                onChange={(e) => setEditDetails({ ...editDetails, canRegisterProperties: e.target.checked })}
+                className="mr-2"
+                disabled={isLoading}
+              />
+              Can Register Properties
+            </label>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={editDetails.canEditProperties}
+                onChange={(e) => setEditDetails({ ...editDetails, canEditProperties: e.target.checked })}
+                className="mr-2"
+                disabled={isLoading}
+              />
+              Can Edit Properties
+            </label>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={editDetails.canDeleteProperties}
+                onChange={(e) => setEditDetails({ ...editDetails, canDeleteProperties: e.target.checked })}
+                className="mr-2"
+                disabled={isLoading}
+              />
+              Can Delete Properties
+            </label>
+          </div>
+        </div>
+        <div className="mb-4">
+          <label htmlFor="edit-password" className="block text-sm font-medium text-gray-700 mb-1">
+            New Password (Optional)
+          </label>
+          <div className="flex items-center space-x-2">
+            <input
+              id="edit-password"
+              type="text"
+              value={editDetails.password}
+              onChange={(e) => setEditDetails({ ...editDetails, password: e.target.value })}
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+              placeholder="Enter new password (minimum 6 characters)"
+              disabled={isLoading}
+            />
+            <button
+              type="button"
+              onClick={() => setEditDetails({ ...editDetails, password: generatePassword(), confirmPassword: '' })}
+              className="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+              disabled={isLoading}
+            >
+              Generate
+            </button>
+          </div>
+        </div>
+        <div className="mb-4">
+          <label htmlFor="edit-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+            Confirm New Password
+          </label>
+          <input
+            id="edit-confirm-password"
+            type="password"
+            value={editDetails.confirmPassword}
+            onChange={(e) => setEditDetails({ ...editDetails, confirmPassword: e.target.value })}
+            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+            placeholder="Confirm new password"
+            disabled={isLoading}
+          />
+        </div>
+        {error && <p className="text-red-600 mb-4 text-sm">{error}</p>}
+        <div className="flex justify-end space-x-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+            disabled={isLoading}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleUpdateAgent}
+            disabled={isLoading}
+            className={`px-4 py-2 rounded-md text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+          >
+            {isLoading ? 'Updating...' : 'Update Agent'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
 
 export function AgentManagement() {
   const { profile } = useAuthStore();
@@ -464,6 +823,8 @@ export function AgentManagement() {
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState<Agent | null>(null);
+  const [showEditModal, setShowEditModal] = useState<Agent | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState<Agent | null>(null);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
   const [generatedPassword, setGeneratedPassword] = useState('');
@@ -480,19 +841,43 @@ export function AgentManagement() {
   const fetchAgents = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('id, email, role, permissions, name, phone')
         .in('role', ['agent', 'admin']);
-      if (error) throw error;
-      console.log('Fetched agents:', data);
-      data?.forEach((agent, index) => {
+
+      if (profileError) throw profileError;
+
+      const { data: agentData, error: agentError } = await supabase
+        .from('agents')
+        .select('id, email, name, phone, role');
+
+      if (agentError) throw agentError;
+
+      const mergedData = profileData.map((profile) => {
+        const agentRecord = agentData.find((agent) => agent.id === profile.id);
+        return {
+          ...profile,
+          name: profile.name || agentRecord?.name || '',
+          phone: profile.phone || agentRecord?.phone || '',
+          role: profile.role || agentRecord?.role || 'agent',
+        };
+      });
+
+      console.log('Merged agents data:', mergedData);
+
+      mergedData.forEach((agent, index) => {
+        if (!agent.name) {
+          console.warn(`Agent at index ${index} has no name:`, agent);
+          toast.error(`Agent ${agent.email} has no name set`);
+        }
         if (!agent.permissions) {
           console.warn(`Agent at index ${index} has no permissions:`, agent);
           toast.error(`Agent ${agent.email} has no permissions set`);
         }
       });
-      setAgents(data || []);
+
+      setAgents(mergedData);
     } catch (error: any) {
       console.error('Fetch agents error:', error);
       toast.error('Failed to fetch agents: ' + error.message);
@@ -564,6 +949,10 @@ export function AgentManagement() {
         email: newAdminEmail,
         password: generatedPassword,
         email_confirm: true,
+        user_metadata: {
+          name: newAdminName || newAdminEmail.split('@')[0],
+          role: 'admin',
+        },
       });
 
       if (authError) {
@@ -593,6 +982,18 @@ export function AgentManagement() {
         throw new Error(`Failed to create profile: ${profileError.message}`);
       }
 
+      const { error: agentError } = await supabase.from('agents').insert({
+        id: authData.user.id,
+        email: newAdminEmail,
+        name: newAdminName || newAdminEmail.split('@')[0],
+        phone: '',
+        role: 'admin',
+      });
+
+      if (agentError) {
+        throw new Error(`Failed to create agent record: ${agentError.message}`);
+      }
+
       const { error: credentialError } = await supabase
         .from('agent_credentials')
         .insert({
@@ -614,6 +1015,51 @@ export function AgentManagement() {
       await fetchAgents();
     } catch (error: any) {
       toast.error(error.message || 'Failed to create admin');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    if (!profile || profile.role !== 'admin') {
+      toast.error('Unauthorized');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (agentId === profile.id) {
+        throw new Error('You cannot delete your own account');
+      }
+
+      const { error: authError } = await supabase.auth.admin.deleteUser(agentId);
+      if (authError) {
+        throw new Error(`Failed to delete user: ${authError.message}`);
+      }
+
+      const { error: profileError } = await supabase.from('profiles').delete().eq('id', agentId);
+      if (profileError) {
+        throw new Error(`Failed to delete profile: ${profileError.message}`);
+      }
+
+      const { error: agentError } = await supabase.from('agents').delete().eq('id', agentId);
+      if (agentError) {
+        throw new Error(`Failed to delete agent record: ${agentError.message}`);
+      }
+
+      const { error: credentialError } = await supabase
+        .from('agent_credentials')
+        .delete()
+        .eq('agent_id', agentId);
+      if (credentialError) {
+        throw new Error(`Failed to delete credentials: ${credentialError.message}`);
+      }
+
+      toast.success('Agent deleted successfully!');
+      await fetchAgents();
+      setShowDeleteModal(null);
+    } catch (error: any) {
+      toast.error(`Failed to delete agent: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -676,6 +1122,16 @@ export function AgentManagement() {
     toast.success('Agent details downloaded!');
   };
 
+  const handleOpenAgentModal = () => {
+    console.log('Opening CreateAgentModal, setting showAgentModal to true');
+    setShowAgentModal(true);
+  };
+
+  const handleCloseAgentModal = () => {
+    console.log('Closing CreateAgentModal, setting showAgentModal to false');
+    setShowAgentModal(false);
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <Toaster position="top-center" />
@@ -686,8 +1142,9 @@ export function AgentManagement() {
 
       <div className="flex space-x-4 mb-4">
         <button
-          onClick={() => setShowAgentModal(true)}
+          onClick={handleOpenAgentModal}
           className="flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          aria-label="Open Create Agent Modal"
         >
           <Plus className="w-5 h-5 mr-2" />
           Create Agent
@@ -695,18 +1152,23 @@ export function AgentManagement() {
         <button
           onClick={() => setShowAdminModal(true)}
           className="flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          aria-label="Open Create Admin Modal"
         >
           <Plus className="w-5 h-5 mr-2" />
           Create Admin
         </button>
       </div>
 
-      <CreateAgentModal
-        isOpen={showAgentModal}
-        onClose={() => setShowAgentModal(false)}
-        fetchAgents={fetchAgents}
-        fetchProperties={fetchProperties}
-      />
+      <AnimatePresence>
+        {showAgentModal && (
+          <CreateAgentModal
+            isOpen={showAgentModal}
+            onClose={handleCloseAgentModal}
+            fetchAgents={fetchAgents}
+            fetchProperties={fetchProperties}
+          />
+        )}
+      </AnimatePresence>
 
       {showAdminModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
@@ -799,25 +1261,37 @@ export function AgentManagement() {
             <div className="space-y-2">
               <p className="text-gray-700">
                 Agent ID: <span className="font-mono font-semibold">{showDetailsModal.id}</span>
-                <button onClick={() => copyToClipboard(showDetailsModal.id, 'Agent ID')} className="ml-2 text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => copyToClipboard(showDetailsModal.id, 'Agent ID')}
+                  className="ml-2 text-blue-600 hover:text-blue-800"
+                >
                   <Copy className="w-4 h-4 inline" />
                 </button>
               </p>
               <p className="text-gray-700">
                 Name: <span className="font-mono font-semibold">{showDetailsModal.name || 'N/A'}</span>
-                <button onClick={() => copyToClipboard(showDetailsModal.name || 'N/A', 'Name')} className="ml-2 text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => copyToClipboard(showDetailsModal.name || 'N/A', 'Name')}
+                  className="ml-2 text-blue-600 hover:text-blue-800"
+                >
                   <Copy className="w-4 h-4 inline" />
                 </button>
               </p>
               <p className="text-gray-700">
                 Email: <span className="font-mono font-semibold">{showDetailsModal.email}</span>
-                <button onClick={() => copyToClipboard(showDetailsModal.email, 'Email')} className="ml-2 text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => copyToClipboard(showDetailsModal.email, 'Email')}
+                  className="ml-2 text-blue-600 hover:text-blue-800"
+                >
                   <Copy className="w-4 h-4 inline" />
                 </button>
               </p>
               <p className="text-gray-700">
                 Phone: <span className="font-mono font-semibold">{showDetailsModal.phone || 'N/A'}</span>
-                <button onClick={() => copyToClipboard(showDetailsModal.phone || 'N/A', 'Phone')} className="ml-2 text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => copyToClipboard(showDetailsModal.phone || 'N/A', 'Phone')}
+                  className="ml-2 text-blue-600 hover:text-blue-800"
+                >
                   <Copy className="w-4 h-4 inline" />
                 </button>
               </p>
@@ -861,6 +1335,46 @@ export function AgentManagement() {
         </div>
       )}
 
+      <EditAgentModal
+        isOpen={!!showEditModal}
+        onClose={() => setShowEditModal(null)}
+        agent={showEditModal}
+        fetchAgents={fetchAgents}
+      />
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+            className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
+          >
+            <h3 className="text-lg font-bold mb-4">Confirm Delete</h3>
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to delete the agent <span className="font-semibold">{showDeleteModal.email}</span>? This
+              action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowDeleteModal(null)}
+                className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteAgent(showDeleteModal.id)}
+                className={`px-4 py-2 rounded-md text-white ${loading ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
+                disabled={loading}
+              >
+                {loading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       <div className="bg-white shadow rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4">Existing Agents & Admins</h3>
         {loading ? (
@@ -883,11 +1397,11 @@ export function AgentManagement() {
             </thead>
             <tbody>
               {agents
-                .filter(agent => agent && agent.permissions) // Filter out invalid agents
+                .filter((agent) => agent && agent.id)
                 .map((agent) => (
                   <tr key={agent.id} className="border-b">
                     <td className="py-2">{agent.email}</td>
-                    <td className="py-2">{agent.name || '-'}</td>
+                    <td className="py-2">{agent.name || 'N/A'}</td>
                     <td className="py-2">{agent.role}</td>
                     <td className="py-2">
                       {agent.permissions ? (
@@ -918,16 +1432,15 @@ export function AgentManagement() {
                       </button>
                       <button
                         onClick={() => {
-                          toast.info('Edit functionality not implemented yet');
+                          console.log('Opening edit modal for agent:', agent);
+                          setShowEditModal(agent);
                         }}
                         className="p-1 text-blue-600 hover:text-blue-800 ml-2"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => {
-                          toast.info('Delete functionality not implemented yet');
-                        }}
+                        onClick={() => setShowDeleteModal(agent)}
                         className="p-1 text-red-600 hover:text-red-800 ml-2"
                       >
                         <Trash2 className="w-4 h-4" />

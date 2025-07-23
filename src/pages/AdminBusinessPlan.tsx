@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Target, 
@@ -27,10 +26,11 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { v4 as uuidv4 } from 'uuid';
 
 interface AgentFinancials {
   name: string;
-  agent_id: string; // Add this field 
+  agent_id: string;
   commission_amount: number | null;
   franchise_amount: number | null;
   marketing_expenses: number | null;
@@ -63,6 +63,7 @@ interface AgentBusinessPlan {
   franchise_percentage: number | null;
   created_at?: string;
   updated_at?: string;
+  agent_name: string;
 }
 
 interface AgentData {
@@ -159,7 +160,7 @@ const RatioInput: React.FC<RatioInputProps> = ({
   <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200 relative group">
     <div className="flex justify-between items-center mb-2">
       <span className="text-sm font-medium text-blue-800">{label}</span>
-      <span className="text-sm text-blue-600">{value ? `${suffix}${Math.round(value).toLocaleString()}` : 'N/A'}</span>
+      <span className="text-sm text-blue-600">{value ? `${suffix}${Math.round(Number(value)).toLocaleString()}` : 'N/A'}</span>
     </div>
     <input
       type="number"
@@ -180,7 +181,7 @@ export function AdminBusinessPlan() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [plan, setPlan] = useState<AdminBusinessPlan>({
-    agent_id: user?.id || '',
+    agent_id: '',
     agents: [],
     business_commission_percentage: null,
     agent_commission_percentage: null,
@@ -206,107 +207,242 @@ export function AdminBusinessPlan() {
   const [showInputs, setShowInputs] = useState(false);
   const [showPercentages, setShowPercentages] = useState(false);
   const [timeFrame, setTimeFrame] = useState<'yearly' | 'monthly' | 'weekly' | null>(null);
+  const [availableAgents, setAvailableAgents] = useState<{ id: string; name: string }[]>([]);
+  const [showAgentSuggestions, setShowAgentSuggestions] = useState(false);
+  const [savedPlans, setSavedPlans] = useState<AgentBusinessPlan[]>([]);
+  const [showSavedPlans, setShowSavedPlans] = useState(false);
+  const agentInputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (user?.id) {
-      fetchBusinessPlan();
-      fetchAgentBusinessPlan();
+      fetchAvailableAgents();
+      fetchSavedAgentPlans();
     }
   }, [user?.id]);
 
-  const fetchBusinessPlan = async () => {
-    if (!user?.id) return;
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(event.target as Node) &&
+        agentInputRef.current &&
+        !agentInputRef.current.contains(event.target as Node)
+      ) {
+        setShowAgentSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const fetchAvailableAgents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .eq('role', 'agent')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setAvailableAgents(data || []);
+    } catch (error: any) {
+      console.error('Error fetching agents:', error);
+      toast.error('Failed to load available agents');
+    }
+  };
+
+  const fetchSavedAgentPlans = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('agent_business_plans')
+        .select('id, agent_id, business_commission_percentage, agent_commission_percentage, franchise_percentage, created_at, updated_at, agent_name')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setSavedPlans(data || []);
+    } catch (error: any) {
+      console.error('Error fetching saved agent plans:', error);
+      toast.error('Failed to load saved agent plans');
+    }
+  };
+
+  const fetchAgentBusinessPlan = async (agentId: string, agentName: string) => {
+    if (!agentId || !agentName) {
+      toast.error('Please select or enter a valid agent name');
+      return;
+    }
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('admin_business_plans')
-        .select('*')
-        .eq('agent_id', user.id)
+      // Fetch from agent_business_plans table directly
+      const { data: planData, error: planError } = await supabase
+        .from('agent_business_plans')
+        .select('id, agent_id, business_commission_percentage, agent_commission_percentage, franchise_percentage, agent_name')
+        .eq('agent_id', agentId)
+        .eq('agent_name', agentName)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') {
-        throw error;
+      if (planError && planError.code !== 'PGRST116') {
+        throw planError;
       }
 
-      if (data) {
-        setPlan({
-          ...data,
-          agents: data.agents || [],
-          franchise_fee: data.franchise_fee != null ? Math.round(data.franchise_fee) : null,
-          rent: data.rent != null ? Math.round(data.rent) : null,
-          staff_salary: data.staff_salary != null ? Math.round(data.staff_salary) : null,
-          internet: data.internet != null ? Math.round(data.internet) : null,
-          fuel: data.fuel != null ? Math.round(data.fuel) : null,
-          other_expenses: data.other_expenses != null ? Math.round(data.other_expenses) : null
-        });
-        if (data.agents.length > 0) {
-          setSelectedAgent(data.agents[0].name);
-          setShowInputs(true);
-        }
-        setTimeFrame('yearly');
+      if (planData) {
+        setPlan(prev => ({
+          ...prev,
+          agent_id: agentId,
+          agents: prev.agents.some(agent => agent.agent_id === agentId && agent.name === agentName)
+            ? prev.agents
+            : [...prev.agents, { 
+                name: agentName, 
+                agent_id: agentId, 
+                commission_amount: null, 
+                franchise_amount: null, 
+                marketing_expenses: null, 
+                super_amount: null 
+              }],
+          business_commission_percentage: planData.business_commission_percentage != null ? Math.round(planData.business_commission_percentage) : 0,
+          agent_commission_percentage: planData.agent_commission_percentage != null ? Math.round(planData.agent_commission_percentage) : 0,
+          franchise_fee: planData.franchise_percentage != null ? Math.round(planData.franchise_percentage) : 0
+        }));
+        setNewAgentName(agentName);
+        setSelectedAgent(agentName);
+        setShowInputs(true);
+        toast.success(`Business plan loaded for "${agentName}"`);
+      } else {
+        // If no plan exists, initialize with defaults
+        setPlan(prev => ({
+          ...prev,
+          agent_id: agentId,
+          agents: prev.agents.some(agent => agent.agent_id === agentId && agent.name === agentName)
+            ? prev.agents
+            : [...prev.agents, { 
+                name: agentName, 
+                agent_id: agentId, 
+                commission_amount: null, 
+                franchise_amount: null, 
+                marketing_expenses: null, 
+                super_amount: null 
+              }],
+          business_commission_percentage: 0,
+          agent_commission_percentage: 0,
+          franchise_fee: 0
+        }));
+        setNewAgentName(agentName);
+        setSelectedAgent(agentName);
+        setShowInputs(true);
+        toast.info(`No existing plan found for "${agentName}". Starting with default values.`);
       }
     } catch (error: any) {
       console.error('Error fetching business plan:', error);
-      if (error.code === '42P01') {
-        toast.error('Admin business plan table not found. Please contact support.');
-      } else {
-        toast.error('Failed to load business plan');
-      }
+      toast.error('Failed to load business plan');
+      setPlan(prev => ({
+        ...prev,
+        agent_id: agentId,
+        agents: prev.agents.some(agent => agent.agent_id === agentId && agent.name === agentName)
+          ? prev.agents
+          : [...prev.agents, { 
+              name: agentName, 
+              agent_id: agentId, 
+              commission_amount: null, 
+              franchise_amount: null, 
+              marketing_expenses: null, 
+              super_amount: null 
+            }],
+        business_commission_percentage: 0,
+        agent_commission_percentage: 0,
+        franchise_fee: 0
+      }));
+      setNewAgentName(agentName);
+      setSelectedAgent(agentName);
+      setShowInputs(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchAgentBusinessPlan = async () => {
-    if (!user?.id) return;
+  const handleManualAgentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setNewAgentName(value);
+    setShowAgentSuggestions(true);
 
-    try {
-      const { data, error } = await supabase
-        .from('agent_business_plans')
-        .select('business_commission_percentage, agent_commission_percentage, franchise_percentage')
-        .eq('agent_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+    if (value.trim()) {
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from('agent_business_plans')
+          .select('agent_id, agent_name')
+          .ilike('agent_name', `%${value.trim()}%`)
+          .eq('role', 'agent')
+          .single();
 
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
+        if (profileError && profileError.code !== 'PGRST116') {
+          throw profileError;
+        }
 
-      if (data) {
+        if (profileData) {
+          const agentId = profileData.agent_id;
+          const agentName = profileData.agent_name;
+
+          await fetchAgentBusinessPlan(agentId, agentName);
+          setAvailableAgents(prev => 
+            prev.some(agent => agent.id === agentId && agent.name === agentName) 
+              ? prev 
+              : [...prev, { id: agentId, name: agentName }]
+          );
+        } else {
+          setPlan(prev => ({
+            ...prev,
+            agent_id: '',
+            business_commission_percentage: 0,
+            agent_commission_percentage: 0,
+            franchise_fee: 0
+          }));
+          setSelectedAgent(value.trim());
+          setShowInputs(true);
+        }
+      } catch (error: any) {
+        console.error('Error handling manual agent change:', error);
+        toast.error('Agent not found. You can continue with the entered name.');
         setPlan(prev => ({
           ...prev,
-          business_commission_percentage: data.business_commission_percentage ?? null,
-          agent_commission_percentage: data.agent_commission_percentage ?? null,
-          franchise_fee: data.franchise_percentage ?? null
+          agent_id: '',
+          business_commission_percentage: 0,
+          agent_commission_percentage: 0,
+          franchise_fee: 0
         }));
-      } else {
-        // Fallback to default values if no data is found
-        setPlan(prev => ({
-          ...prev,
-          business_commission_percentage: null,
-          agent_commission_percentage: null,
-          franchise_fee: null
-        }));
+        setSelectedAgent(value.trim());
+        setShowInputs(true);
       }
-    } catch (error: any) {
-      console.error('Error fetching agent business plan:', error);
-      if (error.code === '42703') {
-        toast.error('Agent business plan columns not found. Using default values.');
-      } else {
-        toast.error('Failed to load agent business plan data');
-      }
-      // Set fallback values
+    } else {
       setPlan(prev => ({
         ...prev,
-        business_commission_percentage: null,
-        agent_commission_percentage: null,
-        franchise_fee: null
+        agent_id: '',
+        business_commission_percentage: 0,
+        agent_commission_percentage: 0,
+        franchise_fee: 0
       }));
+      setSelectedAgent(null);
+      setShowInputs(false);
+      setShowAgentSuggestions(false);
     }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, name: string, agentId: string) => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      selectAgent(name, agentId);
+    }
+  };
+
+  const selectAgent = async (name: string, agentId: string) => {
+    setNewAgentName(name);
+    setSelectedAgent(name);
+    setShowAgentSuggestions(false);
+    setShowInputs(true);
+    await fetchAgentBusinessPlan(agentId, name);
   };
 
   const calculateAgentData = () => {
@@ -435,7 +571,7 @@ export function AdminBusinessPlan() {
     try {
       const planData = {
         ...plan,
-        agent_id: user.id,
+        agent_id: plan.agent_id || uuidv4(),
         updated_at: new Date().toISOString(),
         franchise_fee: plan.franchise_fee != null ? Math.round(plan.franchise_fee) : null,
         rent: plan.rent != null ? Math.round(plan.rent) : null,
@@ -462,7 +598,7 @@ export function AdminBusinessPlan() {
       } else {
         const { data, error } = await supabase
           .from('admin_business_plans')
-          .insert([{ ...planData, created_at: new Date().toISOString() }])
+          .insert([{ ...planData, id: uuidv4(), created_at: new Date().toISOString() }])
           .select()
           .single();
         
@@ -479,7 +615,25 @@ export function AdminBusinessPlan() {
         });
       }
 
+      // Update agent_business_plans table
+      for (const agent of plan.agents) {
+        const { error } = await supabase
+          .from('agent_business_plans')
+          .upsert({
+            agent_id: agent.agent_id,
+            agent_name: agent.name,
+            business_commission_percentage: plan.business_commission_percentage,
+            agent_commission_percentage: plan.agent_commission_percentage,
+            franchise_percentage: plan.franchise_fee,
+            updated_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          });
+
+        if (error) throw error;
+      }
+
       toast.success('Business plan saved successfully!');
+      await fetchSavedAgentPlans();
     } catch (error: any) {
       console.error('Error saving business plan:', error);
       toast.error('Failed to save business plan');
@@ -494,8 +648,10 @@ export function AdminBusinessPlan() {
       return;
     }
     if (newAgentName.trim() && !plan.agents.some(agent => agent.name === newAgentName.trim())) {
+      const selectedAgentProfile = availableAgents.find(agent => agent.name === newAgentName.trim());
       const newAgent: AgentFinancials = {
         name: newAgentName.trim(),
+        agent_id: selectedAgentProfile?.id || uuidv4(),
         commission_amount: null,
         franchise_amount: null,
         marketing_expenses: null,
@@ -508,6 +664,7 @@ export function AdminBusinessPlan() {
       setSelectedAgent(newAgentName.trim());
       setNewAgentName('');
       setShowInputs(true);
+      setShowAgentSuggestions(false);
       toast.success('New agent added. Please enter their financial details.');
     } else if (plan.agents.some(agent => agent.name === newAgentName.trim())) {
       toast.error('Agent name already exists');
@@ -528,61 +685,6 @@ export function AdminBusinessPlan() {
     }
   };
 
-  const selectAgent = async (name: string, agentId?: string) => {
-    setSelectedAgent(name);
-    setShowInputs(true);
-
-    // Fetch agent-specific data from agent_business_plans
-    try {
-      const agent_id = agentId || plan.agents.find(agent => agent.name === name)?.agent_id || user?.id;
-      if (!agent_id) {
-        toast.error('No agent ID found for selected agent');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('agent_business_plans')
-        .select('business_commission_percentage, agent_commission_percentage, franchise_percentage')
-        .eq('agent_id', agent_id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-
-      if (data) {
-        setPlan(prev => ({
-          ...prev,
-          business_commission_percentage: data.business_commission_percentage ?? null,
-          agent_commission_percentage: data.agent_commission_percentage ?? null,
-          franchise_fee: data.franchise_percentage ?? null
-        }));
-      } else {
-        // Fallback to default values if no data is found
-        setPlan(prev => ({
-          ...prev,
-          business_commission_percentage: null,
-          agent_commission_percentage: null,
-          franchise_fee: null
-        }));
-        toast.info(`No business plan data found for ${name}. Using default values.`);
-      }
-    } catch (error: any) {
-      console.error('Error fetching agent business plan:', error);
-      toast.error(`Failed to load business plan data for ${name}`);
-      // Set fallback values
-      setPlan(prev => ({
-        ...prev,
-        business_commission_percentage: null,
-        agent_commission_percentage: null,
-        franchise_fee: null
-      }));
-    }
-  };
-
-
   const updateAgentFinancials = (field: keyof AgentFinancials, value: number | null) => {
     if (!selectedAgent) return;
     const updatedAgents = plan.agents.map(agent => {
@@ -597,6 +699,7 @@ export function AdminBusinessPlan() {
   const getSelectedAgent = () => {
     return plan.agents.find(agent => agent.name === selectedAgent) || {
       name: '',
+      agent_id: '',
       commission_amount: null,
       franchise_amount: null,
       marketing_expenses: null,
@@ -769,11 +872,11 @@ export function AdminBusinessPlan() {
 
   const resetToDefaults = () => {
     setPlan({
-      agent_id: user?.id || '',
+      agent_id: '',
       agents: [],
-      business_commission_percentage: null,
-      agent_commission_percentage: null,
-      franchise_fee: null,
+      business_commission_percentage: 0,
+      agent_commission_percentage: 0,
+      franchise_fee: 0,
       business_expenses_percentage: 0,
       agent_expenses_percentage: 0,
       rent: null,
@@ -789,6 +892,7 @@ export function AdminBusinessPlan() {
     setShowInputs(false);
     setShowPercentages(false);
     setTimeFrame(null);
+    setShowAgentSuggestions(false);
   };
 
   const totals = calculateTotals();
@@ -965,7 +1069,6 @@ export function AdminBusinessPlan() {
             </div>
           </motion.div>
         )}
-
         {timeFrame && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -973,30 +1076,69 @@ export function AdminBusinessPlan() {
             transition={{ delay: 0.2 }}
             className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
           >
-            <h2 className="text-lg font-semibold mb-4 text-blue-900 flex items-center">
-              <Users className="w-5 h-5 mr-2 text-blue-600" />
-              Agent Names
-            </h2>
-            <div className="flex items-center space-x-2 mb-4">
-              <input
-                type="text"
-                value={newAgentName}
-                onChange={(e) => setNewAgentName(e.target.value)}
-                placeholder="Enter agent name"
-                className="w-3/4 px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-blue-50 text-blue-800"
-              />
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center">
+                <Users className="w-5 h-5 mr-2 text-blue-600" />
+                Agent Names
+              </h2>
               <button
-                onClick={addAgent}
-                className="w-1/4 px-2 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={() => setShowInputs(!showInputs)}
+                className="p-2 rounded-full hover:bg-gray-100"
               >
-                <Plus className="w-4 h-4 mx-auto" />
+                {showInputs ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
               </button>
             </div>
-            <div className="max-h-24 overflow-y-auto">
+            {showInputs && (
+              <div className="relative">
+                <input
+                  ref={agentInputRef}
+                  type="text"
+                  value={newAgentName}
+                  onChange={handleManualAgentChange}
+                  onFocus={() => setShowAgentSuggestions(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      addAgent();
+                    }
+                  }}
+                  placeholder="Enter or select agent name"
+                  className="w-full px-2 py-1 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-600 bg-white text-blue-800"
+                  aria-label="Agent name input"
+                />
+                {showAgentSuggestions && newAgentName && availableAgents.length > 0 && (
+                  <div
+                    ref={suggestionsRef}
+                    className="absolute z-10 w-full mt-1 bg-white border border-blue-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+                  >
+                    {availableAgents
+                      .filter(agent => agent.name.toLowerCase().includes(newAgentName.toLowerCase()))
+                      .map(agent => (
+                        <button
+                          key={agent.id}
+                          onClick={() => selectAgent(agent.name, agent.id)}
+                          onKeyDown={(e) => handleKeyDown(e, agent.name, agent.id)}
+                          className="w-full text-left px-4 py-2 text-blue-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
+                          tabIndex={0}
+                        >
+                          {agent.name}
+                        </button>
+                      ))}
+                  </div>
+                )}
+                <button
+                  onClick={addAgent}
+                  className="mt-2 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Agent
+                </button>
+              </div>
+            )}
+            <div className="max-h-24 overflow-y-auto mt-4">
               {plan.agents.map((agent) => (
-                <div key={agent.name} className="flex justify-between items-center p-2 bg-blue-100 rounded mb-1">
+                <div key={agent.agent_id} className="flex justify-between items-center p-2 bg-blue-100 rounded mb-1">
                   <button
-                    onClick={() => selectAgent(agent.name)}
+                    onClick={() => selectAgent(agent.name, agent.agent_id)}
                     className={`text-sm text-blue-800 truncate hover:underline ${selectedAgent === agent.name ? 'font-bold' : ''}`}
                   >
                     {agent.name}
@@ -1010,6 +1152,56 @@ export function AdminBusinessPlan() {
                 </div>
               ))}
             </div>
+          </motion.div>
+        )}
+
+        {timeFrame && savedPlans.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center">
+                <FileText className="w-5 h-5 mr-2 text-blue-600" />
+                Saved Agent Business Plans
+              </h2>
+              <button
+                onClick={() => setShowSavedPlans(!showSavedPlans)}
+                className="p-2 rounded-full hover:bg-gray-100"
+              >
+                {showSavedPlans ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
+              </button>
+            </div>
+            {showSavedPlans && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse table-fixed">
+                  <thead>
+                    <tr className="bg-blue-100">
+                      <th className="p-3 border-b text-blue-700 w-[20%] text-center">Agent Name</th>
+                      <th className="p-3 border-b text-blue-700 w-[15%] text-center">Business Commission %</th>
+                      <th className="p-3 border-b text-blue-700 w-[15%] text-center">Agent Commission %</th>
+                      <th className="p-3 border-b text-blue-700 w-[15%] text-center">Franchise Fee %</th>
+                      <th className="p-3 border-b text-blue-700 w-[20%] text-center">Created At</th>
+                      <th className="p-3 border-b text-blue-700 w-[20%] text-center">Updated At</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {savedPlans.map(plan => (
+                      <tr key={plan.id} className="border-b hover:bg-blue-50">
+                        <td className="p-3 text-blue-700 text-center">{plan.agent_name || 'Unknown'}</td>
+                        <td className="p-3 text-blue-600 text-center">{plan.business_commission_percentage != null ? `${Math.round(plan.business_commission_percentage)}%` : 'N/A'}</td>
+                        <td className="p-3 text-blue-600 text-center">{plan.agent_commission_percentage != null ? `${Math.round(plan.agent_commission_percentage)}%` : 'N/A'}</td>
+                        <td className="p-3 text-blue-600 text-center">{plan.franchise_percentage != null ? `${Math.round(plan.franchise_percentage)}%` : 'N/A'}</td>
+                        <td className="p-3 text-blue-600 text-center">{plan.created_at ? new Date(plan.created_at).toLocaleDateString() : 'N/A'}</td>
+                        <td className="p-3 text-blue-600 text-center">{plan.updated_at ? new Date(plan.updated_at).toLocaleDateString() : 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </motion.div>
         )}
 

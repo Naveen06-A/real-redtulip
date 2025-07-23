@@ -6,12 +6,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { UserPlus, Home, FileText, Activity, BarChart, Link as LinkIcon, Eye, Download, Trash2, FileTerminalIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
-import { CreateAgentModal } from './AgentManagement';
+import { CreateAgentModal } from '../components/CreateAgentModal';
 import { EnquiryPDFPreview } from './EnquiryPDFPreview';
 import { Agent, Property, Enquiry } from '../types';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-// import { DocumentChartBarIcon, RocketLaunchIcon, PuzzlePieceIcon } from '@heroicons/react/24/outline';
 
 export function AdminDashboard() {
   const { user, profile } = useAuthStore();
@@ -39,19 +38,27 @@ export function AdminDashboard() {
   const [itemsPerPage, setItemsPerPage] = useState({ properties: 5, enquiries: 5 });
   const [jumpToPage, setJumpToPage] = useState({ properties: '', enquiries: '' });
 
+  // Debug showModal state changes
+  useEffect(() => {
+    console.log('showModal changed:', showModal);
+  }, [showModal]);
+
   const dashboardLinks = [
-    { name: 'Create New Agent', icon: UserPlus, path: '/create-agent-modal' },
-    { name: 'Add Property', icon: Home, path: '/property-form' },
+    {
+      name: 'Create New Agent',
+      icon: UserPlus,
+      action: () => {
+        console.log('Create New Agent clicked, setting showModal to agent');
+        setShowModal('agent');
+      },
+    },
+    { name: 'Add Property', icon: Home, path:'/property-form' },
     { name: 'Job Enquiries', icon: FileText, path: '/enquiryjob' },
     { name: 'Create Marketing Plan', path: '/marketing-plan', icon: FileText },
     { name: 'Activity Log', path: '/activity-logger', icon: Activity },
-    // { name: 'Progress Report', path: '/progress-report-page', icon: BarChart },
     { name: 'Reports', path: '/reports', icon: FileText },
-    // { name: 'Agent Report', path: '/agent-reports', icon: FileText },
-    // { name: 'Business Plan', path: '/agent-business-plan', icon: FaBusinessTime },
-    { name: 'Business Plan', path:'/agent-business-plan',icon: FileText},
-    {name:'AdminBusinessPlan',path:'/admin-business-plan',icon:FileText},
-    
+    { name: 'Business Plan', path: '/agent-business-plan', icon: FileText },
+    { name: 'AdminBusinessPlan', path: '/admin-business-plan', icon: FileText },
     {
       name: 'Agent Report',
       path: '/agent-reports',
@@ -123,20 +130,20 @@ export function AdminDashboard() {
 
   const deleteEnquiry = async (enquiryId: string) => {
     if (!window.confirm('Are you sure you want to delete this enquiry?')) return;
-    
+
     try {
       setLoading(true);
       const { error } = await supabase
         .from('enquiry')
         .delete()
         .eq('id', enquiryId);
-        
+
       if (error) throw error;
-      
+
       toast.success('Enquiry deleted successfully!', {
         style: { background: '#BFDBFE', color: '#1E3A8A', borderRadius: '8px' },
       });
-      
+
       await fetchEnquiries();
     } catch (error: any) {
       toast.error('Failed to delete enquiry: ' + error.message, {
@@ -150,11 +157,11 @@ export function AdminDashboard() {
   const generatePDF = (enquiry: Enquiry) => {
     try {
       const doc = new jsPDF();
-      
+
       doc.setProperties({
         title: `Enquiry_${enquiry.full_name}_${enquiry.id}`,
         author: 'Harcourts',
-        creator: 'Harcourts Admin Dashboard'
+        creator: 'Harcourts Admin Dashboard',
       });
 
       doc.setFillColor(219, 234, 254);
@@ -163,7 +170,7 @@ export function AdminDashboard() {
       doc.setFontSize(18);
       doc.setTextColor(30, 58, 138);
       doc.text('Harcourts Success', 105, 20, { align: 'center' });
-      
+
       doc.setFontSize(12);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(29, 78, 216);
@@ -385,12 +392,17 @@ export function AdminDashboard() {
         ))}
       </div>
 
-      <CreateAgentModal
-        isOpen={showModal === 'agent'}
-        onClose={() => setShowModal(null)}
-        fetchAgents={fetchAgents}
-        fetchProperties={fetchProperties}
-      />
+      <AnimatePresence>
+        <CreateAgentModal
+          isOpen={showModal === 'agent'}
+          onClose={() => {
+            console.log('Closing CreateAgentModal, setting showModal to null');
+            setShowModal(null);
+          }}
+          fetchAgents={fetchAgents}
+          fetchProperties={fetchProperties}
+        />
+      </AnimatePresence>
 
       {showModal === 'property' && (
         <div className="fixed inset-0 bg-blue-200/50 flex items-center justify-center">
@@ -534,7 +546,7 @@ export function AdminDashboard() {
             enquiry={enquiries.find(e => e.id === showPDFModal)!}
             isOpen={!!showPDFModal}
             onClose={() => setShowPDFModal(null)}
-            onDownload={generatePDF} // This should only handle download, preview is managed by EnquiryPDFPreview
+            onDownload={generatePDF}
           />
         )}
       </AnimatePresence>

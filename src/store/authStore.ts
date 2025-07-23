@@ -1,19 +1,13 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
-
-interface UserProfile {
-  name: string;
-  phone: string;
-  email: string;
-  role: 'user' | 'agent' | 'admin';
-}
+import { UserProfile } from '../types/types';
 
 interface AuthState {
   user: { id: string; email?: string } | null;
   profile: UserProfile | null;
   loading: boolean;
   authError: string | null;
-  setUser: (user: any) => void;
+  setUser: (user: { id: string; email?: string } | null) => void;
   setProfile: (profile: UserProfile | null) => void;
   initializeAuth: () => Promise<void>;
   fetchProfile: (userId: string, email?: string) => Promise<void>;
@@ -43,21 +37,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
-      console.log('Session response:', { session, userId: session?.user?.id, email: session?.user?.email, time: `${performance.now() - startTime}ms` });
-      if (error) throw new Error(`getSession error: ${error.message}`);
-      
+      console.log('Session response:', { 
+        session, 
+        userId: session?.user?.id, 
+        email: session?.user?.email, 
+        time: `${performance.now() - startTime}ms` 
+      });
+      if (error) {
+        console.error('getSession error:', error.message, error);
+        throw new Error(`getSession error: ${error.message}`);
+      }
+
       if (session?.user) {
         set({ user: { id: session.user.id, email: session.user.email } });
         await get().fetchProfile(session.user.id, session.user.email);
       } else {
+        console.log('No active session found');
         set({ user: null, profile: null });
       }
     } catch (error: any) {
-      console.error('initializeAuth failed:', error.message);
+      console.error('initializeAuth failed:', { 
+        message: error.message, 
+        stack: error.stack 
+      });
       set({ authError: error.message, user: null, profile: null });
     } finally {
       set({ loading: false });
-      console.log('initializeAuth completed', get().user, get().profile, `Total time: ${performance.now() - startTime}ms`);
+      console.log('initializeAuth completed', { 
+        user: get().user, 
+        profile: get().profile, 
+        time: `${performance.now() - startTime}ms` 
+      });
     }
   },
   fetchProfile: async (userId: string, email?: string) => {
@@ -66,31 +76,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('name, phone, email, role')
+        .select('id, name, phone, email, role')
         .eq('id', userId)
         .single();
+
       if (error) {
         if (error.code === 'PGRST116') {
           console.log('No profile found, creating one...');
-          const newProfile = {
+          const newProfile: UserProfile = {
             id: userId,
             name: email?.split('@')[0] || 'Unknown',
             phone: '',
             email: email || '',
-            role: 'user' as 'user' | 'agent' | 'admin',
+            role: 'user',
           };
-          const { error: insertError } = await supabase
+          const { data: insertData, error: insertError } = await supabase
             .from('profiles')
             .insert(newProfile)
             .select()
             .single();
           if (insertError) {
-            console.error('Profile creation error:', insertError.message, insertError.details);
+            console.error('Profile creation error:', { 
+              message: insertError.message, 
+              code: insertError.code, 
+              details: insertError.details 
+            });
             throw new Error(`Profile creation error: ${insertError.message}`);
           }
-          set({ profile: newProfile });
+          console.log('Profile created:', insertData, `Time: ${performance.now() - startTime}ms`);
+          set({ profile: insertData });
         } else {
-          console.error('fetchProfile error:', error.message, error.details);
+          console.error('fetchProfile error:', { 
+            message: error.message, 
+            code: error.code, 
+            details: error.details 
+          });
           throw new Error(`fetchProfile error: ${error.message}`);
         }
       } else {
@@ -98,7 +118,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ profile: data });
       }
     } catch (error: any) {
-      console.error('fetchProfile failed:', error.message);
+      console.error('fetchProfile failed:', { 
+        message: error.message, 
+        stack: error.stack 
+      });
       set({ authError: error.message, profile: null });
     }
   },
@@ -106,6 +129,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = get();
     if (!user) {
       console.log('No user to update role for');
+      set({ authError: 'No user logged in' });
       return;
     }
     try {
@@ -116,22 +140,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .eq('id', user.id)
         .select()
         .single();
-      if (error) throw new Error(`updateRole error: ${error.message}`);
+      if (error) {
+        console.error('updateRole error:', { 
+          message: error.message, 
+          code: error.code, 
+          details: error.details 
+        });
+        throw new Error(`updateRole error: ${error.message}`);
+      }
       console.log('Role updated:', data);
       set({ profile: data });
     } catch (error: any) {
-      console.error('updateRole failed:', error.message);
+      console.error('updateRole failed:', { 
+        message: error.message, 
+        stack: error.stack 
+      });
       set({ authError: error.message });
     }
   },
   signOut: async () => {
     try {
       console.log('Signing out...');
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Sign out error:', error.message, error);
+        throw new Error(`Sign out error: ${error.message}`);
+      }
       set({ user: null, profile: null, loading: false, authError: null });
       console.log('Signed out successfully');
     } catch (error: any) {
-      console.error('Sign out failed:', error.message);
+      console.error('Sign out failed:', { 
+        message: error.message, 
+        stack: error.stack 
+      });
       set({ authError: error.message });
     }
   },
@@ -150,12 +191,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 }));
 
 supabase.auth.onAuthStateChange(async (event, session) => {
-  console.log('Auth state changed:', event, session?.user?.id);
+  console.log('Auth state changed:', { event, userId: session?.user?.id });
   const { user, loading } = useAuthStore.getState();
   if (event === 'SIGNED_IN' && session?.user && !user && !loading) {
+    console.log('Handling SIGNED_IN event for user:', session.user.id);
     useAuthStore.getState().setUser({ id: session.user.id, email: session.user.email });
     await useAuthStore.getState().fetchProfile(session.user.id, session.user.email);
   } else if (event === 'SIGNED_OUT') {
+    console.log('Handling SIGNED_OUT event');
     useAuthStore.getState().setUser(null);
     useAuthStore.getState().setProfile(null);
     useAuthStore.getState().set({ authError: null });

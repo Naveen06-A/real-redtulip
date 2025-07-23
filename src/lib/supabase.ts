@@ -4,6 +4,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
+  console.error('Supabase configuration error: Missing URL or Key');
   throw new Error('Missing Supabase credentials');
 }
 
@@ -19,7 +20,11 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   global: {
     headers: {
       Accept: 'application/json',
-      'Content-Type': 'application/json'
-    }
-  }
+      'Content-Type': 'application/json',
+    },
+    fetch: (input, init) => fetch(input, { ...init, timeout: 30000 }).catch((err) => {
+      console.error('Supabase fetch error:', err);
+      throw err;
+    }),
+  },
 });

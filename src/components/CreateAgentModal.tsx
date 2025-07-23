@@ -4,14 +4,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { Copy, Download, Share2 } from 'lucide-react';
-
-interface AgentDetails {
-  email: string;
-  name: string;
-  phone: string;
-  password: string;
-  confirmPassword: string;
-}
+import { AgentDetails } from '../types/types';
 
 interface CreateAgentModalProps {
   isOpen: boolean;
@@ -33,141 +26,134 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
   const [success, setSuccess] = useState<{ id: string; email: string; name: string; phone: string; password: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  
   const handleCreateAgent = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      setSuccess(null);
+  try {
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
 
-      // Validate inputs
-      if (!agentDetails.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentDetails.email)) {
-        throw new Error('Please enter a valid email address');
-      }
-      if (!agentDetails.name) {
-        throw new Error('Please enter a name');
-      }
-      if (!agentDetails.phone) {
-        throw new Error('Please enter a phone number');
-      }
-      if (!agentDetails.password || agentDetails.password.length < 6) {
-        throw new Error('Password is required and must be at least 6 characters long');
-      }
-      if (agentDetails.password !== agentDetails.confirmPassword) {
-        throw new Error('Passwords do not match');
-      }
-
-      // Check admin authorization
-      if (!profile || profile.role !== 'admin') {
-        console.error('Admin authorization failed:', { profile });
-        throw new Error('Only admins can create new agent accounts');
-      }
-
-      console.log('Attempting to create agent with:', {
-        email: agentDetails.email,
-        name: agentDetails.name,
-        phone: agentDetails.phone,
-        password: '****',
-      });
-
-      // Sign up user
-      const { data, error: authError } = await supabase.auth.signUp({
-        email: agentDetails.email,
-        password: agentDetails.password,
-        options: {
-          data: {
-            name: agentDetails.name,
-            phone: agentDetails.phone,
-            role: 'agent',
-          },
-          emailRedirectTo: undefined, // Disable confirmation for testing
-        },
-      });
-
-      if (authError) {
-        console.error('Supabase auth.signUp error:', {
-          message: authError.message,
-          code: authError.code,
-          details: authError,
-          email: agentDetails.email,
-          metaDataSent: { name: agentDetails.name, phone: agentDetails.phone, role: 'agent' },
-        });
-        if (authError.code === 'user_already_exists') {
-          throw new Error('This email is already registered. Please use a different email.');
-        }
-        throw new Error(`Authentication error: ${authError.message} (Code: ${authError.code || 'N/A'})`);
-      }
-      if (!data.user) {
-        console.error('No user returned from Supabase auth.signUp', { response: data });
-        throw new Error('Failed to create agent: No user returned');
-      }
-
-      console.log('User created in auth.users:', {
-        userId: data.user.id,
-        email: data.user.email,
-        metaData: data.user.user_metadata,
-      });
-
-      // Insert into agents table
-      const { error: agentError } = await supabase
-        .from('agents')
-        .upsert(
-          {
-            id: data.user.id,
-            email: agentDetails.email,
-            name: agentDetails.name,
-            phone: agentDetails.phone,
-            role: 'agent',
-          },
-          { onConflict: 'id' }
-        );
-
-      if (agentError) {
-        console.error('Agent upsert error:', {
-          message: agentError.message,
-          code: agentError.code,
-          details: agentError,
-          userId: data.user.id,
-        });
-        throw new Error(`Failed to create agent record: ${agentError.message}`);
-      }
-
-      console.log('Agent successfully upserted for user:', data.user.id);
-
-      setSuccess({
-        id: data.user.id,
-        email: agentDetails.email,
-        name: agentDetails.name,
-        phone: agentDetails.phone,
-        password: agentDetails.password,
-      });
-
-      toast.success(
-        `Agent created: ${agentDetails.email} (ID: ${data.user.id})\nPassword: ${agentDetails.password}\nPlease share this securely.`,
-        {
-          duration: 15000,
-          style: { background: '#3B82F6', color: '#fff', borderRadius: '8px', maxWidth: '500px' },
-        }
-      );
-
-      await fetchAgents();
-      await fetchProperties();
-    } catch (err: any) {
-      const errorMessage = err.message || 'An unexpected error occurred';
-      console.error('Agent creation failed:', {
-        message: errorMessage,
-        code: err.code,
-        details: err,
-        stack: err.stack,
-      });
-      setError(errorMessage);
-      toast.error(`Failed to create agent: ${errorMessage}`, {
-        style: { background: '#EF4444', color: '#fff', borderRadius: '8px' },
-      });
-    } finally {
-      setIsLoading(false);
+    // Validate inputs
+    if (!agentDetails.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentDetails.email)) {
+      throw new Error('Please enter a valid email address');
     }
-  }, [agentDetails, profile, fetchAgents, fetchProperties]);
+    if (!agentDetails.name || agentDetails.name.trim().length < 2) {
+      throw new Error('Please enter a valid name (at least 2 characters)');
+    }
+    if (!agentDetails.phone || !/^\+?[1-9]\d{1,14}$/.test(agentDetails.phone)) {
+      throw new Error('Please enter a valid phone number (e.g., +1234567890)');
+    }
+    if (!agentDetails.password || agentDetails.password.length < 6) {
+      throw new Error('Password must be at least 6 characters long');
+    }
+    if (agentDetails.password !== agentDetails.confirmPassword) {
+      throw new Error('Passwords do not match');
+    }
 
+    // Check admin authorization
+    if (!profile || profile.role !== 'admin') {
+      throw new Error('Only admins can create new agent accounts');
+    }
+
+    console.log('Attempting to create agent with:', {
+      email: agentDetails.email,
+      name: agentDetails.name,
+      phone: agentDetails.phone,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Attempt signUp
+    console.log('Before signUp:', { email: agentDetails.email, timestamp: new Date().toISOString() });
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: agentDetails.email,
+      password: agentDetails.password,
+      options: { emailRedirectTo: undefined },
+    });
+    console.log('After signUp:', { authData, authError, timestamp: new Date().toISOString() });
+
+    if (authError || !authData.user) {
+      console.error('Supabase auth.signUp error:', {
+        message: authError?.message,
+        code: authError?.code,
+        details: authError,
+        email: agentDetails.email,
+        timestamp: new Date().toISOString(),
+      });
+      const errorMessage =
+        authError?.code === 'user_already_exists'
+          ? 'This email is already registered. Please use a different email.'
+          : authError?.code === '42501'
+          ? 'Permission denied. Check database RLS policies or triggers.'
+          : `Authentication error: ${authError?.message || 'No user returned'} (Code: ${authError?.code || 'N/A'})`;
+      throw new Error(errorMessage);
+    }
+
+    console.log('User created in auth.users:', {
+      userId: authData.user.id,
+      email: authData.user.email,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Insert into profiles
+    console.log('Before profiles insert:', { userId: authData.user.id, timestamp: new Date().toISOString() });
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .insert({
+        id: authData.user.id,
+        email: agentDetails.email,
+        name: agentDetails.name,
+        phone: agentDetails.phone,
+        role: 'agent',
+      });
+    console.log('After profiles insert:', { profileError, timestamp: new Date().toISOString() });
+
+    if (profileError) {
+      console.error('Profile insert error:', {
+        message: profileError.message,
+        code: profileError.code,
+        details: profileError,
+        userId: authData.user.id,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(`Failed to create profile record: ${profileError.message}`);
+    }
+
+    console.log('Profile successfully inserted for user:', authData.user.id);
+
+    setSuccess({
+      id: authData.user.id,
+      email: agentDetails.email,
+      name: agentDetails.name,
+      phone: agentDetails.phone,
+      password: agentDetails.password,
+    });
+
+    toast.success(
+      `Agent created: ${agentDetails.email} (ID: ${authData.user.id})\nPassword: ${agentDetails.password}\nPlease share this securely.`,
+      {
+        duration: 15000,
+        style: { background: '#3B82F6', color: '#fff', borderRadius: '8px', maxWidth: '500px' },
+      }
+    );
+
+    await Promise.all([fetchAgents(), fetchProperties()]);
+  } catch (err: any) {
+    const errorMessage = err.message || 'An unexpected error occurred';
+    console.error('Agent creation failed:', {
+      message: errorMessage,
+      code: err.code,
+      details: err,
+      stack: err.stack,
+      timestamp: new Date().toISOString(),
+    });
+    setError(errorMessage);
+    toast.error(`Failed to create agent: ${errorMessage}`, {
+      style: { background: '#EF4444', color: '#fff', borderRadius: '8px' },
+    });
+  } finally {
+    setIsLoading(false);
+  }
+}, [agentDetails, profile, fetchAgents, fetchProperties]);
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${label} copied to clipboard`, {

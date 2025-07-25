@@ -90,88 +90,88 @@ export class PDFGenerator {
   }
 
   generateProgressReport(progressData: any[], title: string = 'Marketing Progress Report') {
-    this.addWatermark();
-    let currentY = this.addHeader(title, `Total Records: ${progressData.length}`);
+  this.addWatermark();
+  let currentY = this.addHeader(title, `Total Records: ${progressData.length}`);
 
-    // Debug: Log progressData to verify structure
-    console.log('Progress Data in PDFGenerator:', progressData);
+  // Debug: Log progressData to verify structure
+  console.log('Progress Data in PDFGenerator:', progressData);
 
-    // Overview
-    this.doc.setFontSize(12);
-    this.doc.setFont('helvetica', 'bold');
-    this.doc.text('Overview', this.margin, currentY);
-    currentY += 10;
+  // Overview
+  this.doc.setFontSize(12);
+  this.doc.setFont('helvetica', 'bold');
+  this.doc.text('Overview', this.margin, currentY);
+  currentY += 10;
 
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.setFontSize(10);
-    const totalCompleted = progressData.reduce((sum, p) => sum + (p.completed || 0), 0);
-    const totalTarget = progressData.reduce((sum, p) => sum + (p.target || 0), 0);
-    const overallProgress = totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
-    this.doc.text(`Total Completed: ${totalCompleted}`, this.margin, currentY);
-    this.doc.text(`Total Target: ${totalTarget}`, this.margin + 80, currentY);
-    this.doc.setTextColor(34, 197, 94); // Green for progress
-    this.doc.text(`Overall Progress: ${overallProgress}%`, this.margin + 160, currentY);
-    this.doc.setTextColor(0, 0, 0); // Reset color
-    currentY += 20;
+  this.doc.setFont('helvetica', 'normal');
+  this.doc.setFontSize(10);
+  const totalCompleted = progressData.reduce((sum, p) => sum + (p.completed || 0), 0);
+  const totalTarget = progressData.reduce((sum, p) => sum + (p.target || 0), 0);
+  const overallProgress = totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+  this.doc.text(`Total Completed: ${totalCompleted}`, this.margin, currentY);
+  this.doc.text(`Total Target: ${totalTarget}`, this.margin + 80, currentY);
+  this.doc.setTextColor(34, 197, 94); // Green for progress
+  this.doc.text(`Overall Progress: ${overallProgress}%`, this.margin + 160, currentY);
+  this.doc.setTextColor(0, 0, 0); // Reset color
+  currentY += 20;
 
-    // Progress table with enhanced styling
-    const tableData = progressData.map(p => [
-      p.suburb || 'N/A', // Suburb
-      p.startDate ? new Date(p.startDate).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A', // Start Date
-      p.endDate ? new Date(p.endDate).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A', // End Date
-      p.streetName || 'N/A', // Street Name
-      p.activityType || 'N/A', // Activity Type
-      p.completed !== undefined && p.completed !== null ? p.completed : 0, // Completed
-      p.target !== undefined && p.target !== null ? p.target : 0, // Target
-      p.target > 0 ? `${Math.min(Math.round((p.completed / p.target) * 100), 100)}%` : '0%', // Progress (%)
-      p.desktopAppraisals !== undefined && p.desktopAppraisals !== null ? p.desktopAppraisals : 0, // Desktop Appraisals
-      p.faceToFaceAppraisals !== undefined && p.faceToFaceAppraisals !== null ? p.faceToFaceAppraisals : 0, // Face-to-Face Appraisals
-      p.reason || 'N/A', // Reason
-    ]);
+  // Progress table with enhanced styling
+  const tableData = progressData.map(p => [
+    p.suburb || 'N/A', // Suburb
+    p.startDate ? new Date(p.startDate).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A', // Start Date
+    p.endDate ? new Date(p.endDate).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A', // End Date
+    p.streetName || 'N/A', // Street Name
+    p.activityType || 'N/A', // Activity Type
+    p.completed !== undefined && p.completed !== null ? p.completed : 0, // Completed
+    p.target !== undefined && p.target !== null ? p.target : 0, // Target
+    p.target > 0 ? `${Math.min(Math.round((p.completed / p.target) * 100), 100)}%` : '0%', // Progress (%)
+    p.desktopAppraisals !== undefined && p.desktopAppraisals !== null ? p.desktopAppraisals : 0, // Desktop Appraisals
+    p.faceToFaceAppraisals !== undefined && p.faceToFaceAppraisals !== null ? p.faceToFaceAppraisals : 0, // Face-to-Face Appraisals
+    p.reason || 'N/A', // Reason
+  ]);
 
-    this.doc.autoTable({
-      head: [['Suburb', 'Start Date', 'End Date', 'Street Name', 'Activity Type', 'Completed', 'Target', 'Progress (%)', 'Desktop Appraisals', 'Face-to-Face Appraisals', 'Reason']],
-      body: tableData,
-      startY: currentY,
-      margin: { left: this.margin, right: this.margin },
-      styles: {
-        fontSize: 7, // Reduced for better fit
-        cellPadding: 2,
-        overflow: 'linebreak',
-        textColor: [50, 50, 50],
-      },
-      headStyles: {
-        fillColor: [239, 68, 68], // Red header
-        textColor: 255,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      bodyStyles: {
-        fillColor: [255, 255, 255],
-        lineWidth: 0.1,
-        lineColor: [200, 200, 200],
-      },
-      alternateRowStyles: {
-        fillColor: [245, 245, 245],
-      },
-      columnStyles: {
-        0: { cellWidth: 30, halign: 'left' }, // Suburb
-        1: { cellWidth: 20, halign: 'center' }, // Start Date
-        2: { cellWidth: 20, halign: 'center' }, // End Date
-        3: { cellWidth: 30, halign: 'left' }, // Street Name
-        4: { cellWidth: 20, halign: 'center' }, // Activity Type
-        5: { cellWidth: 20, halign: 'right' }, // Completed
-        6: { cellWidth: 20, halign: 'right' }, // Target
-        7: { cellWidth: 20, halign: 'center' }, // Progress (%)
-        8: { cellWidth: 25, halign: 'right' }, // Desktop Appraisals
-        9: { cellWidth: 25, halign: 'right' }, // Face-to-Face Appraisals
-        10: { cellWidth: 45, halign: 'left' }, // Reason
-      },
-      didDrawPage: (data) => this.addFooter(),
-    });
+  this.doc.autoTable({
+    head: [['Suburb', 'Start Date', 'End Date', 'Street Name', 'Activity Type', 'Completed', 'Target', 'Progress (%)', 'Desktop Appraisals', 'Face-to-Face Appraisals', 'Reason']],
+    body: tableData,
+    startY: currentY,
+    margin: { left: this.margin, right: this.margin },
+    styles: {
+      fontSize: 7, // Reduced for better fit
+      cellPadding: 2,
+      overflow: 'linebreak',
+      textColor: [50, 50, 50],
+    },
+    headStyles: {
+      fillColor: [239, 68, 68], // Red header
+      textColor: 255,
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    bodyStyles: {
+      fillColor: [255, 255, 255],
+      lineWidth: 0.1,
+      lineColor: [200, 200, 200],
+    },
+    alternateRowStyles: {
+      fillColor: [245, 245, 245],
+    },
+    columnStyles: {
+      0: { cellWidth: 30, halign: 'left' }, // Suburb
+      1: { cellWidth: 20, halign: 'center' }, // Start Date
+      2: { cellWidth: 20, halign: 'center' }, // End Date
+      3: { cellWidth: 30, halign: 'left' }, // Street Name
+      4: { cellWidth: 20, halign: 'center' }, // Activity Type
+      5: { cellWidth: 20, halign: 'right' }, // Completed
+      6: { cellWidth: 20, halign: 'right' }, // Target
+      7: { cellWidth: 20, halign: 'center' }, // Progress (%)
+      8: { cellWidth: 25, halign: 'right' }, // Desktop Appraisals
+      9: { cellWidth: 25, halign: 'right' }, // Face-to-Face Appraisals
+      10: { cellWidth: 45, halign: 'left' }, // Reason
+    },
+    didDrawPage: (data) => this.addFooter(),
+  });
 
-    return this.doc;
-  }
+  return this.doc;
+}
 
   save(filename: string) {
     this.doc.save(filename);

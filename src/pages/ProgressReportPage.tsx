@@ -76,7 +76,7 @@ interface PlanProgress {
 // Utility functions
 const calculatePercentage = (completed: number, target: number): number => {
   if (target === 0) return completed > 0 ? 100 : 0;
-  return Math.min(Math.round((completed / target) * 100), 100);
+  return Math.round((completed / target) * 100);
 };
 
 const formatDate = (date: string) => {
@@ -108,50 +108,50 @@ const calculateStreetProgress = (streets: StreetProgress[]) => {
 
 // RadialProgress Component
 const RadialProgress = ({ percentage, color, label, completed, target }: {
-  percentage: number;
-  color: string;
-  label: string;
-  completed: number;
-  target: number;
-}) => (
-  <motion.div
-    className="relative flex flex-col items-center bg-gradient-to-br from-white to-gray-100 p-4 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 group"
-    initial={{ scale: 0.95, opacity: 0 }}
-    animate={{ scale: 1, opacity: 1 }}
-    transition={{ duration: 0.3 }}
-    role="progressbar"
-    aria-valuenow={calculatePercentage(completed, target)}
-    aria-valuemin={0}
-    aria-valuemax={100}
-    aria-label={`${label} progress: ${calculatePercentage(completed, target)}%`}
-  >
-    <div className="relative">
-      <svg className="w-32 h-32" viewBox="0 0 100 100">
-        <circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" strokeWidth="10" />
-        <circle
-          cx="50"
-          cy="50"
-          r="40"
-          fill="none"
-          stroke={color}
-          strokeWidth="10"
-          strokeDasharray={`${calculatePercentage(completed, target) * 2.51} 251`}
-          strokeDashoffset="0"
-          transform="rotate(-90 50 50)"
-          className="transition-all duration-1000 ease-out"
-        />
-      </svg>
-      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-        <span className="text-lg font-bold text-gray-800">{calculatePercentage(completed, target)}%</span>
+    percentage: number;
+    color: string;
+    label: string;
+    completed: number;
+    target: number;
+  }) => (
+    <motion.div
+      className="relative flex flex-col items-center bg-gradient-to-br from-white to-gray-100 p-4 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 group"
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      role="progressbar"
+      aria-valuenow={percentage}
+      aria-valuemin={0}
+      aria-valuemax={target > 0 ? Math.max(100, Math.round((completed / target) * 100)) : 100}
+      aria-label={`${label} progress: ${percentage}%`}
+    >
+      <div className="relative">
+        <svg className="w-32 h-32" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" strokeWidth="10" />
+          <circle
+            cx="50"
+            cy="50"
+            r="40"
+            fill="none"
+            stroke={color}
+            strokeWidth="10"
+            strokeDasharray={`${Math.min(percentage, 100) * 2.51} 251`} // Cap visual at 100% for circle, but show actual percentage
+            strokeDashoffset="0"
+            transform="rotate(-90 50 50)"
+            className="transition-all duration-1000 ease-out"
+          />
+        </svg>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+          <span className="text-lg font-bold text-gray-800">{percentage}%</span>
+        </div>
       </div>
-    </div>
-    <p className="mt-2 text-sm font-medium text-gray-600">{label}</p>
-    <p className="text-xs text-gray-500 font-semibold">{completed}/{target}</p>
-    <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-md py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-      {label}: {completed}/{target} ({calculatePercentage(completed, target)}%)
-    </div>
-  </motion.div>
-);
+      <p className="mt-2 text-sm font-medium text-gray-600">{label}</p>
+      <p className="text-xs text-gray-500 font-semibold">{completed}/{target}</p>
+      <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-md py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {label}: {completed}/{target} ({percentage}%)
+      </div>
+    </motion.div>
+  );
 
 // ErrorBoundary Component
 const ErrorBoundary = ({ children, error }: { children: React.ReactNode; error: string | null }) => {
@@ -239,10 +239,17 @@ export function ProgressReportPage() {
       setError((err as Error).message);
     }
   }, [profile, selectedPlan]);
+  
 
   const fetchActualProgress = useCallback(async (agentId: string, plan: MarketingPlan) => {
     try {
-      if (!plan?.suburb?.trim()) throw new Error('Invalid marketing plan: Suburb is missing.');
+      // Validate plan data
+        if (!plan?.suburb?.trim()) {
+          throw new Error('Invalid marketing plan: Suburb is missing.');
+        }
+        if (!isDateRangeValid(plan)) {
+          throw new Error('Invalid date range in marketing plan.');
+        }
 
       const { data: activities, error } = await supabase
         .from('agent_activities')
@@ -284,8 +291,14 @@ export function ProgressReportPage() {
       const progress = activities?.length
         ? activities.reduce(
             (acc, activity) => {
-              const streetName = activity.street_name?.trim()?.toLowerCase();
-              if (!streetName || activity.suburb?.trim()?.toLowerCase() !== plan.suburb.trim().toLowerCase()) return acc;
+                const streetName = activity.street_name?.trim()?.toLowerCase();
+                const activitySuburb = activity.suburb?.trim()?.toLowerCase();
+                const planSuburb = plan.suburb.trim().toLowerCase();
+
+                // Ensure activity matches the plan's suburb
+                if (!streetName || activitySuburb !== planSuburb) {
+                  return acc;
+                }
 
               if (activity.activity_type === 'door_knock') {
                 acc.doorKnocks.completed += activity.knocks_made || 0;
@@ -909,87 +922,97 @@ export function ProgressReportPage() {
 
   // Effect for initialization
   useEffect(() => {
-    if (!user || !profile) {
-      setError('Please log in to view the progress report.');
-      setLoading(false);
-      navigate('/agent-login');
-      return;
-    }
-
-    if (profile.role !== 'agent' && profile.role !== 'admin') {
-      setError('You must be an agent to view this page.');
-      setLoading(false);
-      navigate('/agent-login');
-      return;
-    }
-
-    let debounceTimeout: NodeJS.Timeout;
-    const initialize = async () => {
-      try {
-        await loadMarketingPlans(user.id);
-        if (marketingPlans.length > 0) {
-          setSelectedPlan(marketingPlans[0]);
-          await fetchActualProgress(user.id, marketingPlans[0]);
-        }
-        await fetchOverallProgress(user.id);
-        await fetchPlanProgresses(user.id);
-
-        const activitySubscription = supabase
-          .channel('agent_activities_changes')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'agent_activities', filter: `agent_id=eq.${user.id}` },
-            async () => {
-              setNotification('Progress updated automatically.');
-              clearTimeout(debounceTimeout);
-              debounceTimeout = setTimeout(async () => {
-                if (viewMode === 'suburb' && selectedPlan) {
-                  await fetchActualProgress(user.id, selectedPlan);
-                } else if (viewMode === 'overall') {
-                  await fetchOverallProgress(user.id);
-                }
-                await fetchPlanProgresses(user.id);
-                setTimeout(() => setNotification(null), 3000);
-              }, 500);
-            }
-          )
-          .subscribe();
-
-        const planSubscription = supabase
-          .channel('marketing_plans_changes')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'marketing_plans', filter: `agent=eq.${user.id}` },
-            async () => {
-              setNotification('Marketing plans updated automatically.');
-              clearTimeout(debounceTimeout);
-              debounceTimeout = setTimeout(async () => {
-                await loadMarketingPlans(user.id);
-                if (selectedPlan) {
-                  await fetchActualProgress(user.id, selectedPlan);
-                }
-                await fetchOverallProgress(user.id);
-                await fetchPlanProgresses(user.id);
-                setTimeout(() => setNotification(null), 3000);
-              }, 500);
-            }
-          )
-          .subscribe();
-
-        return () => {
-          clearTimeout(debounceTimeout);
-          supabase.removeChannel(planSubscription);
-          supabase.removeChannel(activitySubscription);
-        };
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
+      if (!user || !profile) {
+        setError('Please log in to view the progress report.');
         setLoading(false);
+        navigate('/agent-login');
+        return;
       }
-    };
 
-    initialize();
-  }, [user, profile, navigate, loadMarketingPlans, fetchActualProgress, fetchOverallProgress, fetchPlanProgresses, marketingPlans, viewMode, selectedPlan]);
+      if (profile.role !== 'agent' && profile.role !== 'admin') {
+        setError('You must be an agent to view this page.');
+        setLoading(false);
+        navigate('/agent-login');
+        return;
+      }
+
+      let debounceTimeout: NodeJS.Timeout;
+      const initialize = async () => {
+        try {
+          await loadMarketingPlans(user.id);
+          if (marketingPlans.length > 0 && !selectedPlan) {
+            setSelectedPlan(marketingPlans[0]);
+          }
+          await fetchOverallProgress(user.id);
+          await fetchPlanProgresses(user.id);
+
+          const activitySubscription = supabase
+            .channel('agent_activities_changes')
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'agent_activities', filter: `agent_id=eq.${user.id}` },
+              async () => {
+                setNotification('Progress updated automatically.');
+                clearTimeout(debounceTimeout);
+                debounceTimeout = setTimeout(async () => {
+                  if (viewMode === 'suburb' && selectedPlan) {
+                    await fetchActualProgress(user.id, selectedPlan);
+                  }
+                  await fetchOverallProgress(user.id);
+                  await fetchPlanProgresses(user.id);
+                  setTimeout(() => setNotification(null), 3000);
+                }, 500);
+              }
+            )
+            .subscribe();
+
+          const planSubscription = supabase
+            .channel('marketing_plans_changes')
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'marketing_plans', filter: `agent=eq.${user.id}` },
+              async () => {
+                setNotification('Marketing plans updated automatically.');
+                clearTimeout(debounceTimeout);
+                debounceTimeout = setTimeout(async () => {
+                  await loadMarketingPlans(user.id);
+                  if (selectedPlan) {
+                    await fetchActualProgress(user.id, selectedPlan);
+                  }
+                  await fetchOverallProgress(user.id);
+                  await fetchPlanProgresses(user.id);
+                  setTimeout(() => setNotification(null), 3000);
+                }, 500);
+              }
+            )
+            .subscribe();
+
+          return () => {
+            clearTimeout(debounceTimeout);
+            supabase.removeChannel(planSubscription);
+            supabase.removeChannel(activitySubscription);
+          };
+        } catch (err) {
+          setError((err as Error).message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      initialize();
+    }, [user, profile, navigate, loadMarketingPlans, fetchActualProgress, fetchOverallProgress, fetchPlanProgresses, marketingPlans, viewMode, selectedPlan]);
+    useEffect(() => {
+      if (selectedPlan && user?.id) {
+        setActualProgress({
+          doorKnocks: { completed: 0, target: 0, streets: [] },
+          phoneCalls: { completed: 0, target: 0, streets: [] },
+          connects: { completed: 0, target: 0 },
+          desktopAppraisals: { completed: 0, target: 0 },
+          faceToFaceAppraisals: { completed: 0, target: 0 },
+        });
+        fetchActualProgress(user.id, selectedPlan);
+      }
+    }, [selectedPlan, user, fetchActualProgress]);
 
   if (loading) {
     return (
@@ -1054,7 +1077,7 @@ export function ProgressReportPage() {
               {viewMode === 'suburb' && (
                 <div className="flex items-center gap-3 bg-white p-3 rounded-lg shadow-md">
                   <select
-                    value={selectedPlan.id}
+                    value={selectedPlan.id || ''}
                     onChange={(e) => {
                       const plan = marketingPlans.find((p) => p.id === e.target.value);
                       if (plan) {
@@ -1326,45 +1349,24 @@ export function ProgressReportPage() {
             </div>
 
             <div className="mb-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Progress Summary</h2>
-              {getProgressMetrics.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {getProgressMetrics.map((item, index) => (
-                    <div key={index} className="flex items-center space-x-4">
-                      <div className="relative">
-                        <svg className="w-16 h-16" viewBox="0 0 100 100">
-                          <circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" strokeWidth="10" />
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r="40"
-                            fill="none"
-                            stroke={item.color}
-                            strokeWidth="10"
-                            strokeDasharray={`${(item.data.target ? Math.min((item.data.completed / item.data.target) * 100, 100) : 0) * 2.51} 251`}
-                            strokeDashoffset="0"
-                            transform="rotate(-90 50 50)"
-                          />
-                        </svg>
-                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                          <span className="text-sm font-bold text-gray-800">
-                            {item.data.target ? Math.min(Math.round((item.data.completed / item.data.target) * 100), 100) : 0}%
-                          </span>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{item.label}</p>
-                        <p className="text-xs text-gray-600 font-semibold">
-                          {item.data.completed}/{item.data.target}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 italic">No progress data available for this plan.</p>
-              )}
-            </div>
+                <h2 className="text-xl font-semibold text-gray-800 mb-4">Progress Summary</h2>
+                {getProgressMetrics.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {getProgressMetrics.map((item, index) => (
+                      <RadialProgress
+                        key={index}
+                        percentage={calculatePercentage(item.data.completed, item.data.target)}
+                        color={item.color}
+                        label={item.label}
+                        completed={item.data.completed}
+                        target={item.data.target}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic">No progress data available for this plan.</p>
+                )}
+              </div>
 
             <div className="mb-6">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Detailed Breakdown</h2>

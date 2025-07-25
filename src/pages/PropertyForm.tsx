@@ -78,7 +78,7 @@ interface PropertyData {
 }
 
 const ALLOWED_SUBURBS = [
-  { name: 'Moggill', postcode: '4070' },
+  { name: 'Moggill ', postcode: '4070' },
   { name: 'Bellbowrie', postcode: '4070' },
   { name: 'Pullenvale', postcode: '4069' },
   { name: 'Brookfield', postcode: '4069' },

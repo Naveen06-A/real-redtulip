@@ -95,7 +95,7 @@ export const generatePdf = async (
         lineHeightFactor: 1.6,
       },
       columnStyles: {
-        0: { cellWidth: 30 }, 1: { cellWidth: 50 }, 2: { cellWidth: 50 }, 3: { cellWidth: 25 },
+        0: { cellWidth: 80 }, 1: { cellWidth: 90 }, 2: { cellWidth: 50 }, 3: { cellWidth: 25 },
         4: { cellWidth: 50 }, 5: { cellWidth: 30 }, 6: { cellWidth: 30 }, 7: { cellWidth: 30 },
         8: { cellWidth: 30 }, 9: { cellWidth: 30 }, 10: { cellWidth: 30 }, 11: { cellWidth: 50 },
         12: { cellWidth: 30 }, 13: { cellWidth: 30 }, 14: { cellWidth: 25 }, 15: { cellWidth: 25 },

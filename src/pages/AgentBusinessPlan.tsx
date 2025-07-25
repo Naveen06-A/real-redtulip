@@ -343,7 +343,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     if (gross_commission_target != null) {
       net_commission = Math.round(
         gross_commission_target - 
-        (marketing_expenses ?? 0) - 
+        (marketing_expenses ?? 0) - (persons_salary ?? 0)-
         (total_cost_appraisals ?? 0) - 
         (total_third_party_calls ?? 0)
       );

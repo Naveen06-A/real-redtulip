@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { UserPlus, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { Navigation } from './components/Navigation';
+import { Navigation } from '../components/Navigation';
 
 interface FormData {
   email: string;
@@ -45,28 +45,17 @@ export function AgentRegister() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    const validationError = validateForm();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
     setLoading(true);
-    try {
-      // First check if user exists
-      const { data: existingUser } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('email', formData.email)
-        .single();
 
-      if (existingUser) {
-        setError('This email is already registered. Please try logging in instead.');
+    try {
+      const validationError = validateForm();
+      if (validationError) {
+        setError(validationError);
         setLoading(false);
         return;
       }
 
+      // Skip existing user check temporarily
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -74,21 +63,29 @@ export function AgentRegister() {
           data: {
             name: formData.name,
             phone: formData.phone,
+            agency_name: formData.agencyName,
           },
         },
       });
 
       if (signUpError) {
-        if (signUpError.message.includes('already registered')) {
-          setError('This email is already registered. Please try logging in instead.');
-        } else {
-          throw new Error(`Registration failed: ${signUpError.message}`);
-        }
+        console.error('Signup error:', JSON.stringify(signUpError, null, 2));
+        setError(
+          signUpError.message.includes('already registered') || signUpError.code === 'user_already_exists'
+            ? 'This email is already registered. Please try logging in instead.'
+            : `Registration failed: ${signUpError.message} (Code: ${signUpError.code})`
+        );
+        setLoading(false);
         return;
       }
 
-      if (!data.user) throw new Error('No user data returned from registration');
+      if (!data.user) {
+        setError('No user data returned from registration');
+        setLoading(false);
+        return;
+      }
 
+      // Insert profile (if no trigger handles it)
       const { error: profileError } = await supabase.from('profiles').insert({
         id: data.user.id,
         name: formData.name,
@@ -98,16 +95,20 @@ export function AgentRegister() {
         agency_name: formData.agencyName,
       });
 
-      if (profileError) throw new Error(`Profile creation failed: ${profileError.message}`);
+      if (profileError) {
+        console.error('Profile error:', JSON.stringify(profileError, null, 2));
+        setError(`Profile creation failed: ${profileError.message}`);
+        setLoading(false);
+        return;
+      }
 
       setUser(data.user);
       await fetchProfile();
-
       navigate('/agent-login', {
         state: { message: 'Registration successful! Please check your email to confirm, then log in.' },
       });
     } catch (err: any) {
-      console.error('Registration error:', err);
+      console.error('Registration error:', JSON.stringify(err, null, 2));
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);

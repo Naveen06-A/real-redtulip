@@ -55,8 +55,7 @@ import {
   normalizeSuburb,
   selectStyles,
 } from '../reportsUtils';
-import { generatePdf } from '../utils/pdfUtils';
-
+import { generatePdf } from '../utils/pdfUtils1';
 import { Filters, PropertyDetails } from '../types/types';
 
 ChartJS.register(
@@ -561,7 +560,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         propertyTypes: '',
         categories: '',
       });
-       setLocalFilters(emptyFilters);
+      setLocalFilters(emptyFilters);
       const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
       prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
      );
@@ -669,23 +668,27 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         String(prop.car_garage ?? 'N/A'),
         String(prop.sqm ?? 'N/A'),
         String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date),
-        formatDate(prop.sold_date),
+        formatDate(prop.listed_date) || 'N/A',
+        formatDate(prop.sold_date) || 'N/A',
         prop.flood_risk || 'N/A',
         prop.bushfire_risk || 'N/A',
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
 
-      console.log('Generating PDF with head:', head);
-      console.log('Generating PDF with body sample:', body.slice(0, 2));
+      const pdfBlob = await generatePdf({
+        title: 'Property Report',
+        head,
+        body,
+        fileName: 'property_report.pdf',
+        outputType: 'blob',
+      });
 
-      const pdfBlob = await generatePdf('Property Report', head, body, 'property_report.pdf', 'blob');
       if (pdfBlob instanceof Blob) {
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'property_report.pdf';
+        a.download = fileName;
         a.click();
         URL.revokeObjectURL(url);
         toast.success('PDF downloaded successfully');
@@ -756,18 +759,22 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         String(prop.car_garage ?? 'N/A'),
         String(prop.sqm ?? 'N/A'),
         String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date),
-        formatDate(prop.sold_date),
+        formatDate(prop.listed_date) || 'N/A',
+        formatDate(prop.sold_date) || 'N/A',
         prop.flood_risk || 'N/A',
         prop.bushfire_risk || 'N/A',
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
 
-      console.log('Generating PDF preview with head:', head);
-      console.log('Generating PDF preview with body sample:', body.slice(0, 2));
+      const pdfDataUri = await generatePdf({
+        title: 'Property Report',
+        head,
+        body,
+        fileName: 'property_report.pdf',
+        outputType: 'datauristring',
+      });
 
-      const pdfDataUri = await generatePdf('Property Report', head, body, 'property_report.pdf', 'datauristring');
       if (typeof pdfDataUri === 'string') {
         setPdfUrl(pdfDataUri);
         setIsPdfPreviewOpen(true);

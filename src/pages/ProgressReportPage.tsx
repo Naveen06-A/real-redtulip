@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Loader2, Trash2, Edit, Download, FileText, BarChart, X } from 'lucide-react';
+import { Loader2, Trash2, Edit, Download, FileText, BarChart, X, ArrowLeft, Plus, PlusCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale, PointElement, LineElement } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
@@ -707,88 +707,123 @@ export function ProgressReportPage() {
     }
 
     try {
+      // Create a more structured and attractive PDF with summary section
+      // const reportTitle = viewMode === 'suburb' && selectedPlan 
+      //   ? `Marketing Progress Report - ${selectedPlan.suburb}` 
+      //   : 'Overall Marketing Progress Report';
+      
+      // Create summary data for the first page
+      const summaryData: any[][] = [];
+      
+      // Add agent information
+      summaryData.push(['Agent', profile?.name || 'Unknown']);
+      
+      // Add date range information
+      if (viewMode === 'suburb' && selectedPlan) {
+        summaryData.push(
+          ['Suburb', selectedPlan.suburb || 'Not specified'],
+          ['Date Range', `${formatDate(selectedPlan.start_date)} to ${formatDate(selectedPlan.end_date)}`]
+        );
+      } else {
+        summaryData.push(['Scope', 'All Suburbs (Aggregated Progress)']);
+      }
+      
+      // Add progress metrics
+      const progress = viewMode === 'suburb' ? actualProgress : overallProgress;
+      summaryData.push(
+        ['Door Knocks', `${progress.doorKnocks.completed} / ${progress.doorKnocks.target} (${calculatePercentage(progress.doorKnocks.completed, progress.doorKnocks.target)}%)`],
+        ['Phone Calls', `${progress.phoneCalls.completed} / ${progress.phoneCalls.target} (${calculatePercentage(progress.phoneCalls.completed, progress.phoneCalls.target)}%)`],
+        ['Calls Answered', `${progress.connects.completed} / ${progress.connects.target} (${calculatePercentage(progress.connects.completed, progress.connects.target)}%)`],
+        ['Desktop Appraisals', `${progress.desktopAppraisals.completed} / ${progress.desktopAppraisals.target} (${calculatePercentage(progress.desktopAppraisals.completed, progress.desktopAppraisals.target)}%)`],
+        ['Face-to-Face Appraisals', `${progress.faceToFaceAppraisals.completed} / ${progress.faceToFaceAppraisals.target} (${calculatePercentage(progress.faceToFaceAppraisals.completed, progress.faceToFaceAppraisals.target)}%)`]
+      );
+      
+      // Create detailed table headers
       const head = [
         [
           'Suburb',
-          'Start Date',
-          'End Date',
+          'Date Range',
           'Street Name',
           'Activity Type',
           'Completed',
           'Target',
           'Progress (%)',
           'Desktop Appraisals',
-          'Face-to-Face Appraisals',
+          'F2F Appraisals',
           'Reason',
         ],
       ];
+      
+      // Create detailed table body
       const body: any[][] = [];
 
       if (viewMode === 'suburb' && selectedPlan) {
+        // Add door knock streets data
         selectedPlan.door_knock_streets.forEach((street) => {
           const progress = actualProgress.doorKnocks.streets.find((s) => s.name === street.name);
           body.push([
             selectedPlan.suburb || 'N/A',
-            formatDate(selectedPlan.start_date),
-            formatDate(selectedPlan.end_date),
+            `${formatDate(selectedPlan.start_date)} - ${formatDate(selectedPlan.end_date)}`,
             street.name || 'N/A',
             'Door Knock',
             (progress?.completedKnocks || 0).toString(),
             (progress?.targetKnocks || 0).toString(),
-            calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0).toString(),
+            `${calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0)}%`,
             (progress?.desktopAppraisals || 0).toString(),
             (progress?.faceToFaceAppraisals || 0).toString(),
             street.why || '',
           ]);
         });
 
+        // Add phone call streets data
         selectedPlan.phone_call_streets.forEach((street) => {
           const progress = actualProgress.phoneCalls.streets.find((s) => s.name === street.name);
           body.push([
             selectedPlan.suburb || 'N/A',
-            formatDate(selectedPlan.start_date),
-            formatDate(selectedPlan.end_date),
+            `${formatDate(selectedPlan.start_date)} - ${formatDate(selectedPlan.end_date)}`,
             street.name || 'N/A',
             'Phone Call',
             (progress?.completedCalls || 0).toString(),
             (progress?.targetCalls || 0).toString(),
-            calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0).toString(),
+            `${calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0)}%`,
             (progress?.desktopAppraisals || 0).toString(),
             (progress?.faceToFaceAppraisals || 0).toString(),
             street.why || '',
           ]);
         });
       } else {
+        // Add data for all marketing plans
         marketingPlans.forEach((plan) => {
           const planProgress = planProgresses.find((p) => p.id === plan.id);
+          
+          // Add door knock streets data
           plan.door_knock_streets.forEach((street) => {
             const progress = overallProgress.doorKnocks.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
             body.push([
               plan.suburb || 'N/A',
-              formatDate(plan.start_date),
-              formatDate(plan.end_date),
+              `${formatDate(plan.start_date)} - ${formatDate(plan.end_date)}`,
               street.name || 'N/A',
               'Door Knock',
               (progress?.completedKnocks || 0).toString(),
               (progress?.targetKnocks || 0).toString(),
-              calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0).toString(),
+              `${calculatePercentage(progress?.completedKnocks || 0, progress?.targetKnocks || 0)}%`,
               (progress?.desktopAppraisals || 0).toString(),
               (progress?.faceToFaceAppraisals || 0).toString(),
               street.why || '',
             ]);
           });
 
+          // Add phone call streets data
           plan.phone_call_streets.forEach((street) => {
             const progress = overallProgress.phoneCalls.streets.find((s) => s.name.includes(`${plan.suburb}: ${street.name}`));
             body.push([
               plan.suburb || 'N/A',
-              formatDate(plan.start_date),
-              formatDate(plan.end_date),
+              `${formatDate(plan.start_date)} - ${formatDate(plan.end_date)}`,
               street.name || 'N/A',
               'Phone Call',
               (progress?.completedCalls || 0).toString(),
               (progress?.targetCalls || 0).toString(),
-              calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0).toString(),
+              `${calculatePercentage(progress?.completedCalls || 0, progress?.targetCalls || 0)}%`,
               (progress?.desktopAppraisals || 0).toString(),
               (progress?.faceToFaceAppraisals || 0).toString(),
               street.why || '',
@@ -798,13 +833,18 @@ export function ProgressReportPage() {
       }
 
       const fileName = `Progress_Report_${viewMode === 'suburb' && selectedPlan ? selectedPlan.suburb : 'Overall'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      // Use the report title we created earlier
+      const reportTitle = viewMode === 'suburb' && selectedPlan 
+        ? `Marketing Progress Report - ${selectedPlan.suburb}` 
+        : 'Overall Marketing Progress Report';
 
       if (download) {
-        await generatePdf('Marketing Progress Report', head, body, fileName, 'save');
+        await generatePdf(reportTitle, head, body, fileName, 'save', summaryData);
         setNotification('PDF downloaded successfully.');
         setTimeout(() => setNotification(null), 3000);
       } else {
-        const blob = await generatePdf('Marketing Progress Report', head, body, fileName, 'blob');
+        const blob = await generatePdf(reportTitle, head, body, fileName, 'blob', summaryData);
         if (blob) {
           const url = URL.createObjectURL(blob);
           setPdfPreviewUrl(url);
@@ -1036,18 +1076,24 @@ export function ProgressReportPage() {
             No marketing plans found. Please create a marketing plan to view progress.
           </p>
           <div className="flex gap-4">
-            <button
+            <motion.button
               onClick={() => navigate('/marketing-plan')}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700"
+              className="bg-gradient-to-r from-red-600 to-red-700 text-white px-6 py-3 rounded-lg font-semibold hover:from-red-700 hover:to-red-800 shadow-md transition-all duration-200 flex items-center"
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
             >
+              <Plus className="w-5 h-5 mr-2" />
               Create Marketing Plan
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               onClick={() => navigate('/agent-dashboard')}
-              className="text-blue-600 hover:text-blue-800 font-medium"
+              className="text-blue-600 hover:text-blue-800 font-medium flex items-center px-4 py-2 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
             >
+              <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Dashboard
-            </button>
+            </motion.button>
           </div>
         </motion.div>
       </div>
@@ -1096,8 +1142,8 @@ export function ProgressReportPage() {
                   </select>
                   <motion.button
                     onClick={() => navigate('/marketing-plan', { state: { plan: selectedPlan } })}
-                    className="flex items-center bg-blue-600 text-white px-3 py-2 rounded-lg font-semibold hover:bg-blue-700"
-                    whileHover={{ scale: 1.05 }}
+                    className="flex items-center bg-gradient-to-r from-blue-600 to-blue-700 text-white px-3 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 shadow-md transition-all duration-200"
+                    whileHover={{ scale: 1.05, y: -1 }}
                     whileTap={{ scale: 0.95 }}
                     title={`Edit plan for ${selectedPlan.suburb}`}
                   >
@@ -1106,8 +1152,8 @@ export function ProgressReportPage() {
                   </motion.button>
                   <motion.button
                     onClick={() => setShowDeleteModal(true)}
-                    className="flex items-center bg-red-600 text-white px-3 py-2 rounded-lg font-semibold hover:bg-red-700"
-                    whileHover={{ scale: 1.05 }}
+                    className="flex items-center bg-gradient-to-r from-red-600 to-red-700 text-white px-3 py-2 rounded-lg font-semibold hover:from-red-700 hover:to-red-800 shadow-md transition-all duration-200"
+                    whileHover={{ scale: 1.05, y: -1 }}
                     whileTap={{ scale: 0.95 }}
                     title={`Delete plan for ${selectedPlan.suburb}`}
                   >
@@ -1118,17 +1164,17 @@ export function ProgressReportPage() {
               )}
               <motion.button
                 onClick={() => generatePDF(false)}
-                className="flex items-center bg-green-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-700"
-                whileHover={{ scale: 1.05 }}
+                className="flex items-center bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2.5 rounded-lg font-semibold hover:from-red-700 hover:to-red-800 shadow-md transition-all duration-200"
+                whileHover={{ scale: 1.05, y: 2 }}
                 whileTap={{ scale: 0.95 }}
               >
-                <Download className="w-5 h-5 mr-2" />
+                <FileText className="w-5 h-5 mr-2" />
                 Preview PDF
               </motion.button>
               <motion.button
                 onClick={() => generatePDF(true)}
-                className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700"
-                whileHover={{ scale: 1.05 }}
+                className="flex items-center bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2.5 rounded-lg font-semibold hover:from-blue-700 hover:to-red-800 shadow-md transition-all duration-200"
+                whileHover={{ scale: 1.05, y: 2 }}
                 whileTap={{ scale: 0.95 }}
               >
                 <Download className="w-5 h-5 mr-2" />
@@ -1136,8 +1182,8 @@ export function ProgressReportPage() {
               </motion.button>
               <motion.button
                 onClick={generateCSV}
-                className="flex items-center bg-teal-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-teal-700"
-                whileHover={{ scale: 1.05 }}
+                className="flex items-center bg-gradient-to-r from-gray-700 to-gray-800 text-white px-4 py-2.5 rounded-lg font-semibold hover:from-gray-800 hover:to-gray-900 shadow-md transition-all duration-200"
+                whileHover={{ scale: 1.05, y: -2 }}
                 whileTap={{ scale: 0.95 }}
               >
                 <FileText className="w-5 h-5 mr-2" />
@@ -1145,8 +1191,8 @@ export function ProgressReportPage() {
               </motion.button>
               <motion.button
                 onClick={() => setViewMode(viewMode === 'suburb' ? 'overall' : 'suburb')}
-                className="flex items-center bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-purple-700"
-                whileHover={{ scale: 1.05 }}
+                className="flex items-center bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2.5 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 shadow-md transition-all duration-200"
+                whileHover={{ scale: 1.05, y: -2 }}
                 whileTap={{ scale: 0.95 }}
               >
                 <BarChart className="w-5 h-5 mr-2" />
@@ -1155,18 +1201,24 @@ export function ProgressReportPage() {
             </div>
           </div>
           <div className="flex items-center gap-4 mt-4">
-            <button
+            <motion.button
               onClick={() => navigate('/agent-dashboard')}
-              className="text-blue-600 hover:text-blue-800 font-medium"
+              className="text-blue-600 hover:text-blue-800 font-medium flex items-center px-4 py-2 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors shadow-sm"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
             >
+              <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Dashboard
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               onClick={() => navigate('/activity-logger')}
-              className="text-blue-600 hover:text-blue-800 font-medium"
+              className="text-green-600 hover:text-green-800 font-medium flex items-center px-4 py-2 border border-green-600 rounded-lg hover:bg-green-50 transition-colors shadow-sm"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
             >
+              <PlusCircle className="w-4 h-4 mr-2" />
               Log Activity
-            </button>
+            </motion.button>
           </div>
         </motion.div>
 
@@ -1205,22 +1257,27 @@ export function ProgressReportPage() {
                       <span>
                         {plan.suburb} ({formatDate(plan.start_date)} - {formatDate(plan.end_date)})
                       </span>
-                      <button
+                      <motion.button
                         onClick={() => deleteMarketingPlan(plan.id)}
-                        className="text-red-600 hover:text-red-800"
+                        className="text-red-600 hover:text-red-800 p-1 rounded-full hover:bg-red-100 transition-colors"
                         aria-label={`Delete plan for ${plan.suburb}`}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
                       >
                         <Trash2 className="w-5 h-5" />
-                      </button>
+                      </motion.button>
                     </div>
                   ))}
                 </div>
-                <button
+                <motion.button
                   onClick={() => setShowDeleteModal(false)}
-                  className="mt-4 w-full bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+                  className="mt-4 w-full bg-gradient-to-r from-gray-600 to-gray-700 text-white px-4 py-2 rounded-lg hover:from-gray-700 hover:to-gray-800 shadow-md transition-all duration-200 flex items-center justify-center"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
+                  <X className="w-4 h-4 mr-2" />
                   Cancel
-                </button>
+                </motion.button>
               </motion.div>
             </motion.div>
           )}
@@ -1245,21 +1302,27 @@ export function ProgressReportPage() {
                   Are you sure you want to delete the marketing plan for <strong>{planToDelete.suburb}</strong>? This action cannot be undone.
                 </p>
                 <div className="flex gap-4">
-                  <button
+                  <motion.button
                     onClick={confirmDeletePlan}
-                    className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                    className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg hover:from-red-700 hover:to-red-800 shadow-md transition-all duration-200 flex items-center justify-center"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
+                    <Trash2 className="w-4 h-4 mr-2" />
                     Delete
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     onClick={() => {
                       setShowConfirmDeleteModal(false);
                       setPlanToDelete(null);
                     }}
-                    className="flex-1 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+                    className="flex-1 bg-gradient-to-r from-gray-600 to-gray-700 text-white px-4 py-2 rounded-lg hover:from-gray-700 hover:to-gray-800 shadow-md transition-all duration-200 flex items-center justify-center"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
+                    <X className="w-4 h-4 mr-2" />
                     Cancel
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             </motion.div>
@@ -1272,34 +1335,57 @@ export function ProgressReportPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
             >
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
-                className="bg-white p-6 rounded-lg shadow-xl w-full h-full flex flex-col"
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="bg-white p-0 rounded-xl shadow-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden"
               >
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-bold text-gray-900">PDF Preview</h2>
-                  <button onClick={() => setShowPDFPreview(false)} className="text-gray-600 hover:text-gray-800">
+                <div className="flex justify-between items-center px-6 py-4 border-b bg-gradient-to-r from-red-600 to-red-800 text-white">
+                  <div className="flex items-center space-x-3">
+                    <FileText className="w-6 h-6" />
+                    <h2 className="text-2xl font-bold">Progress Report Preview</h2>
+                  </div>
+                  <motion.button 
+                    onClick={() => setShowPDFPreview(false)} 
+                    className="text-white hover:text-gray-200 p-2 rounded-full transition-colors"
+                    aria-label="Close preview"
+                    whileHover={{ scale: 1.1, rotate: 90 }}
+                    whileTap={{ scale: 0.9 }}
+                    transition={{ duration: 0.2 }}
+                  >
                     <X className="w-6 h-6" />
-                  </button>
+                  </motion.button>
                 </div>
-                <iframe src={pdfPreviewUrl} className="w-full flex-grow border" title="PDF Preview" />
-                <div className="flex gap-4 mt-4">
-                  <button
+                <div className="flex-grow bg-gray-100 overflow-hidden">
+                  <iframe 
+                    src={pdfPreviewUrl} 
+                    className="w-full h-full border-0" 
+                    title="PDF Preview" 
+                  />
+                </div>
+                <div className="flex gap-4 p-5 justify-end bg-gray-50 border-t">
+                  <motion.button
                     onClick={() => generatePDF(true)}
-                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                    className="flex items-center bg-gradient-to-r from-red-600 to-red-700 text-white px-6 py-3 rounded-lg font-semibold hover:from-red-700 hover:to-red-800 shadow-md transition-all duration-200"
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
                   >
+                    <Download className="w-5 h-5 mr-2" />
                     Download PDF
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     onClick={() => setShowPDFPreview(false)}
-                    className="flex-1 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+                    className="flex items-center bg-gradient-to-r from-gray-200 to-gray-300 text-gray-800 px-6 py-3 rounded-lg font-semibold hover:from-gray-300 hover:to-gray-400 shadow-md transition-all duration-200"
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
                   >
+                    <X className="w-5 h-5 mr-2" />
                     Close
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             </motion.div>

@@ -79,7 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .select('id, name, phone, email, role')
         .eq('id', userId)
         .single();
-
+      
       if (error) {
         if (error.code === 'PGRST116') {
           console.log('No profile found, creating one...');

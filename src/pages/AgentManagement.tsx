@@ -3,9 +3,8 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Plus, Loader2, Pencil, Trash2, Home, Copy, Download, Share2, Eye } from 'lucide-react';
+import { Users, Loader2, Pencil, Trash2, Eye, Mail, Copy, Share2, MessageCircle } from 'lucide-react';
 import { Agent } from '../types/agent';
-import { isNull } from 'lodash';
 
 interface AgentDetails {
   email: string;
@@ -19,7 +18,6 @@ interface CreateAgentModalProps {
   isOpen: boolean;
   onClose: () => void;
   fetchAgents: () => Promise<void>;
-  fetchProperties: () => Promise<void>;
 }
 
 interface EditAgentModalProps {
@@ -29,7 +27,22 @@ interface EditAgentModalProps {
   fetchAgents: () => Promise<void>;
 }
 
-const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: CreateAgentModalProps) => {
+interface ShareDetailsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  agent: Agent | null;
+}
+
+const generatePassword = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < 12; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+};
+
+const CreateAgentModal = ({ isOpen, onClose, fetchAgents }: CreateAgentModalProps) => {
   const { profile } = useAuthStore();
   const [agentDetails, setAgentDetails] = useState<AgentDetails>({
     email: '',
@@ -39,19 +52,8 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
     confirmPassword: '',
   });
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ id: string; email: string; name: string; phone: string; password: string } | null>(null);
+  const [success, setSuccess] = useState<AgentDetails & { id: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  console.log('Rendering CreateAgentModal, isOpen:', isOpen);
-
-  const generatePassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
-  };
 
   const handleCreateAgent = useCallback(async () => {
     try {
@@ -69,22 +71,15 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
         throw new Error('Please enter a phone number');
       }
       if (!agentDetails.password || agentDetails.password.length < 6) {
-        throw new Error('Password is required and must be at least 6 characters long');
+        throw new Error('Password must be at least 6 characters long');
       }
       if (agentDetails.password !== agentDetails.confirmPassword) {
         throw new Error('Passwords do not match');
       }
 
       if (!profile || profile.role !== 'admin') {
-        console.error('Admin authorization failed:', { profile });
         throw new Error('Only admins can create new agent accounts');
       }
-
-      console.log('Attempting to create agent with:', {
-        email: agentDetails.email,
-        name: agentDetails.name,
-        phone: agentDetails.phone,
-      });
 
       let authData;
       let authError;
@@ -103,8 +98,7 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
         });
         authData = data;
         authError = error;
-      } catch (signUpError: any) {
-        console.warn('signUp failed, attempting admin.createUser:', signUpError);
+      } catch (signUpError) {
         const { data, error } = await supabase.auth.admin.createUser({
           email: agentDetails.email,
           password: agentDetails.password,
@@ -120,8 +114,7 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
       }
 
       if (authError) {
-        console.error('Supabase auth error:', authError);
-        if (authError.code === 'user_already_exists') {
+        if (authError.message.includes('User already registered')) {
           throw new Error('This email is already registered. Please use a different email.');
         }
         throw new Error(`Authentication error: ${authError.message}`);
@@ -147,7 +140,13 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
         throw new Error(`Failed to create agent record: ${agentError.message}`);
       }
 
-      const { error: profileError } = await supabase
+      const permissions = {
+        canRegisterProperties: true,
+        canEditProperties: true,
+        canDeleteProperties: false,
+      };
+
+      const { error: profileError, data: profileData } = await supabase
         .from('profiles')
         .upsert(
           {
@@ -156,11 +155,7 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
             name: agentDetails.name,
             phone: agentDetails.phone,
             role: 'agent',
-            permissions: {
-              canRegisterProperties: true,
-              canEditProperties: true,
-              canDeleteProperties: false,
-            },
+            permissions,
           },
           { onConflict: 'id' }
         );
@@ -168,6 +163,8 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
       if (profileError) {
         throw new Error(`Failed to create profile: ${profileError.message}`);
       }
+
+      console.log('Profile created with permissions:', profileData);
 
       const { error: credentialError } = await supabase
         .from('agent_credentials')
@@ -181,30 +178,20 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
         throw new Error(`Failed to store credentials: ${credentialError.message}`);
       }
 
-      try {
-        await useAuthStore.getState().fetchProfile(authData.user.id, agentDetails.email);
-      } catch (profileFetchError) {
-        console.warn('Profile fetch failed, but continuing:', profileFetchError);
-      }
-
       setSuccess({
         id: authData.user.id,
-        email: agentDetails.email,
-        name: agentDetails.name,
-        phone: agentDetails.phone,
-        password: agentDetails.password,
+        ...agentDetails,
       });
 
       toast.success(
-        `Agent created: ${agentDetails.email} (ID: ${authData.user.id})\nPassword: ${agentDetails.password}\nPlease share this securely.`,
+        `Agent created: ${agentDetails.email}\nPassword: ${agentDetails.password}\nPlease share this securely.`,
         {
-          duration: 15000,
+          duration: 10000,
           style: { background: '#3B82F6', color: '#fff', borderRadius: '8px', maxWidth: '500px' },
         }
       );
 
       await fetchAgents();
-      await fetchProperties();
     } catch (err: any) {
       const errorMessage = err.message || 'An unexpected error occurred';
       setError(errorMessage);
@@ -212,99 +199,27 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
     } finally {
       setIsLoading(false);
     }
-  }, [agentDetails, profile, fetchAgents, fetchProperties]);
-
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${label} copied to clipboard`, {
-      style: { background: '#10B981', color: '#fff', borderRadius: '8px' },
-    });
-  };
-
-  const handleShareDetails = async () => {
-    if (!success) return;
-
-    const shareData = {
-      title: 'New Agent Details',
-      text: `Agent Details:\nID: ${success.id}\nName: ${success.name}\nEmail: ${success.email}\nPhone: ${success.phone}\nPassword: ${success.password}`,
-    };
-
-    try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-        toast.success('Agent details shared successfully!');
-      } else {
-        copyToClipboard(shareData.text, 'Agent Details');
-      }
-    } catch (err: any) {
-      copyToClipboard(shareData.text, 'Agent Details');
-    }
-  };
-
-  const handleShareLink = async () => {
-    if (!success) return;
-
-    try {
-      const response = await fetch('/api/generate-share-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: success.id }),
-      });
-      const { link } = await response.json();
-      copyToClipboard(link, 'Share Link');
-      toast.success('Secure share link copied to clipboard! Valid for 24 hours.');
-    } catch (err: any) {
-      toast.error('Failed to generate share link.');
-    }
-  };
-
-  const handleDownloadDetails = () => {
-    if (!success) return;
-    const details = `
-      Agent Details:
-      ID: ${success.id}
-      Name: ${success.name}
-      Email: ${success.email}
-      Phone: ${success.phone}
-      Password: ${success.password}
-    `;
-    const blob = new Blob([details], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `agent-details-${success.name}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Agent details downloaded!');
-  };
+  }, [agentDetails, profile, fetchAgents]);
 
   const handleClose = () => {
-    console.log('handleClose called, resetting agentDetails and closing modal');
     setAgentDetails({ email: '', name: '', phone: '', password: '', confirmPassword: '' });
     setSuccess(null);
     setError(null);
-    setIsLoading(false);
     onClose();
   };
 
-  // Add backdrop click handler to close modal
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      console.log('Backdrop clicked, triggering handleClose');
       handleClose();
     }
   };
 
-  if (!isOpen) {
-    console.log('CreateAgentModal not rendering, isOpen is false');
-    return null;
-  }
+  if (!isOpen) return null;
 
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
       role="dialog"
-      aria-labelledby="create-agent-title"
       onClick={handleBackdropClick}
     >
       <Toaster position="top-center" />
@@ -312,124 +227,50 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 20 }}
-        transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
+        className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
       >
-        <h1 id="create-agent-title" className="text-2xl font-bold mb-6 text-gray-900 text-center">
-          Create New Agent
-        </h1>
+        <h1 className="text-2xl font-bold mb-6 text-blue-900 text-center">Create New Agent</h1>
         <AnimatePresence mode="wait">
           {success ? (
             <motion.div
               key="success"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.3 }}
               className="text-center space-y-4"
             >
-              <p className="text-green-600 font-semibold">Agent account created successfully!</p>
-              <div className="text-left space-y-2">
-                <p className="text-gray-700">
-                  Agent ID: <span className="font-mono font-semibold">{success.id}</span>
-                  <button
-                    onClick={() => copyToClipboard(success.id, 'Agent ID')}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
-                    aria-label="Copy Agent ID"
-                  >
-                    <Copy className="w-4 h-4 inline" />
-                  </button>
-                </p>
-                <p className="text-gray-700">
-                  Name: <span className="font-mono font-semibold">{success.name}</span>
-                  <button
-                    onClick={() => copyToClipboard(success.name, 'Name')}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
-                    aria-label="Copy Name"
-                  >
-                    <Copy className="w-4 h-4 inline" />
-                  </button>
-                </p>
-                <p className="text-gray-700">
-                  Email: <span className="font-mono font-semibold">{success.email}</span>
-                  <button
-                    onClick={() => copyToClipboard(success.email, 'Email')}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
-                    aria-label="Copy Email"
-                  >
-                    <Copy className="w-4 h-4 inline" />
-                  </button>
-                </p>
-                <p className="text-gray-700">
-                  Phone: <span className="font-mono font-semibold">{success.phone}</span>
-                  <button
-                    onClick={() => copyToClipboard(success.phone, 'Phone')}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
-                    aria-label="Copy Phone"
-                  >
-                    <Copy className="w-4 h-4 inline" />
-                  </button>
-                </p>
-                <p className="text-gray-700">
-                  Password: <span className="font-mono font-semibold">{success.password}</span>
-                  <button
-                    onClick={() => copyToClipboard(success.password, 'Password')}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
-                    aria-label="Copy Password"
-                  >
-                    <Copy className="w-4 h-4 inline" />
-                  </button>
-                </p>
+              <p className="text-blue-600 font-semibold">Agent created successfully!</p>
+              <div className="text-left space-y-2 bg-blue-50 p-4 rounded-md">
+                <p className="text-blue-900">Agent ID: <span className="font-semibold">{success.id}</span></p>
+                <p className="text-blue-900">Name: <span className="font-semibold">{success.name}</span></p>
+                <p className="text-blue-900">Email: <span className="font-semibold">{success.email}</span></p>
+                <p className="text-blue-900">Phone: <span className="font-semibold">{success.phone}</span></p>
+                <p className="text-blue-900">Password: <span className="font-semibold">{success.password}</span></p>
               </div>
               <div className="flex justify-between gap-2">
                 <button
-                  onClick={handleShareDetails}
-                  className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                  aria-label="Share Agent Details"
-                >
-                  <Share2 className="w-5 h-5 mr-2" /> Share
-                </button>
-                <button
-                  onClick={handleShareLink}
-                  className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                  aria-label="Share Link"
-                >
-                  <Share2 className="w-5 h-5 mr-2" /> Share Link
-                </button>
-                <button
-                  onClick={handleDownloadDetails}
-                  className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-                  aria-label="Download Agent Details"
-                >
-                  <Download className="w-5 h-5 mr-2" /> Download
-                </button>
-                <button
                   onClick={() => setSuccess(null)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                   aria-label="Create Another Agent"
                 >
                   Create Another
                 </button>
+                <button
+                  onClick={handleClose}
+                  className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
+                  aria-label="Close Modal"
+                >
+                  Close
+                </button>
               </div>
-              <button
-                onClick={handleClose}
-                className="w-full mt-2 py-2 text-gray-600 rounded-md hover:bg-gray-100"
-                disabled={isLoading}
-                aria-label="Close Modal"
-              >
-                Close
-              </button>
             </motion.div>
           ) : (
             <motion.div
               key="form"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.3 }}
             >
               <div className="mb-4">
-                <label htmlFor="agent-email" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-email" className="block text-sm font-medium text-blue-900 mb-1">
                   Email
                 </label>
                 <input
@@ -437,14 +278,14 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                   type="email"
                   value={agentDetails.email}
                   onChange={(e) => setAgentDetails({ ...agentDetails, email: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="agent@example.com"
                   disabled={isLoading}
                   required
                 />
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-name" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-name" className="block text-sm font-medium text-blue-900 mb-1">
                   Name
                 </label>
                 <input
@@ -452,14 +293,14 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                   type="text"
                   value={agentDetails.name}
                   onChange={(e) => setAgentDetails({ ...agentDetails, name: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="John Doe"
                   disabled={isLoading}
                   required
                 />
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-phone" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-phone" className="block text-sm font-medium text-blue-900 mb-1">
                   Phone
                 </label>
                 <input
@@ -467,14 +308,14 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                   type="tel"
                   value={agentDetails.phone}
                   onChange={(e) => setAgentDetails({ ...agentDetails, phone: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="+1234567890"
                   disabled={isLoading}
                   required
                 />
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-password" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-password" className="block text-sm font-medium text-blue-900 mb-1">
                   Password
                 </label>
                 <div className="flex items-center space-x-2">
@@ -483,15 +324,15 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                     type="text"
                     value={agentDetails.password}
                     onChange={(e) => setAgentDetails({ ...agentDetails, password: e.target.value })}
-                    className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
-                    placeholder="Enter a password (minimum 6 characters)"
+                    className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
+                    placeholder="Minimum 6 characters"
                     disabled={isLoading}
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setAgentDetails({ ...agentDetails, password: generatePassword(), confirmPassword: '' })}
-                    className="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                     disabled={isLoading}
                     aria-label="Generate Password"
                   >
@@ -500,7 +341,7 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                 </div>
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-confirm-password" className="block text-sm font-medium text-blue-900 mb-1">
                   Confirm Password
                 </label>
                 <input
@@ -508,8 +349,8 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                   type="password"
                   value={agentDetails.confirmPassword}
                   onChange={(e) => setAgentDetails({ ...agentDetails, confirmPassword: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
-                  placeholder="Confirm your password"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
+                  placeholder="Confirm password"
                   disabled={isLoading}
                   required
                 />
@@ -519,7 +360,7 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                 <button
                   onClick={handleClose}
                   disabled={isLoading}
-                  className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+                  className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
                   aria-label="Cancel"
                 >
                   Cancel
@@ -527,7 +368,7 @@ const CreateAgentModal = ({ isOpen, onClose, fetchAgents, fetchProperties }: Cre
                 <button
                   onClick={handleCreateAgent}
                   disabled={isLoading}
-                  className={`px-4 py-2 rounded-lg text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  className={`px-4 py-2 rounded-lg text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 transition-colors'}`}
                   aria-label="Create Agent"
                 >
                   {isLoading ? (
@@ -561,9 +402,9 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
     phone: agent?.phone || '',
     password: '',
     confirmPassword: '',
-    canRegisterProperties: agent?.permissions?.canRegisterProperties || false,
-    canEditProperties: agent?.permissions?.canEditProperties || false,
-    canDeleteProperties: agent?.permissions?.canDeleteProperties || false,
+    canRegisterProperties: agent?.permissions?.canRegisterProperties ?? false,
+    canEditProperties: agent?.permissions?.canEditProperties ?? false,
+    canDeleteProperties: agent?.permissions?.canDeleteProperties ?? false,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -571,27 +412,17 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
 
   useEffect(() => {
     if (agent) {
-      console.log('Agent data passed to EditAgentModal:', agent);
       setEditDetails({
         name: agent.name || '',
         phone: agent.phone || '',
         password: '',
         confirmPassword: '',
-        canRegisterProperties: agent.permissions?.canRegisterProperties || false,
-        canEditProperties: agent.permissions?.canEditProperties || false,
-        canDeleteProperties: agent.permissions?.canDeleteProperties || false,
+        canRegisterProperties: agent.permissions?.canRegisterProperties ?? false,
+        canEditProperties: agent.permissions?.canEditProperties ?? false,
+        canDeleteProperties: agent.permissions?.canDeleteProperties ?? false,
       });
     }
   }, [agent]);
-
-  const generatePassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
-  };
 
   const handleUpdateAgent = async () => {
     if (!agent || !profile || profile.role !== 'admin') {
@@ -614,22 +445,26 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
         throw new Error('Passwords do not match');
       }
 
-      const { error: profileError } = await supabase
+      const permissions = {
+        canRegisterProperties: editDetails.canRegisterProperties,
+        canEditProperties: editDetails.canEditProperties,
+        canDeleteProperties: editDetails.canDeleteProperties,
+      };
+
+      const { error: profileError, data: profileData } = await supabase
         .from('profiles')
         .update({
           name: editDetails.name,
           phone: editDetails.phone,
-          permissions: {
-            canRegisterProperties: editDetails.canRegisterProperties,
-            canEditProperties: editDetails.canEditProperties,
-            canDeleteProperties: editDetails.canDeleteProperties,
-          },
+          permissions,
         })
         .eq('id', agent.id);
 
       if (profileError) {
         throw new Error(`Failed to update profile: ${profileError.message}`);
       }
+
+      console.log('Profile updated with permissions:', profileData);
 
       const { error: agentError } = await supabase
         .from('agents')
@@ -685,15 +520,11 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
+        className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
       >
-        <h1 className="text-2xl font-bold mb-6 text-gray-900 text-center">Edit Agent</h1>
-        {editDetails.name === '' && (
-          <p className="text-yellow-600 mb-4 text-sm">Warning: No name found for this agent. Please provide a name.</p>
-        )}
+        <h1 className="text-2xl font-bold mb-6 text-blue-900 text-center">Edit Agent</h1>
         <div className="mb-4">
-          <label htmlFor="edit-name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="edit-name" className="block text-sm font-medium text-blue-900 mb-1">
             Name
           </label>
           <input
@@ -701,14 +532,14 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
             type="text"
             value={editDetails.name}
             onChange={(e) => setEditDetails({ ...editDetails, name: e.target.value })}
-            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+            className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
             placeholder="Enter agent name"
             disabled={isLoading}
             required
           />
         </div>
         <div className="mb-4">
-          <label htmlFor="edit-phone" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="edit-phone" className="block text-sm font-medium text-blue-900 mb-1">
             Phone
           </label>
           <input
@@ -716,13 +547,13 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
             type="tel"
             value={editDetails.phone}
             onChange={(e) => setEditDetails({ ...editDetails, phone: e.target.value })}
-            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+            className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
             placeholder="Enter phone number"
             disabled={isLoading}
           />
         </div>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Permissions</label>
+          <label className="block text-sm font-medium text-blue-900 mb-1">Permissions</label>
           <div className="space-y-2">
             <label className="flex items-center">
               <input
@@ -732,7 +563,7 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
                 className="mr-2"
                 disabled={isLoading}
               />
-              Can Register Properties
+              Register Properties
             </label>
             <label className="flex items-center">
               <input
@@ -742,7 +573,7 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
                 className="mr-2"
                 disabled={isLoading}
               />
-              Can Edit Properties
+              Edit Properties
             </label>
             <label className="flex items-center">
               <input
@@ -752,12 +583,12 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
                 className="mr-2"
                 disabled={isLoading}
               />
-              Can Delete Properties
+              Delete Properties
             </label>
           </div>
         </div>
         <div className="mb-4">
-          <label htmlFor="edit-password" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="edit-password" className="block text-sm font-medium text-blue-900 mb-1">
             New Password (Optional)
           </label>
           <div className="flex items-center space-x-2">
@@ -766,22 +597,23 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
               type="text"
               value={editDetails.password}
               onChange={(e) => setEditDetails({ ...editDetails, password: e.target.value })}
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
-              placeholder="Enter new password (minimum 6 characters)"
+              className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
+              placeholder="Minimum 6 characters"
               disabled={isLoading}
             />
             <button
               type="button"
               onClick={() => setEditDetails({ ...editDetails, password: generatePassword(), confirmPassword: '' })}
-              className="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
               disabled={isLoading}
+              aria-label="Generate Password"
             >
               Generate
             </button>
           </div>
         </div>
         <div className="mb-4">
-          <label htmlFor="edit-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="edit-confirm-password" className="block text-sm font-medium text-blue-900 mb-1">
             Confirm New Password
           </label>
           <input
@@ -789,7 +621,7 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
             type="password"
             value={editDetails.confirmPassword}
             onChange={(e) => setEditDetails({ ...editDetails, confirmPassword: e.target.value })}
-            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+            className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
             placeholder="Confirm new password"
             disabled={isLoading}
           />
@@ -798,17 +630,122 @@ const EditAgentModal = ({ isOpen, onClose, agent, fetchAgents }: EditAgentModalP
         <div className="flex justify-end space-x-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+            className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
             disabled={isLoading}
+            aria-label="Cancel"
           >
             Cancel
           </button>
           <button
             onClick={handleUpdateAgent}
             disabled={isLoading}
-            className={`px-4 py-2 rounded-md text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+            className={`px-4 py-2 rounded-md text-white ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 transition-colors'}`}
+            aria-label="Update Agent"
           >
             {isLoading ? 'Updating...' : 'Update Agent'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+const ShareDetailsModal = ({ isOpen, onClose, agent }: ShareDetailsModalProps) => {
+  if (!isOpen || !agent) return null;
+
+  const shareText = `Agent Details:
+ID: ${agent.id}
+Name: ${agent.name || 'N/A'}
+Email: ${agent.email}
+Phone: ${agent.phone || 'N/A'}
+Password: ${agent.password || 'Not available'}
+Role: ${agent.role}
+Permissions:
+- Register Properties: ${agent.permissions.canRegisterProperties ? 'Yes' : 'No'}
+- Edit Properties: ${agent.permissions.canEditProperties ? 'Yes' : 'No'}
+- Delete Properties: ${agent.permissions.canDeleteProperties ? 'Yes' : 'No'}`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(shareText);
+    toast.success('Details copied to clipboard!');
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Agent Details',
+          text: shareText,
+        });
+        toast.success('Shared successfully!');
+      } catch (err) {
+        toast.error('Failed to share');
+      }
+    } else {
+      toast.error('Web Share API not supported in this browser');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
+      >
+        <h3 className="text-lg font-bold mb-4 text-blue-900">Share Agent Details</h3>
+        <div className="space-y-4">
+          <p className="text-blue-900">{shareText}</p>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={`mailto:?subject=Agent%20Details&body=${encodeURIComponent(shareText)}`}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              aria-label="Share via Email"
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              Email
+            </a>
+            <a
+              href={`sms:?body=${encodeURIComponent(shareText)}`}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              aria-label="Share via SMS"
+            >
+              <MessageCircle className="w-4 h-4 mr-2" />
+              SMS
+            </a>
+            <a
+              href={`whatsapp://send?text=${encodeURIComponent(shareText)}`}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              aria-label="Share via WhatsApp"
+            >
+              <MessageCircle className="w-4 h-4 mr-2" />
+              WhatsApp
+            </a>
+            <button
+              onClick={handleCopy}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              aria-label="Copy to Clipboard"
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Copy
+            </button>
+            {navigator.share && (
+              <button
+                onClick={handleShare}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                aria-label="Share via Other Apps"
+              >
+                <Share2 className="w-4 h-4 mr-2" />
+                Other Apps
+              </button>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full mt-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
+            aria-label="Close"
+          >
+            Close
           </button>
         </div>
       </motion.div>
@@ -825,6 +762,7 @@ export function AgentManagement() {
   const [showDetailsModal, setShowDetailsModal] = useState<Agent | null>(null);
   const [showEditModal, setShowEditModal] = useState<Agent | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState<Agent | null>(null);
+  const [showShareModal, setShowShareModal] = useState<Agent | null>(null);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
   const [generatedPassword, setGeneratedPassword] = useState('');
@@ -834,7 +772,6 @@ export function AgentManagement() {
   }
 
   useEffect(() => {
-    console.log('AgentManagement mounted, fetching agents');
     fetchAgents();
   }, []);
 
@@ -844,66 +781,50 @@ export function AgentManagement() {
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('id, email, role, permissions, name, phone')
-        .in('role', ['agent', 'admin']);
+        .in('role', ['agent', 'admin'])
+        .is('deleted_at', null);
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        throw new Error(`Failed to fetch profiles: ${profileError.message}`);
+      }
+
+      console.log('Raw profile data:', profileData);
 
       const { data: agentData, error: agentError } = await supabase
         .from('agents')
-        .select('id, email, name, phone, role');
+        .select('id, email, name, phone, role')
+        .is('deleted_at', null);
 
-      if (agentError) throw agentError;
+      if (agentError) {
+        throw new Error(`Failed to fetch agents: ${agentError.message}`);
+      }
 
       const mergedData = profileData.map((profile) => {
         const agentRecord = agentData.find((agent) => agent.id === profile.id);
+        const permissions = profile.permissions || {
+          canRegisterProperties: profile.role === 'admin' ? true : false,
+          canEditProperties: profile.role === 'admin' ? true : false,
+          canDeleteProperties: profile.role === 'admin' ? true : false,
+        };
         return {
           ...profile,
-          name: profile.name || agentRecord?.name || '',
-          phone: profile.phone || agentRecord?.phone || '',
+          name: profile.name || agentRecord?.name || 'N/A',
+          phone: profile.phone || agentRecord?.phone || 'N/A',
           role: profile.role || agentRecord?.role || 'agent',
+          permissions,
         };
       });
 
-      console.log('Merged agents data:', mergedData);
-
-      mergedData.forEach((agent, index) => {
-        if (!agent.name) {
-          console.warn(`Agent at index ${index} has no name:`, agent);
-          toast.error(`Agent ${agent.email} has no name set`);
-        }
-        if (!agent.permissions) {
-          console.warn(`Agent at index ${index} has no permissions:`, agent);
-          toast.error(`Agent ${agent.email} has no permissions set`);
-        }
-      });
+      console.log('Merged agent data:', mergedData);
 
       setAgents(mergedData);
     } catch (error: any) {
-      console.error('Fetch agents error:', error);
-      toast.error('Failed to fetch agents: ' + error.message);
+      toast.error(`Failed to fetch agents: ${error.message}`);
+      setAgents([]);
     } finally {
       setLoading(false);
     }
   };
-
-  const fetchProperties = async () => {
-    console.log('Fetching properties');
-  };
-
-  const generatePassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
-  };
-
-  useEffect(() => {
-    if (showAdminModal) {
-      setGeneratedPassword(generatePassword());
-    }
-  }, [showAdminModal]);
 
   const fetchAgentDetails = async (agentId: string) => {
     try {
@@ -914,7 +835,7 @@ export function AgentManagement() {
         .single();
       if (error && error.code !== 'PGRST116') throw error;
       return data?.password || 'Not available';
-    } catch (error: any) {
+    } catch {
       return 'Not available';
     }
   };
@@ -929,20 +850,6 @@ export function AgentManagement() {
       }
       if (!generatedPassword || generatedPassword.length < 6) {
         throw new Error('Password must be at least 6 characters long');
-      }
-
-      const { data: existingUser, error: fetchError } = await supabase
-        .from('auth.users')
-        .select('id')
-        .eq('email', newAdminEmail)
-        .single();
-
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        throw new Error(`Error checking existing user: ${fetchError.message}`);
-      }
-
-      if (existingUser) {
-        throw new Error('User with this email already exists');
       }
 
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -963,24 +870,28 @@ export function AgentManagement() {
         throw new Error('User creation succeeded but no user ID returned');
       }
 
+      const permissions = {
+        canRegisterProperties: true,
+        canEditProperties: true,
+        canDeleteProperties: true,
+      };
+
       const profileData = {
         id: authData.user.id,
         email: newAdminEmail,
         role: 'admin' as const,
-        permissions: {
-          canRegisterProperties: true,
-          canEditProperties: true,
-          canDeleteProperties: true,
-        },
+        permissions,
         name: newAdminName || newAdminEmail.split('@')[0],
         phone: '',
       };
 
-      const { error: profileError } = await supabase.from('profiles').insert(profileData);
+      const { error: profileError, data: insertedProfile } = await supabase.from('profiles').insert(profileData);
 
       if (profileError) {
         throw new Error(`Failed to create profile: ${profileError.message}`);
       }
+
+      console.log('Admin profile created with permissions:', insertedProfile);
 
       const { error: agentError } = await supabase.from('agents').insert({
         id: authData.user.id,
@@ -1006,8 +917,7 @@ export function AgentManagement() {
         throw new Error(`Failed to store credentials: ${credentialError.message}`);
       }
 
-      toast.success(`Admin created! Email: ${newAdminEmail}, Password: ${generatedPassword}\nPlease share this securely.`);
-      setAgents([...agents, profileData]);
+      toast.success(`Admin created! Email: ${newAdminEmail}, Password: ${generatedPassword}`);
       setShowAdminModal(false);
       setNewAdminEmail('');
       setNewAdminName('');
@@ -1032,19 +942,20 @@ export function AgentManagement() {
         throw new Error('You cannot delete your own account');
       }
 
-      const { error: authError } = await supabase.auth.admin.deleteUser(agentId);
-      if (authError) {
-        throw new Error(`Failed to delete user: ${authError.message}`);
-      }
-
-      const { error: profileError } = await supabase.from('profiles').delete().eq('id', agentId);
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', agentId);
       if (profileError) {
-        throw new Error(`Failed to delete profile: ${profileError.message}`);
+        throw new Error(`Failed to soft delete profile: ${profileError.message}`);
       }
 
-      const { error: agentError } = await supabase.from('agents').delete().eq('id', agentId);
+      const { error: agentError } = await supabase
+        .from('agents')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', agentId);
       if (agentError) {
-        throw new Error(`Failed to delete agent record: ${agentError.message}`);
+        throw new Error(`Failed to soft delete agent record: ${agentError.message}`);
       }
 
       const { error: credentialError } = await supabase
@@ -1055,401 +966,320 @@ export function AgentManagement() {
         throw new Error(`Failed to delete credentials: ${credentialError.message}`);
       }
 
+      setAgents((prevAgents) => prevAgents.filter((agent) => agent.id !== agentId));
       toast.success('Agent deleted successfully!');
       await fetchAgents();
       setShowDeleteModal(null);
     } catch (error: any) {
       toast.error(`Failed to delete agent: ${error.message}`);
+      await fetchAgents();
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${label} copied to clipboard`);
-  };
-
-  const handleShareDetails = async (agent: Agent, password: string) => {
-    const shareData = {
-      title: 'Agent Details',
-      text: `Agent Details:\nID: ${agent.id}\nName: ${agent.name || 'N/A'}\nEmail: ${agent.email}\nPhone: ${agent.phone || 'N/A'}\nPassword: ${password}`,
-    };
-
-    try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-        toast.success('Agent details shared successfully!');
-      } else {
-        copyToClipboard(shareData.text, 'Agent Details');
-      }
-    } catch (err: any) {
-      copyToClipboard(shareData.text, 'Agent Details');
-    }
-  };
-
-  const handleShareLink = async (agentId: string) => {
-    try {
-      const response = await fetch('/api/generate-share-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agentId }),
-      });
-      const { link } = await response.json();
-      copyToClipboard(link, 'Share Link');
-      toast.success('Secure share link copied to clipboard! Valid for 24 hours.');
-    } catch (err: any) {
-      toast.error('Failed to generate share link.');
-    }
-  };
-
-  const handleDownloadDetails = (agent: Agent, password: string) => {
-    const details = `
-      Agent Details:
-      ID: ${agent.id}
-      Name: ${agent.name || 'N/A'}
-      Email: ${agent.email}
-      Phone: ${agent.phone || 'N/A'}
-      Password: ${password}
-    `;
-    const blob = new Blob([details], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `agent-details-${agent.name || agent.email}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Agent details downloaded!');
-  };
-
-  const handleOpenAgentModal = () => {
-    console.log('Opening CreateAgentModal, setting showAgentModal to true');
-    setShowAgentModal(true);
-  };
-
-  const handleCloseAgentModal = () => {
-    console.log('Closing CreateAgentModal, setting showAgentModal to false');
-    setShowAgentModal(false);
-  };
-
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8 bg-blue-50 min-h-screen">
       <Toaster position="top-center" />
-      <h2 className="text-2xl font-bold mb-6 flex items-center">
-        <Users className="w-6 h-6 mr-2" />
+      <h2 className="text-3xl font-bold mb-8 flex items-center text-blue-900">
+        <Users className="w-8 h-8 mr-3" />
         Agent Management
       </h2>
-
-      <div className="flex space-x-4 mb-4">
+      <div className="mb-8 flex flex-wrap gap-4">
         <button
-          onClick={handleOpenAgentModal}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          aria-label="Open Create Agent Modal"
+          onClick={() => setShowAgentModal(true)}
+          className="px-6 py-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors shadow-md"
+          aria-label="Create Agent"
         >
-          <Plus className="w-5 h-5 mr-2" />
           Create Agent
         </button>
         <button
-          onClick={() => setShowAdminModal(true)}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          aria-label="Open Create Admin Modal"
+          onClick={() => {
+            setShowAdminModal(true);
+            setGeneratedPassword(generatePassword());
+          }}
+          className="px-6 py-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors shadow-md"
+          aria-label="Create Admin"
         >
-          <Plus className="w-5 h-5 mr-2" />
           Create Admin
         </button>
       </div>
-
       <AnimatePresence>
         {showAgentModal && (
           <CreateAgentModal
             isOpen={showAgentModal}
-            onClose={handleCloseAgentModal}
+            onClose={() => setShowAgentModal(false)}
             fetchAgents={fetchAgents}
-            fetchProperties={fetchProperties}
           />
         )}
-      </AnimatePresence>
-
-      {showAdminModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4">Create New Admin</h3>
-            <form onSubmit={handleCreateAdmin} className="space-y-4">
-              <div>
-                <label htmlFor="admin-email" className="block text-sm font-medium text-gray-700">
-                  Email
-                </label>
-                <input
-                  id="admin-email"
-                  type="email"
-                  value={newAdminEmail}
-                  onChange={(e) => setNewAdminEmail(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="admin@example.com"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="admin-name" className="block text-sm font-medium text-gray-700">
-                  Name (Optional)
-                </label>
-                <input
-                  id="admin-name"
-                  type="text"
-                  value={newAdminName}
-                  onChange={(e) => setNewAdminName(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="Admin Name"
-                />
-              </div>
-              <div>
-                <label htmlFor="admin-password" className="block text-sm font-medium text-gray-700">
-                  Password
-                </label>
-                <div className="flex items-center space-x-2">
+        {showAdminModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
+            >
+              <h3 className="text-xl font-bold mb-6 text-blue-900">Create New Admin</h3>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="admin-email" className="block text-sm font-medium text-blue-900">
+                    Email
+                  </label>
                   <input
-                    id="admin-password"
-                    type="text"
-                    value={generatedPassword}
-                    readOnly
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
+                    id="admin-email"
+                    type="email"
+                    value={newAdminEmail}
+                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="admin@example.com"
+                    required
                   />
+                </div>
+                <div>
+                  <label htmlFor="admin-name" className="block text-sm font-medium text-blue-900">
+                    Name (Optional)
+                  </label>
+                  <input
+                    id="admin-name"
+                    type="text"
+                    value={newAdminName}
+                    onChange={(e) => setNewAdminName(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="Admin Name"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="admin-password" className="block text-sm font-medium text-blue-900">
+                    Password
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      id="admin-password"
+                      type="text"
+                      value={generatedPassword}
+                      readOnly
+                      className="mt-1 block w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setGeneratedPassword(generatePassword())}
+                      className="mt-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                      aria-label="Regenerate Password"
+                    >
+                      Regenerate
+                    </button>
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-2">
                   <button
                     type="button"
-                    onClick={() => setGeneratedPassword(generatePassword())}
-                    className="mt-1 px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                    onClick={() => {
+                      setShowAdminModal(false);
+                      setNewAdminEmail('');
+                      setNewAdminName('');
+                      setGeneratedPassword('');
+                    }}
+                    className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
+                    aria-label="Cancel"
                   >
-                    Regenerate
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateAdmin}
+                    disabled={loading}
+                    className={`px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Create Admin"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Admin'}
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+        {showDetailsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
+            >
+              <h3 className="text-lg font-bold mb-4 text-blue-900">Agent Details</h3>
+              <div className="space-y-2 bg-blue-50 p-4 rounded-md">
+                <p className="text-blue-900">Agent ID: <span className="font-semibold">{showDetailsModal.id}</span></p>
+                <p className="text-blue-900">Name: <span className="font-semibold">{showDetailsModal.name || 'N/A'}</span></p>
+                <p className="text-blue-900">Email: <span className="font-semibold">{showDetailsModal.email}</span></p>
+                <p className="text-blue-900">Phone: <span className="font-semibold">{showDetailsModal.phone || 'N/A'}</span></p>
+                <p className="text-blue-900">Password: <span className="font-semibold">{showDetailsModal.password || 'Not available'}</span></p>
+                <p className="text-blue-900">Role: <span className="font-semibold">{showDetailsModal.role}</span></p>
+                <p className="text-blue-900">Permissions:</p>
+                <ul className="list-disc pl-5">
+                  <li className={showDetailsModal.permissions.canRegisterProperties ? 'text-green-600' : 'text-gray-400'}>
+                    Register Properties: {showDetailsModal.permissions.canRegisterProperties ? '✓ Yes' : '✗ No'}
+                  </li>
+                  <li className={showDetailsModal.permissions.canEditProperties ? 'text-yellow-600' : 'text-gray-400'}>
+                    Edit Properties: {showDetailsModal.permissions.canEditProperties ? '✓ Yes' : '✗ No'}
+                  </li>
+                  <li className={showDetailsModal.permissions.canDeleteProperties ? 'text-red-600' : 'text-gray-400'}>
+                    Delete Properties: {showDetailsModal.permissions.canDeleteProperties ? '✓ Yes' : '✗ No'}
+                  </li>
+                </ul>
+              </div>
+              <div className="flex justify-between gap-2 mt-4">
+                <button
+                  onClick={() => setShowShareModal(showDetailsModal)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  aria-label="Share Details"
+                >
+                  Share
+                </button>
+                <button
+                  onClick={() => setShowDetailsModal(null)}
+                  className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
+                  aria-label="Close"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        <EditAgentModal
+          isOpen={!!showEditModal}
+          onClose={() => setShowEditModal(null)}
+          agent={showEditModal}
+          fetchAgents={fetchAgents}
+        />
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
+            >
+              <h3 className="text-lg font-bold mb-4 text-blue-900">Confirm Delete</h3>
+              <p className="text-blue-900 mb-4">
+                Are you sure you want to delete <span className="font-semibold">{showDeleteModal.email}</span>? This action cannot be undone.
+              </p>
               <div className="flex justify-end space-x-2">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setShowAdminModal(false);
-                    setNewAdminEmail('');
-                    setNewAdminName('');
-                    setGeneratedPassword('');
-                  }}
-                  className="px-4 py-2 text-gray-600 rounded hover:bg-gray-100"
+                  onClick={() => setShowDeleteModal(null)}
+                  className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
+                  disabled={loading}
+                  aria-label="Cancel"
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  onClick={() => handleDeleteAgent(showDeleteModal.id)}
+                  className={`px-4 py-2 rounded-md text-white ${loading ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 transition-colors'}`}
                   disabled={loading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  aria-label="Delete"
                 >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Admin'}
+                  {loading ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
-            </form>
+            </motion.div>
           </div>
-        </div>
-      )}
-
-      {showDetailsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-            className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
-          >
-            <h3 className="text-lg font-bold mb-4">Agent Details</h3>
-            <div className="space-y-2">
-              <p className="text-gray-700">
-                Agent ID: <span className="font-mono font-semibold">{showDetailsModal.id}</span>
-                <button
-                  onClick={() => copyToClipboard(showDetailsModal.id, 'Agent ID')}
-                  className="ml-2 text-blue-600 hover:text-blue-800"
-                >
-                  <Copy className="w-4 h-4 inline" />
-                </button>
-              </p>
-              <p className="text-gray-700">
-                Name: <span className="font-mono font-semibold">{showDetailsModal.name || 'N/A'}</span>
-                <button
-                  onClick={() => copyToClipboard(showDetailsModal.name || 'N/A', 'Name')}
-                  className="ml-2 text-blue-600 hover:text-blue-800"
-                >
-                  <Copy className="w-4 h-4 inline" />
-                </button>
-              </p>
-              <p className="text-gray-700">
-                Email: <span className="font-mono font-semibold">{showDetailsModal.email}</span>
-                <button
-                  onClick={() => copyToClipboard(showDetailsModal.email, 'Email')}
-                  className="ml-2 text-blue-600 hover:text-blue-800"
-                >
-                  <Copy className="w-4 h-4 inline" />
-                </button>
-              </p>
-              <p className="text-gray-700">
-                Phone: <span className="font-mono font-semibold">{showDetailsModal.phone || 'N/A'}</span>
-                <button
-                  onClick={() => copyToClipboard(showDetailsModal.phone || 'N/A', 'Phone')}
-                  className="ml-2 text-blue-600 hover:text-blue-800"
-                >
-                  <Copy className="w-4 h-4 inline" />
-                </button>
-              </p>
-              <p className="text-gray-700">
-                Password: <span className="font-mono font-semibold">{showDetailsModal.password || 'Not available'}</span>
-                <button
-                  onClick={() => copyToClipboard(showDetailsModal.password || 'Not available', 'Password')}
-                  className="ml-2 text-blue-600 hover:text-blue-800"
-                >
-                  <Copy className="w-4 h-4 inline" />
-                </button>
-              </p>
-            </div>
-            <div className="flex justify-between gap-2 mt-4">
-              <button
-                onClick={() => handleShareDetails(showDetailsModal, showDetailsModal.password || 'Not available')}
-                className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-              >
-                <Share2 className="w-5 h-5 mr-2" /> Share
-              </button>
-              <button
-                onClick={() => handleShareLink(showDetailsModal.id)}
-                className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-              >
-                <Share2 className="w-5 h-5 mr-2" /> Share Link
-              </button>
-              <button
-                onClick={() => handleDownloadDetails(showDetailsModal, showDetailsModal.password || 'Not available')}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-              >
-                <Download className="w-5 h-5 mr-2" /> Download
-              </button>
-            </div>
-            <button
-              onClick={() => setShowDetailsModal(null)}
-              className="w-full mt-2 py-2 text-gray-600 rounded-md hover:bg-gray-100"
-            >
-              Close
-            </button>
-          </motion.div>
-        </div>
-      )}
-
-      <EditAgentModal
-        isOpen={!!showEditModal}
-        onClose={() => setShowEditModal(null)}
-        agent={showEditModal}
-        fetchAgents={fetchAgents}
-      />
-
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-            className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
-          >
-            <h3 className="text-lg font-bold mb-4">Confirm Delete</h3>
-            <p className="text-gray-700 mb-4">
-              Are you sure you want to delete the agent <span className="font-semibold">{showDeleteModal.email}</span>? This
-              action cannot be undone.
-            </p>
-            <div className="flex justify-end space-x-2">
-              <button
-                onClick={() => setShowDeleteModal(null)}
-                className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeleteAgent(showDeleteModal.id)}
-                className={`px-4 py-2 rounded-md text-white ${loading ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
-                disabled={loading}
-              >
-                {loading ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-4">Existing Agents & Admins</h3>
+        )}
+        <ShareDetailsModal
+          isOpen={!!showShareModal}
+          onClose={() => setShowShareModal(null)}
+          agent={showShareModal}
+        />
+      </AnimatePresence>
+      <div className="bg-blue-100 shadow-lg rounded-lg p-6">
+        <h3 className="text-xl font-semibold mb-6 text-blue-900">Existing Agents & Admins</h3>
         {loading ? (
-          <div className="flex justify-center">
-            <Loader2 className="w-8 h-8 animate-spin" />
-            <span className="ml-2 text-gray-600">Loading agents...</span>
+          <div className="flex justify-center items-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <span className="ml-2 text-blue-900">Loading agents...</span>
           </div>
         ) : agents.length === 0 ? (
-          <div className="text-center text-gray-600">No agents or admins found.</div>
+          <div className="text-center text-blue-900">No agents or admins found.</div>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Email</th>
-                <th className="text-left py-2">Name</th>
-                <th className="text-left py-2">Role</th>
-                <th className="text-left py-2">Permissions</th>
-                <th className="text-left py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents
-                .filter((agent) => agent && agent.id)
-                .map((agent) => (
-                  <tr key={agent.id} className="border-b">
-                    <td className="py-2">{agent.email}</td>
-                    <td className="py-2">{agent.name || 'N/A'}</td>
-                    <td className="py-2">{agent.role}</td>
-                    <td className="py-2">
-                      {agent.permissions ? (
-                        <div className="flex items-center space-x-2">
-                          {agent.permissions.canRegisterProperties && (
-                            <Home className="w-4 h-4 text-green-600" title="Can Register Properties" />
-                          )}
-                          {agent.permissions.canEditProperties && (
-                            <Pencil className="w-4 h-4 text-yellow-600" title="Can Edit Properties" />
-                          )}
-                          {agent.permissions.canDeleteProperties && (
-                            <Trash2 className="w-4 h-4 text-red-600" title="Can Delete Properties" />
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-red-600">No permissions set</span>
-                      )}
-                    </td>
-                    <td className="py-2">
-                      <button
-                        onClick={async () => {
-                          const password = await fetchAgentDetails(agent.id);
-                          setShowDetailsModal({ ...agent, password });
-                        }}
-                        className="p-1 text-blue-600 hover:text-blue-800"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          console.log('Opening edit modal for agent:', agent);
-                          setShowEditModal(agent);
-                        }}
-                        className="p-1 text-blue-600 hover:text-blue-800 ml-2"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setShowDeleteModal(agent)}
-                        className="p-1 text-red-600 hover:text-red-800 ml-2"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {agents.map((agent) => (
+              <motion.div
+                key={agent.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-blue-50 rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
+              >
+                <h4 className="text-lg font-semibold text-blue-900">{agent.name || 'N/A'}</h4>
+                <p className="text-blue-900">{agent.email}</p>
+                <p className="text-blue-900 capitalize">{agent.role}</p>
+                <div className="mt-2">
+                  <p className="text-blue-900 font-medium">Permissions:</p>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {agent.permissions ? (
+                      <>
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs ${
+                            agent.permissions.canRegisterProperties ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          Register {agent.permissions.canRegisterProperties ? '✓' : '✗'}
+                        </span>
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs ${
+                            agent.permissions.canEditProperties ? 'bg-yellow-200 text-yellow-800' : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          Edit {agent.permissions.canEditProperties ? '✓' : '✗'}
+                        </span>
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs ${
+                            agent.permissions.canDeleteProperties ? 'bg-red-200 text-red-800' : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          Delete {agent.permissions.canDeleteProperties ? '✓' : '✗'}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="px-2 py-1 rounded-full text-xs bg-red-200 text-red-800">No permissions</span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const password = await fetchAgentDetails(agent.id);
+                      setShowDetailsModal({ ...agent, password });
+                    }}
+                    className="p-2 text-blue-600 hover:text-blue-800"
+                    aria-label="View Details"
+                  >
+                    <Eye className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowEditModal(agent)}
+                    className="p-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Edit Agent"
+                  >
+                    <Pencil className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteModal(agent)}
+                    className="p-2 text-red-600 hover:text-red-800"
+                    aria-label="Delete Agent"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const password = await fetchAgentDetails(agent.id);
+                      setShowShareModal({ ...agent, password });
+                    }}
+                    className="p-2 text-blue-600 hover:text-blue-800"
+                    aria-label="Share Details"
+                  >
+                    <Share2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         )}
       </div>
     </div>

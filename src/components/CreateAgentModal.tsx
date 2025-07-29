@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+
+import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
-import { Copy, Download, Share2 } from 'lucide-react';
+import { Copy, Download, Share2, Loader2 } from 'lucide-react';
 import { AgentDetails } from '../types/types';
 
 interface CreateAgentModalProps {
@@ -12,6 +13,15 @@ interface CreateAgentModalProps {
   fetchAgents: () => Promise<any>;
   fetchProperties: () => Promise<void>;
 }
+
+const generatePassword = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < 12; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+};
 
 export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties }: CreateAgentModalProps) {
   const { profile } = useAuthStore();
@@ -26,134 +36,180 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
   const [success, setSuccess] = useState<{ id: string; email: string; name: string; phone: string; password: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      console.log('Modal opened, resetting agentDetails');
+      setAgentDetails({ email: '', name: '', phone: '', password: '', confirmPassword: '' });
+      setError(null);
+      setSuccess(null);
+      setIsLoading(false);
+    }
+  }, [isOpen]);
+
   const handleCreateAgent = useCallback(async () => {
-  try {
-    setIsLoading(true);
-    setError(null);
-    setSuccess(null);
+    try {
+      setIsLoading(true);
+      setError(null);
+      setSuccess(null);
 
-    // Validate inputs
-    if (!agentDetails.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentDetails.email)) {
-      throw new Error('Please enter a valid email address');
-    }
-    if (!agentDetails.name || agentDetails.name.trim().length < 2) {
-      throw new Error('Please enter a valid name (at least 2 characters)');
-    }
-    if (!agentDetails.phone || !/^\+?[1-9]\d{1,14}$/.test(agentDetails.phone)) {
-      throw new Error('Please enter a valid phone number (e.g., +1234567890)');
-    }
-    if (!agentDetails.password || agentDetails.password.length < 6) {
-      throw new Error('Password must be at least 6 characters long');
-    }
-    if (agentDetails.password !== agentDetails.confirmPassword) {
-      throw new Error('Passwords do not match');
-    }
+      // Validate inputs
+      if (!agentDetails.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentDetails.email)) {
+        throw new Error('Please enter a valid email address');
+      }
+      if (!agentDetails.name || agentDetails.name.trim().length < 2) {
+        throw new Error('Please enter a valid name (at least 2 characters)');
+      }
+      if (!agentDetails.phone || !/^\+?[1-9]\d{1,14}$/.test(agentDetails.phone)) {
+        throw new Error('Please enter a valid phone number (e.g., +1234567890)');
+      }
+      if (!agentDetails.password || agentDetails.password.length < 6) {
+        throw new Error('Password must be at least 6 characters long');
+      }
+      if (agentDetails.password !== agentDetails.confirmPassword) {
+        throw new Error('Passwords do not match');
+      }
 
-    // Check admin authorization
-    if (!profile || profile.role !== 'admin') {
-      throw new Error('Only admins can create new agent accounts');
-    }
+      // Check admin authorization
+      if (!profile || profile.role !== 'admin') {
+        throw new Error('Only admins can create new agent accounts');
+      }
 
-    console.log('Attempting to create agent with:', {
-      email: agentDetails.email,
-      name: agentDetails.name,
-      phone: agentDetails.phone,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Attempt signUp
-    console.log('Before signUp:', { email: agentDetails.email, timestamp: new Date().toISOString() });
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: agentDetails.email,
-      password: agentDetails.password,
-      options: { emailRedirectTo: undefined },
-    });
-    console.log('After signUp:', { authData, authError, timestamp: new Date().toISOString() });
-
-    if (authError || !authData.user) {
-      console.error('Supabase auth.signUp error:', {
-        message: authError?.message,
-        code: authError?.code,
-        details: authError,
+      console.log('Attempting to create agent with:', {
         email: agentDetails.email,
+        name: agentDetails.name,
+        phone: agentDetails.phone,
         timestamp: new Date().toISOString(),
       });
-      const errorMessage =
-        authError?.code === 'user_already_exists'
-          ? 'This email is already registered. Please use a different email.'
-          : authError?.code === '42501'
-          ? 'Permission denied. Check database RLS policies or triggers.'
-          : `Authentication error: ${authError?.message || 'No user returned'} (Code: ${authError?.code || 'N/A'})`;
-      throw new Error(errorMessage);
-    }
 
-    console.log('User created in auth.users:', {
-      userId: authData.user.id,
-      email: authData.user.email,
-      timestamp: new Date().toISOString(),
-    });
+      // Attempt signUp or admin.createUser
+      let authData;
+      let authError;
+      try {
+        console.log('Before signUp:', { email: agentDetails.email, timestamp: new Date().toISOString() });
+        const { data, error } = await supabase.auth.signUp({
+          email: agentDetails.email,
+          password: agentDetails.password,
+          options: {
+            emailRedirectTo: undefined,
+            data: {
+              name: agentDetails.name,
+              phone: agentDetails.phone,
+              role: 'agent',
+            },
+          },
+        });
+        authData = data;
+        authError = error;
+      } catch (signUpError) {
+        console.log('signUp failed, attempting admin.createUser:', { error: signUpError, timestamp: new Date().toISOString() });
+        const { data, error } = await supabase.auth.admin.createUser({
+          email: agentDetails.email,
+          password: agentDetails.password,
+          email_confirm: true,
+          user_metadata: {
+            name: agentDetails.name,
+            phone: agentDetails.phone,
+            role: 'agent',
+          },
+        });
+        authData = data;
+        authError = error;
+      }
 
-    // Insert into profiles
-    console.log('Before profiles insert:', { userId: authData.user.id, timestamp: new Date().toISOString() });
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .insert({
+      if (authError || !authData.user) {
+        console.error('Supabase auth error:', {
+          message: authError?.message,
+          code: authError?.code,
+          details: authError,
+          email: agentDetails.email,
+          timestamp: new Date().toISOString(),
+        });
+        const errorMessage =
+          authError?.code === 'user_already_exists'
+            ? 'This email is already registered. Please use a different email.'
+            : authError?.code === '42501'
+            ? 'Permission denied. Check database RLS policies or triggers.'
+            : `Authentication error: ${authError?.message || 'No user returned'} (Code: ${authError?.code || 'N/A'})`;
+        throw new Error(errorMessage);
+      }
+
+      console.log('User created in auth.users:', {
+        userId: authData.user.id,
+        email: authData.user.email,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Insert into profiles
+      console.log('Before profiles insert:', { userId: authData.user.id, timestamp: new Date().toISOString() });
+      const permissions = {
+        canRegisterProperties: true,
+        canEditProperties: true,
+        canDeleteProperties: false,
+      };
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: authData.user.id,
+            email: agentDetails.email,
+            name: agentDetails.name,
+            phone: agentDetails.phone,
+            role: 'agent',
+            permissions,
+          },
+          { onConflict: 'id' }
+        );
+      console.log('After profiles insert:', { profileError, timestamp: new Date().toISOString() });
+
+      if (profileError) {
+        console.error('Profile insert error:', {
+          message: profileError.message,
+          code: profileError.code,
+          details: profileError,
+          userId: authData.user.id,
+          timestamp: new Date().toISOString(),
+        });
+        throw new Error(`Failed to create profile record: ${profileError.message}`);
+      }
+
+      console.log('Profile successfully inserted for user:', authData.user.id);
+
+      setSuccess({
         id: authData.user.id,
         email: agentDetails.email,
         name: agentDetails.name,
         phone: agentDetails.phone,
-        role: 'agent',
+        password: agentDetails.password,
       });
-    console.log('After profiles insert:', { profileError, timestamp: new Date().toISOString() });
 
-    if (profileError) {
-      console.error('Profile insert error:', {
-        message: profileError.message,
-        code: profileError.code,
-        details: profileError,
-        userId: authData.user.id,
+      toast.success(
+        `Agent created: ${agentDetails.email} (ID: ${authData.user.id})\nPassword: ${agentDetails.password}\nPlease share this securely.`,
+        {
+          duration: 15000,
+          style: { background: '#BFDBFE', color: '#1E3A8A', borderRadius: '8px', maxWidth: '500px' },
+        }
+      );
+
+      await Promise.all([fetchAgents(), fetchProperties()]);
+    } catch (err: any) {
+      const errorMessage = err.message || 'An unexpected error occurred';
+      console.error('Agent creation failed:', {
+        message: errorMessage,
+        code: err.code,
+        details: err,
+        stack: err.stack,
         timestamp: new Date().toISOString(),
       });
-      throw new Error(`Failed to create profile record: ${profileError.message}`);
+      setError(errorMessage);
+      toast.error(`Failed to create agent: ${errorMessage}`, {
+        style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
+      });
+    } finally {
+      setIsLoading(false);
     }
+  }, [agentDetails, profile, fetchAgents, fetchProperties]);
 
-    console.log('Profile successfully inserted for user:', authData.user.id);
-
-    setSuccess({
-      id: authData.user.id,
-      email: agentDetails.email,
-      name: agentDetails.name,
-      phone: agentDetails.phone,
-      password: agentDetails.password,
-    });
-
-    toast.success(
-      `Agent created: ${agentDetails.email} (ID: ${authData.user.id})\nPassword: ${agentDetails.password}\nPlease share this securely.`,
-      {
-        duration: 15000,
-        style: { background: '#3B82F6', color: '#fff', borderRadius: '8px', maxWidth: '500px' },
-      }
-    );
-
-    await Promise.all([fetchAgents(), fetchProperties()]);
-  } catch (err: any) {
-    const errorMessage = err.message || 'An unexpected error occurred';
-    console.error('Agent creation failed:', {
-      message: errorMessage,
-      code: err.code,
-      details: err,
-      stack: err.stack,
-      timestamp: new Date().toISOString(),
-    });
-    setError(errorMessage);
-    toast.error(`Failed to create agent: ${errorMessage}`, {
-      style: { background: '#EF4444', color: '#fff', borderRadius: '8px' },
-    });
-  } finally {
-    setIsLoading(false);
-  }
-}, [agentDetails, profile, fetchAgents, fetchProperties]);
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${label} copied to clipboard`, {
@@ -181,7 +237,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
     } catch (err: any) {
       console.error('Share failed:', err);
       toast.error('Failed to share details. Copied to clipboard instead.', {
-        style: { background: '#EF4444', color: '#fff', borderRadius: '8px' },
+        style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
       });
       copyToClipboard(shareData.text, 'Agent Details');
     }
@@ -223,18 +279,18 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
     return null;
   }
 
-  console.log('Rendering CreateAgentModal, isOpen:', isOpen);
+  console.log('Rendering CreateAgentModal, isOpen:', isOpen, 'agentDetails:', agentDetails);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" role="dialog">
       <Toaster position="top-center" />
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="bg-white/80 backdrop-blur-md rounded-lg shadow-xl p-8 w-full max-w-md border border-gray-200"
+        className="bg-blue-100 rounded-lg shadow-xl p-8 w-full max-w-md border border-blue-300"
       >
-        <h1 className="text-2xl font-bold mb-6 text-gray-900 text-center">Create New Agent</h1>
+        <h1 className="text-2xl font-bold mb-6 text-blue-900 text-center">Create New Agent</h1>
         <AnimatePresence mode="wait">
           {success ? (
             <motion.div
@@ -246,8 +302,8 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
               className="text-center space-y-4"
             >
               <p className="text-green-600 font-semibold">Agent account created successfully!</p>
-              <div className="text-left space-y-2">
-                <p className="text-gray-700">
+              <div className="text-left space-y-2 bg-blue-50 p-4 rounded-md">
+                <p className="text-blue-900">
                   Agent ID:{' '}
                   <span className="font-mono font-semibold">{success.id}</span>
                   <button
@@ -258,7 +314,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
-                <p className="text-gray-700">
+                <p className="text-blue-900">
                   Name:{' '}
                   <span className="font-mono font-semibold">{success.name}</span>
                   <button
@@ -269,7 +325,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
-                <p className="text-gray-700">
+                <p className="text-blue-900">
                   Email:{' '}
                   <span className="font-mono font-semibold">{success.email}</span>
                   <button
@@ -280,7 +336,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
-                <p className="text-gray-700">
+                <p className="text-blue-900">
                   Phone:{' '}
                   <span className="font-mono font-semibold">{success.phone}</span>
                   <button
@@ -291,7 +347,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                     <Copy className="w-4 h-4 inline" />
                   </button>
                 </p>
-                <p className="text-gray-700">
+                <p className="text-blue-900">
                   Password:{' '}
                   <span className="font-mono font-semibold">{success.password}</span>
                   <button
@@ -303,7 +359,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                   </button>
                 </p>
               </div>
-              <div className="flex justify-between gap-2">
+              <div className="flex justify-between gap-2 flex-wrap">
                 <button
                   onClick={handleShareDetails}
                   className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
@@ -325,15 +381,15 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                 >
                   Create Another
                 </button>
+                <button
+                  onClick={handleClose}
+                  disabled={isLoading}
+                  className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200"
+                  aria-label="Cancel"
+                >
+                  Cancel
+                </button>
               </div>
-              <button
-                onClick={handleClose}
-                disabled={isLoading}
-                className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
-                aria-label="Cancel"
-              >
-                Cancel
-              </button>
             </motion.div>
           ) : (
             <motion.div
@@ -344,7 +400,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
               transition={{ duration: 0.3 }}
             >
               <div className="mb-4">
-                <label htmlFor="agent-email" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-email" className="block text-sm font-medium text-blue-900 mb-1">
                   Email
                 </label>
                 <input
@@ -352,15 +408,16 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                   type="email"
                   value={agentDetails.email}
                   onChange={(e) => setAgentDetails({ ...agentDetails, email: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="agent@example.com"
                   disabled={isLoading}
                   aria-required="true"
                   aria-invalid={!!error}
+                  autoComplete="off"
                 />
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-name" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-name" className="block text-sm font-medium text-blue-900 mb-1">
                   Name
                 </label>
                 <input
@@ -368,15 +425,16 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                   type="text"
                   value={agentDetails.name}
                   onChange={(e) => setAgentDetails({ ...agentDetails, name: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="John Doe"
                   disabled={isLoading}
                   aria-required="true"
                   aria-invalid={!!error}
+                  autoComplete="off"
                 />
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-phone" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-phone" className="block text-sm font-medium text-blue-900 mb-1">
                   Phone
                 </label>
                 <input
@@ -384,31 +442,44 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                   type="tel"
                   value={agentDetails.phone}
                   onChange={(e) => setAgentDetails({ ...agentDetails, phone: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="+1234567890"
                   disabled={isLoading}
                   aria-required="true"
                   aria-invalid={!!error}
+                  autoComplete="off"
                 />
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-password" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-password" className="block text-sm font-medium text-blue-900 mb-1">
                   Password
                 </label>
-                <input
-                  id="agent-password"
-                  type="password"
-                  value={agentDetails.password}
-                  onChange={(e) => setAgentDetails({ ...agentDetails, password: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
-                  placeholder="Enter a password (minimum 6 characters)"
-                  disabled={isLoading}
-                  aria-required="true"
-                  aria-invalid={!!error}
-                />
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="agent-password"
+                    type="text"
+                    value={agentDetails.password}
+                    onChange={(e) => setAgentDetails({ ...agentDetails, password: e.target.value })}
+                    className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
+                    placeholder="Minimum 6 characters"
+                    disabled={isLoading}
+                    aria-required="true"
+                    aria-invalid={!!error}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAgentDetails({ ...agentDetails, password: generatePassword(), confirmPassword: '' })}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                    disabled={isLoading}
+                    aria-label="Generate Password"
+                  >
+                    Generate
+                  </button>
+                </div>
               </div>
               <div className="mb-4">
-                <label htmlFor="agent-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-confirm-password" className="block text-sm font-medium text-blue-900 mb-1">
                   Confirm Password
                 </label>
                 <input
@@ -416,11 +487,12 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                   type="password"
                   value={agentDetails.confirmPassword}
                   onChange={(e) => setAgentDetails({ ...agentDetails, confirmPassword: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white/50"
+                  className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 bg-blue-50"
                   placeholder="Confirm your password"
                   disabled={isLoading}
                   aria-required="true"
                   aria-invalid={!!error}
+                  autoComplete="new-password"
                 />
               </div>
               {error && (
@@ -436,7 +508,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                 <button
                   onClick={handleClose}
                   disabled={isLoading}
-                  className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100"
+                  className="px-4 py-2 text-blue-900 rounded-md hover:bg-blue-200 transition-colors"
                   aria-label="Cancel"
                 >
                   Cancel
@@ -451,14 +523,7 @@ export function CreateAgentModal({ isOpen, onClose, fetchAgents, fetchProperties
                 >
                   {isLoading ? (
                     <span className="flex items-center justify-center">
-                      <svg className="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        />
-                      </svg>
+                      <Loader2 className="h-5 w-5 mr-2 text-white animate-spin" />
                       Creating...
                     </span>
                   ) : (

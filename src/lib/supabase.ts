@@ -22,7 +22,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    fetch: (input, init) => fetch(input, { ...init, timeout: 30000 }).catch((err) => {
+    fetch: (input, init) => fetch(input, { ...init }).catch((err) => {
       console.error('Supabase fetch error:', err);
       throw err;
     }),

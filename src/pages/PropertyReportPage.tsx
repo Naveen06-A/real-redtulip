@@ -675,6 +675,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
+      console.log('Export PDF - Head:', head);
+      console.log('Export PDF - Body sample (first 2 rows):', body.slice(0, 2));
 
       const pdfBlob = await generatePdf({
         title: 'Property Report',
@@ -766,6 +768,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
+      console.log('Export PDF - Head:', head);
+      console.log('Export PDF - Body sample (first 2 rows):', body.slice(0, 2));
 
       const pdfDataUri = await generatePdf({
         title: 'Property Report',

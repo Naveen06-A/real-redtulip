@@ -1,12 +1,12 @@
+
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Loader2, Plus, Trash2, Phone, DoorClosed, CheckCircle, Eye } from 'lucide-react';
+import { Loader2, Plus, Trash2, Phone, DoorClosed, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { StreetSuggestions } from './StreetSuggestions';
 
-// Custom UUID function
 const uuidv4 = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -15,7 +15,6 @@ const uuidv4 = () => {
   });
 };
 
-// Title case function
 const toTitleCase = (str: string) => {
   return str
     .toLowerCase()
@@ -45,11 +44,6 @@ interface DoorKnockStreet {
   why: string;
   house_count: string;
   target_knocks: string;
-  target_made: string;
-  target_answers: string;
-  target_connects: string;
-  desktop_appraisals: string;
-  face_to_face_appraisals: string;
 }
 
 interface PhoneCallStreet {
@@ -58,8 +52,6 @@ interface PhoneCallStreet {
   why: string;
   target_calls: string;
   target_connects: string;
-  desktop_appraisals: string;
-  face_to_face_appraisals: string;
 }
 
 interface MarketingPlan {
@@ -70,21 +62,10 @@ interface MarketingPlan {
   end_date: string;
   door_knock_streets: DoorKnockStreet[];
   phone_call_streets: PhoneCallStreet[];
+  desktop_appraisals: string;
+  face_to_face_appraisals: string;
   created_at?: string;
   updated_at?: string;
-}
-
-interface ActualProgress {
-  doorKnocks: { completed: number; target: number };
-  doorKnocksMade: { completed: number; target: number };
-  doorKnockAnswers: { completed: number; target: number };
-  doorKnockConnects: { completed: number; target: number };
-  doorKnockDesktopAppraisals: { completed: number; target: number };
-  doorKnockFaceToFaceAppraisals: { completed: number; target: number };
-  phoneCalls: { completed: number; target: number };
-  phoneCallConnects: { completed: number; target: number };
-  phoneCallDesktopAppraisals: { completed: number; target: number };
-  phoneCallFaceToFaceAppraisals: { completed: number; target: number };
 }
 
 export function MarketingPlanPage() {
@@ -93,18 +74,6 @@ export function MarketingPlanPage() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [actualProgress, setActualProgress] = useState<ActualProgress>({
-    doorKnocks: { completed: 0, target: 0 },
-    doorKnocksMade: { completed: 0, target: 0 },
-    doorKnockAnswers: { completed: 0, target: 0 },
-    doorKnockConnects: { completed: 0, target: 0 },
-    doorKnockDesktopAppraisals: { completed: 0, target: 0 },
-    doorKnockFaceToFaceAppraisals: { completed: 0, target: 0 },
-    phoneCalls: { completed: 0, target: 0 },
-    phoneCallConnects: { completed: 0, target: 0 },
-    phoneCallDesktopAppraisals: { completed: 0, target: 0 },
-    phoneCallFaceToFaceAppraisals: { completed: 0, target: 0 },
-  });
   const [marketingPlan, setMarketingPlan] = useState<MarketingPlan>({
     id: uuidv4(),
     agent: '',
@@ -113,6 +82,8 @@ export function MarketingPlanPage() {
     end_date: '',
     door_knock_streets: [],
     phone_call_streets: [],
+    desktop_appraisals: '',
+    face_to_face_appraisals: '',
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isCustomSuburb, setIsCustomSuburb] = useState(false);
@@ -182,12 +153,6 @@ export function MarketingPlanPage() {
   }, [user, profile, navigate]);
 
   useEffect(() => {
-    if (user?.id) {
-      fetchActualProgress(user.id);
-    }
-  }, [user, marketingPlan]);
-
-  useEffect(() => {
     if (saveSuccess) {
       const timer = setTimeout(() => {
         setSaveSuccess(false);
@@ -215,7 +180,7 @@ export function MarketingPlanPage() {
         setIsCustomSuburb(!PREDEFINED_SUBURBS.includes(loadedSuburb) && loadedSuburb !== '');
         setMarketingPlan({
           id: data.id || uuidv4(),
-          agent: data.agent,
+          agent: data.agent || '',
           suburb: loadedSuburb,
           start_date: data.start_date || '',
           end_date: data.end_date || '',
@@ -223,31 +188,49 @@ export function MarketingPlanPage() {
             ...street,
             id: street.id || uuidv4(),
             name: toTitleCase(street.name || ''),
-            why: toTitleCase(street.why || ''),
+            why: street.why || '',
             house_count: street.house_count || '',
             target_knocks: street.target_knocks || '',
-            target_made: street.target_made || '',
-            target_answers: street.target_answers || '',
-            target_connects: street.target_connects || '',
-            desktop_appraisals: street.desktop_appraisals || '',
-            face_to_face_appraisals: street.face_to_face_appraisals || '',
           })),
           phone_call_streets: (data.phone_call_streets || []).map((street: any) => ({
             ...street,
             id: street.id || uuidv4(),
             name: toTitleCase(street.name || ''),
-            why: toTitleCase(street.why || ''),
+            why: street.why || '',
             target_calls: street.target_calls || '',
             target_connects: street.target_connects || '',
-            desktop_appraisals: street.desktop_appraisals || '',
-            face_to_face_appraisals: street.face_to_face_appraisals || '',
           })),
+          desktop_appraisals: data.desktop_appraisals || '',
+          face_to_face_appraisals: data.face_to_face_appraisals || '',
           created_at: data.created_at || undefined,
           updated_at: data.updated_at || undefined,
+        });
+      } else {
+        setMarketingPlan({
+          id: uuidv4(),
+          agent: agentId,
+          suburb: '',
+          start_date: '',
+          end_date: '',
+          door_knock_streets: [],
+          phone_call_streets: [],
+          desktop_appraisals: '',
+          face_to_face_appraisals: '',
         });
       }
     } catch (error) {
       console.error('Error loading marketing plan:', error);
+      setMarketingPlan({
+        id: uuidv4(),
+        agent: agentId,
+        suburb: '',
+        start_date: '',
+        end_date: '',
+        door_knock_streets: [],
+        phone_call_streets: [],
+        desktop_appraisals: '',
+        face_to_face_appraisals: '',
+      });
     }
   };
 
@@ -271,135 +254,26 @@ export function MarketingPlanPage() {
             ...street,
             id: street.id || uuidv4(),
             name: toTitleCase(street.name || ''),
-            why: toTitleCase(street.why || ''),
+            why: street.why || '',
             house_count: street.house_count || '',
             target_knocks: street.target_knocks || '',
-            target_made: street.target_made || '',
-            target_answers: street.target_answers || '',
-            target_connects: street.target_connects || '',
-            desktop_appraisals: street.desktop_appraisals || '',
-            face_to_face_appraisals: street.face_to_face_appraisals || '',
           })),
           phone_call_streets: (plan.phone_call_streets || []).map((street: any) => ({
             ...street,
             id: street.id || uuidv4(),
             name: toTitleCase(street.name || ''),
-            why: toTitleCase(street.why || ''),
+            why: street.why || '',
             target_calls: street.target_calls || '',
             target_connects: street.target_connects || '',
-            desktop_appraisals: street.desktop_appraisals || '',
-            face_to_face_appraisals: street.face_to_face_appraisals || '',
           })),
+          desktop_appraisals: plan.desktop_appraisals || '',
+          face_to_face_appraisals: plan.face_to_face_appraisals || '',
           created_at: plan.created_at || undefined,
           updated_at: plan.updated_at || undefined,
         }))
       );
     } catch (error) {
       console.error('Error loading saved plans:', error);
-    }
-  };
-
-  const fetchActualProgress = async (agentId: string) => {
-    try {
-      const { data: activities, error } = await supabase
-        .from('agent_activities')
-        .select('*')
-        .eq('agent_id', agentId)
-        .gte('activity_date', marketingPlan.start_date || new Date().toISOString())
-        .lte('activity_date', marketingPlan.end_date || new Date().toISOString());
-
-      if (error) {
-        throw error;
-      }
-
-      const totalTargetKnocks = marketingPlan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_knocks || '0') || 0),
-        0
-      );
-      const totalTargetKnocksMade = marketingPlan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_made || '0') || 0),
-        0
-      );
-      const totalTargetDoorKnockAnswers = marketingPlan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_answers || '0') || 0),
-        0
-      );
-      const totalTargetDoorKnockConnects = marketingPlan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_connects || '0') || 0),
-        0
-      );
-      const totalTargetDoorKnockDesktopAppraisals = marketingPlan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.desktop_appraisals || '0') || 0),
-        0
-      );
-      const totalTargetDoorKnockFaceToFaceAppraisals = marketingPlan.door_knock_streets.reduce(
-        (sum, street) => sum + (parseInt(street.face_to_face_appraisals || '0') || 0),
-        0
-      );
-      const totalTargetCalls = marketingPlan.phone_call_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_calls || '0') || 0),
-        0
-      );
-      const totalTargetPhoneCallConnects = marketingPlan.phone_call_streets.reduce(
-        (sum, street) => sum + (parseInt(street.target_connects || '0') || 0),
-        0
-      );
-      const totalTargetPhoneCallDesktopAppraisals = marketingPlan.phone_call_streets.reduce(
-        (sum, street) => sum + (parseInt(street.desktop_appraisals || '0') || 0),
-        0
-      );
-      const totalTargetPhoneCallFaceToFaceAppraisals = marketingPlan.phone_call_streets.reduce(
-        (sum, street) => sum + (parseInt(street.face_to_face_appraisals || '0') || 0),
-        0
-      );
-
-      const progress = activities?.length
-        ? activities.reduce(
-            (acc, activity) => {
-              if (activity.activity_type === 'door_knock') {
-                acc.doorKnocks.completed += activity.knocks_made || 0;
-                acc.doorKnocksMade.completed += activity.knocks_made || 0;
-                acc.doorKnockAnswers.completed += activity.knocks_answered || 0;
-                acc.doorKnockConnects.completed += activity.knocks_connected || 0;
-                acc.doorKnockDesktopAppraisals.completed += activity.desktop_appraisals || 0;
-                acc.doorKnockFaceToFaceAppraisals.completed += activity.face_to_face_appraisals || 0;
-              } else if (activity.activity_type === 'phone_call') {
-                acc.phoneCalls.completed += activity.calls_made || 0;
-                acc.phoneCallConnects.completed += activity.calls_connected || 0;
-                acc.phoneCallDesktopAppraisals.completed += activity.desktop_appraisals || 0;
-                acc.phoneCallFaceToFaceAppraisals.completed += activity.face_to_face_appraisals || 0;
-              }
-              return acc;
-            },
-            {
-              doorKnocks: { completed: 0, target: totalTargetKnocks },
-              doorKnocksMade: { completed: 0, target: totalTargetKnocksMade },
-              doorKnockAnswers: { completed: 0, target: totalTargetDoorKnockAnswers },
-              doorKnockConnects: { completed: 0, target: totalTargetDoorKnockConnects },
-              doorKnockDesktopAppraisals: { completed: 0, target: totalTargetDoorKnockDesktopAppraisals },
-              doorKnockFaceToFaceAppraisals: { completed: 0, target: totalTargetDoorKnockFaceToFaceAppraisals },
-              phoneCalls: { completed: 0, target: totalTargetCalls },
-              phoneCallConnects: { completed: 0, target: totalTargetPhoneCallConnects },
-              phoneCallDesktopAppraisals: { completed: 0, target: totalTargetPhoneCallDesktopAppraisals },
-              phoneCallFaceToFaceAppraisals: { completed: 0, target: totalTargetPhoneCallFaceToFaceAppraisals },
-            }
-          )
-        : {
-            doorKnocks: { completed: 0, target: totalTargetKnocks },
-            doorKnocksMade: { completed: 0, target: totalTargetKnocksMade },
-            doorKnockAnswers: { completed: 0, target: totalTargetDoorKnockAnswers },
-            doorKnockConnects: { completed: 0, target: totalTargetDoorKnockConnects },
-            doorKnockDesktopAppraisals: { completed: 0, target: totalTargetDoorKnockDesktopAppraisals },
-            doorKnockFaceToFaceAppraisals: { completed: 0, target: totalTargetDoorKnockFaceToFaceAppraisals },
-            phoneCalls: { completed: 0, target: totalTargetCalls },
-            phoneCallConnects: { completed: 0, target: totalTargetPhoneCallConnects },
-            phoneCallDesktopAppraisals: { completed: 0, target: totalTargetPhoneCallDesktopAppraisals },
-            phoneCallFaceToFaceAppraisals: { completed: 0, target: totalTargetPhoneCallFaceToFaceAppraisals },
-          };
-
-      setActualProgress(progress);
-    } catch (error) {
-      console.error('Error fetching actual progress:', error);
     }
   };
 
@@ -420,20 +294,18 @@ export function MarketingPlanPage() {
         newErrors[`door_knock_street_${index}_name`] = `Please enter a street name for door knock ${index + 1}`;
       if (!street.target_knocks || parseInt(street.target_knocks) <= 0)
         newErrors[`door_knock_street_${index}_target_knocks`] = `Please enter a valid number of target knocks for door knock ${index + 1}`;
-      if (!street.target_made || parseInt(street.target_made) <= 0)
-        newErrors[`door_knock_street_${index}_target_made`] = `Please enter a valid number of target knocks made for door knock ${index + 1}`;
-      if (!street.target_answers || parseInt(street.target_answers) <= 0)
-        newErrors[`door_knock_street_${index}_target_answers`] = `Please enter a valid number of target answers for door knock ${index + 1}`;
-      if (!street.target_connects || parseInt(street.target_connects) <= 0)
-        newErrors[`door_knock_street_${index}_target_connects`] = `Please enter a valid number of target connects for door knock ${index + 1}`;
     });
     marketingPlan.phone_call_streets.forEach((street, index) => {
       if (!street.name) newErrors[`phone_call_street_${index}_name`] = `Please enter a street name for phone call ${index + 1}`;
       if (!street.target_calls || parseInt(street.target_calls) <= 0)
         newErrors[`phone_call_street_${index}_target_calls`] = `Please enter a valid number of target calls for phone call ${index + 1}`;
-      if (!street.target_connects || parseInt(street.target_connects) <= 0)
+      if (!street.target_connects || parseInt(street.target_connects) < 0)
         newErrors[`phone_call_street_${index}_target_connects`] = `Please enter a valid number of target connects for phone call ${index + 1}`;
     });
+    if (!marketingPlan.desktop_appraisals || parseInt(marketingPlan.desktop_appraisals) < 0)
+      newErrors.desktop_appraisals = 'Please enter a valid number of desktop appraisals';
+    if (!marketingPlan.face_to_face_appraisals || parseInt(marketingPlan.face_to_face_appraisals) < 0)
+      newErrors.face_to_face_appraisals = 'Please enter a valid number of face-to-face appraisals';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -468,11 +340,6 @@ export function MarketingPlanPage() {
           why: street.why || '',
           house_count: street.house_count || '',
           target_knocks: street.target_knocks,
-          target_made: street.target_made,
-          target_answers: street.target_answers,
-          target_connects: street.target_connects,
-          desktop_appraisals: street.desktop_appraisals || '0',
-          face_to_face_appraisals: street.face_to_face_appraisals || '0',
         })),
         phone_call_streets: marketingPlan.phone_call_streets.map((street) => ({
           id: street.id,
@@ -480,9 +347,9 @@ export function MarketingPlanPage() {
           why: street.why || '',
           target_calls: street.target_calls,
           target_connects: street.target_connects,
-          desktop_appraisals: street.desktop_appraisals || '0',
-          face_to_face_appraisals: street.face_to_face_appraisals || '0',
         })),
+        desktop_appraisals: marketingPlan.desktop_appraisals,
+        face_to_face_appraisals: marketingPlan.face_to_face_appraisals,
         updated_at: new Date().toISOString(),
       };
 
@@ -532,6 +399,8 @@ export function MarketingPlanPage() {
       end_date: '',
       door_knock_streets: [],
       phone_call_streets: [],
+      desktop_appraisals: '',
+      face_to_face_appraisals: '',
     });
     setIsCustomSuburb(false);
     setErrors({});
@@ -539,31 +408,20 @@ export function MarketingPlanPage() {
     setSoldPropertiesFilter('30_days');
     setSaveError(null);
     setSaveSuccess(false);
-    setActualProgress({
-      doorKnocks: { completed: 0, target: 0 },
-      doorKnocksMade: { completed: 0, target: 0 },
-      doorKnockAnswers: { completed: 0, target: 0 },
-      doorKnockConnects: { completed: 0, target: 0 },
-      doorKnockDesktopAppraisals: { completed: 0, target: 0 },
-      doorKnockFaceToFaceAppraisals: { completed: 0, target: 0 },
-      phoneCalls: { completed: 0, target: 0 },
-      phoneCallConnects: { completed: 0, target: 0 },
-      phoneCallDesktopAppraisals: { completed: 0, target: 0 },
-      phoneCallFaceToFaceAppraisals: { completed: 0, target: 0 },
-    });
   };
 
   const viewPlan = async (plan: MarketingPlan) => {
     setMarketingPlan({
       ...plan,
+      door_knock_streets: Array.isArray(plan.door_knock_streets) ? plan.door_knock_streets : [],
+      phone_call_streets: Array.isArray(plan.phone_call_streets) ? plan.phone_call_streets : [],
+      desktop_appraisals: plan.desktop_appraisals || '',
+      face_to_face_appraisals: plan.face_to_face_appraisals || '',
       created_at: plan.created_at || undefined,
       updated_at: plan.updated_at || undefined,
     });
     setIsCustomSuburb(!PREDEFINED_SUBURBS.includes(plan.suburb) && plan.suburb !== '');
     setShowPlansModal(false);
-    if (user?.id) {
-      await fetchActualProgress(user.id);
-    }
   };
 
   const addStreet = (type: 'door_knock' | 'phone_call') => {
@@ -578,11 +436,6 @@ export function MarketingPlanPage() {
             why: '',
             house_count: '',
             target_knocks: '',
-            target_made: '',
-            target_answers: '',
-            target_connects: '',
-            desktop_appraisals: '',
-            face_to_face_appraisals: '',
           },
         ],
       });
@@ -597,8 +450,6 @@ export function MarketingPlanPage() {
             why: '',
             target_calls: '',
             target_connects: '',
-            desktop_appraisals: '',
-            face_to_face_appraisals: '',
           },
         ],
       });
@@ -652,43 +503,45 @@ export function MarketingPlanPage() {
     }
   };
 
-  const handleSelectStreet = (street: { name: string; why: string }, type: 'door_knock' | 'phone_call') => {
+  const handleSelectStreet = (street: { name: string }, type: 'door_knock' | 'phone_call') => {
+    console.log(`handleSelectStreet: street=${street.name}, type=${type}`);
+    console.log(`Current phone_call_streets:`, marketingPlan.phone_call_streets);
     if (type === 'door_knock') {
-      setMarketingPlan({
-        ...marketingPlan,
-        door_knock_streets: [
-          ...marketingPlan.door_knock_streets,
-          {
-            id: uuidv4(),
-            name: street.name,
-            why: street.why,
-            house_count: '',
-            target_knocks: '',
-            target_made: '',
-            target_answers: '',
-            target_connects: '',
-            desktop_appraisals: '',
-            face_to_face_appraisals: '',
-          },
-        ],
-      });
-    } else {
-      setMarketingPlan({
-        ...marketingPlan,
-        phone_call_streets: [
-          ...marketingPlan.phone_call_streets,
-          {
-            id: uuidv4(),
-            name: street.name,
-            why: street.why,
-            target_calls: '',
-            target_connects: '',
-            desktop_appraisals: '',
-            face_to_face_appraisals: '',
-          },
-        ],
-      });
+      if (!marketingPlan.door_knock_streets.some((s) => s.name === street.name)) {
+        setMarketingPlan({
+          ...marketingPlan,
+          door_knock_streets: [
+            ...marketingPlan.door_knock_streets,
+            {
+              id: uuidv4(),
+              name: street.name,
+              why: '',
+              house_count: '',
+              target_knocks: '',
+            },
+          ],
+        });
+        console.log(`Added to door_knock_streets: ${street.name}`);
+      }
+    } else if (type === 'phone_call') {
+      if (!marketingPlan.phone_call_streets.some((s) => s.name === street.name)) {
+        setMarketingPlan({
+          ...marketingPlan,
+          phone_call_streets: [
+            ...marketingPlan.phone_call_streets,
+            {
+              id: uuidv4(),
+              name: street.name,
+              why: '',
+              target_calls: '',
+              target_connects: '',
+            },
+          ],
+        });
+        console.log(`Added to phone_call_streets: ${street.name}`);
+      }
     }
+    console.log(`Updated phone_call_streets:`, marketingPlan.phone_call_streets);
   };
 
   const handleSuburbChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -704,14 +557,6 @@ export function MarketingPlanPage() {
 
   const totalKnocks = marketingPlan.door_knock_streets.reduce(
     (sum, street) => sum + (parseInt(street.target_knocks || '0') || 0),
-    0
-  );
-  const totalKnocksMade = marketingPlan.door_knock_streets.reduce(
-    (sum, street) => sum + (parseInt(street.target_made || '0') || 0),
-    0
-  );
-  const totalAnswers = marketingPlan.door_knock_streets.reduce(
-    (sum, street) => sum + (parseInt(street.target_answers || '0') || 0),
     0
   );
   const totalCalls = marketingPlan.phone_call_streets.reduce(
@@ -822,7 +667,7 @@ export function MarketingPlanPage() {
               {savedPlans.length === 0 ? (
                 <p className="text-gray-600">No saved plans found.</p>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {savedPlans.map((plan) => (
                     <div key={plan.id} className="border p-4 rounded-lg bg-gray-50">
                       <p><strong>Suburb:</strong> {plan.suburb}</p>
@@ -830,77 +675,77 @@ export function MarketingPlanPage() {
                       <p><strong>End Date:</strong> {new Date(plan.end_date).toLocaleDateString()}</p>
                       <p>
                         <strong>Total Target Knocks:</strong>{' '}
-                        {plan.door_knock_streets.reduce(
+                        {(plan.door_knock_streets || []).reduce(
                           (sum, s) => sum + (parseInt(s.target_knocks || '0') || 0),
                           0
                         )}
                       </p>
                       <p>
-                        <strong>Total Knocks Made:</strong>{' '}
-                        {plan.door_knock_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.target_made || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
-                        <strong>Total Answers:</strong>{' '}
-                        {plan.door_knock_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.target_answers || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
-                        <strong>Total Door Knock Connects:</strong>{' '}
-                        {plan.door_knock_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.target_connects || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
-                        <strong>Total Door Knock Desktop Appraisals:</strong>{' '}
-                        {plan.door_knock_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.desktop_appraisals || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
-                        <strong>Total Door Knock Face-to-Face Appraisals:</strong>{' '}
-                        {plan.door_knock_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.face_to_face_appraisals || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
                         <strong>Total Target Calls:</strong>{' '}
-                        {plan.phone_call_streets.reduce(
+                        {(plan.phone_call_streets || []).reduce(
                           (sum, s) => sum + (parseInt(s.target_calls || '0') || 0),
                           0
                         )}
                       </p>
-                      <p>
-                        <strong>Total Phone Call Connects:</strong>{' '}
-                        {plan.phone_call_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.target_connects || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
-                        <strong>Total Phone Call Desktop Appraisals:</strong>{' '}
-                        {plan.phone_call_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.desktop_appraisals || '0') || 0),
-                          0
-                        )}
-                      </p>
-                      <p>
-                        <strong>Total Phone Call Face-to-Face Appraisals:</strong>{' '}
-                        {plan.phone_call_streets.reduce(
-                          (sum, s) => sum + (parseInt(s.face_to_face_appraisals || '0') || 0),
-                          0
-                        )}
-                      </p>
+                      <p><strong>Desktop Appraisals:</strong> {plan.desktop_appraisals || '0'}</p>
+                      <p><strong>Face-to-Face Appraisals:</strong> {plan.face_to_face_appraisals || '0'}</p>
+                      <h4 className="text-lg font-semibold mt-4 mb-2">Door Knock Streets</h4>
+                      {plan.door_knock_streets.length === 0 ? (
+                        <p className="text-gray-600">No door knock streets added.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-indigo-600 text-white text-sm">
+                                <th className="p-2 text-left">Street Name</th>
+                                <th className="p-2 text-left">Why This Street</th>
+                                <th className="p-2 text-left">House Count</th>
+                                <th className="p-2 text-left">Target Knocks</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {plan.door_knock_streets.map((street, index) => (
+                                <tr key={street.id} className="border-b border-gray-200 hover:bg-gray-100">
+                                  <td className="p-2">{street.name || 'N/A'}</td>
+                                  <td className="p-2">{street.why || 'N/A'}</td>
+                                  <td className="p-2">{street.house_count || 'N/A'}</td>
+                                  <td className="p-2">{street.target_knocks || 'N/A'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      <h4 className="text-lg font-semibold mt-4 mb-2">Phone Call Streets</h4>
+                      {plan.phone_call_streets.length === 0 ? (
+                        <p className="text-gray-600">No phone call streets added.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-indigo-600 text-white text-sm">
+                                <th className="p-2 text-left">Street Name</th>
+                                <th className="p-2 text-left">Why This Street</th>
+                                <th className="p-2 text-left">Target Calls</th>
+                                <th className="p-2 text-left">Target Connects</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {plan.phone_call_streets.map((street, index) => (
+                                <tr key={street.id} className="border-b border-gray-200 hover:bg-gray-100">
+                                  <td className="p-2">{street.name || 'N/A'}</td>
+                                  <td className="p-2">{street.why || 'N/A'}</td>
+                                  <td className="p-2">{street.target_calls || 'N/A'}</td>
+                                  <td className="p-2">{street.target_connects || 'N/A'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                       <motion.button
                         onClick={() => viewPlan(plan)}
-                        className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700"
+                        className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -930,7 +775,14 @@ export function MarketingPlanPage() {
         >
           {saveSuccess && (
             <div className="fixed top-4 right-4 flex items-center bg-green-100 text-green-800 px-4 py-2 rounded-lg shadow z-[1000]">
-              <CheckCircle className="w-5 h-5 mr-2" />
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
               <div className="flex flex-col">
                 <span>Successfully created marketing plan</span>
                 <button
@@ -1009,384 +861,58 @@ export function MarketingPlanPage() {
               )}
             </div>
 
-            <StreetSuggestions
-              suburb={marketingPlan.suburb || null}
-              soldPropertiesFilter={soldPropertiesFilter}
-              onSelectStreet={handleSelectStreet}
-            />
-
-            <motion.div
-              className="bg-gray-50 p-6 rounded-lg shadow-sm"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.6 }}
-            >
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                <svg
-                  className="w-5 h-5 mr-2 text-indigo-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                  />
-                </svg>
-                Current Progress
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knocks</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnocks.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnocks.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.doorKnocks.target
-                              ? Math.min(
-                                  (actualProgress.doorKnocks.completed / actualProgress.doorKnocks.target) * 100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.doorKnocks.completed}/{actualProgress.doorKnocks.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.doorKnocks.target
-                      ? Math.round((actualProgress.doorKnocks.completed / actualProgress.doorKnocks.target) * 100)
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knocks Made</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnocksMade.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnocksMade.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.doorKnocksMade.target
-                              ? Math.min(
-                                  (actualProgress.doorKnocksMade.completed / actualProgress.doorKnocksMade.target) * 100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.doorKnocksMade.completed}/{actualProgress.doorKnocksMade.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.doorKnocksMade.target
-                      ? Math.round((actualProgress.doorKnocksMade.completed / actualProgress.doorKnocksMade.target) * 100)
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knock Answers</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnockAnswers.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnockAnswers.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.doorKnockAnswers.target
-                              ? Math.min(
-                                  (actualProgress.doorKnockAnswers.completed / actualProgress.doorKnockAnswers.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.doorKnockAnswers.completed}/{actualProgress.doorKnockAnswers.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.doorKnockAnswers.target
-                      ? Math.round(
-                          (actualProgress.doorKnockAnswers.completed / actualProgress.doorKnockAnswers.target) * 100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knock Connects</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnockConnects.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnockConnects.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.doorKnockConnects.target
-                              ? Math.min(
-                                  (actualProgress.doorKnockConnects.completed /
-                                    actualProgress.doorKnockConnects.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.doorKnockConnects.completed}/{actualProgress.doorKnockConnects.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.doorKnockConnects.target
-                      ? Math.round(
-                          (actualProgress.doorKnockConnects.completed / actualProgress.doorKnockConnects.target) * 100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knock Deckstop Appraisals</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnockDesktopAppraisals.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnockDesktopAppraisals.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.doorKnockDesktopAppraisals.target
-                              ? Math.min(
-                                  (actualProgress.doorKnockDesktopAppraisals.completed /
-                                    actualProgress.doorKnockDesktopAppraisals.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.doorKnockDesktopAppraisals.completed}/
-                      {actualProgress.doorKnockDesktopAppraisals.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.doorKnockDesktopAppraisals.target
-                      ? Math.round(
-                          (actualProgress.doorKnockDesktopAppraisals.completed /
-                            actualProgress.doorKnockDesktopAppraisals.target) *
-                            100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Door Knock Face-to-Face Appraisals</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.doorKnockFaceToFaceAppraisals.completed} aria-valuemin={0} aria-valuemax={actualProgress.doorKnockFaceToFaceAppraisals.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.doorKnockFaceToFaceAppraisals.target
-                              ? Math.min(
-                                  (actualProgress.doorKnockFaceToFaceAppraisals.completed /
-                                    actualProgress.doorKnockFaceToFaceAppraisals.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.doorKnockFaceToFaceAppraisals.completed}/
-                      {actualProgress.doorKnockFaceToFaceAppraisals.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.doorKnockFaceToFaceAppraisals.target
-                      ? Math.round(
-                          (actualProgress.doorKnockFaceToFaceAppraisals.completed /
-                            actualProgress.doorKnockFaceToFaceAppraisals.target) *
-                            100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Phone Calls</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.phoneCalls.completed} aria-valuemin={0} aria-valuemax={actualProgress.phoneCalls.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.phoneCalls.target
-                              ? Math.min(
-                                  (actualProgress.phoneCalls.completed / actualProgress.phoneCalls.target) * 100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.phoneCalls.completed}/{actualProgress.phoneCalls.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.phoneCalls.target
-                      ? Math.round((actualProgress.phoneCalls.completed / actualProgress.phoneCalls.target) * 100)
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Phone Call Connects</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.phoneCallConnects.completed} aria-valuemin={0} aria-valuemax={actualProgress.phoneCallConnects.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.phoneCallConnects.target
-                              ? Math.min(
-                                  (actualProgress.phoneCallConnects.completed /
-                                    actualProgress.phoneCallConnects.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.phoneCallConnects.completed}/{actualProgress.phoneCallConnects.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.phoneCallConnects.target
-                      ? Math.round(
-                          (actualProgress.phoneCallConnects.completed / actualProgress.phoneCallConnects.target) * 100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Phone Call Desktop Appraisals</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.phoneCallDesktopAppraisals.completed} aria-valuemin={0} aria-valuemax={actualProgress.phoneCallDesktopAppraisals.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.phoneCallDesktopAppraisals.target
-                              ? Math.min(
-                                  (actualProgress.phoneCallDesktopAppraisals.completed /
-                                    actualProgress.phoneCallDesktopAppraisals.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.phoneCallDesktopAppraisals.completed}/
-                      {actualProgress.phoneCallDesktopAppraisals.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.phoneCallDesktopAppraisals.target
-                      ? Math.round(
-                          (actualProgress.phoneCallDesktopAppraisals.completed /
-                            actualProgress.phoneCallDesktopAppraisals.target) *
-                            100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-                <div className="relative group">
-                  <p className="font-semibold text-gray-800 mb-2">Phone Call Face-to-Face Appraisals</p>
-                  <div className="flex items-center" role="progressbar" aria-valuenow={actualProgress.phoneCallFaceToFaceAppraisals.completed} aria-valuemin={0} aria-valuemax={actualProgress.phoneCallFaceToFaceAppraisals.target}>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 mr-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-indigo-500 to-indigo-700 h-3 rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: `${
-                            actualProgress.phoneCallFaceToFaceAppraisals.target
-                              ? Math.min(
-                                  (actualProgress.phoneCallFaceToFaceAppraisals.completed /
-                                    actualProgress.phoneCallFaceToFaceAppraisals.target) *
-                                    100,
-                                  100
-                                )
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {actualProgress.phoneCallFaceToFaceAppraisals.completed}/
-                      {actualProgress.phoneCallFaceToFaceAppraisals.target}
-                    </span>
-                  </div>
-                  <div className="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2">
-                    {actualProgress.phoneCallFaceToFaceAppraisals.target
-                      ? Math.round(
-                          (actualProgress.phoneCallFaceToFaceAppraisals.completed /
-                            actualProgress.phoneCallFaceToFaceAppraisals.target) *
-                            100
-                        )
-                      : 0}
-                    % Complete
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+            {marketingPlan.suburb && (
+              <StreetSuggestions
+                suburb={marketingPlan.suburb}
+                soldPropertiesFilter={soldPropertiesFilter}
+                onSelectStreet={handleSelectStreet}
+                existingDoorKnocks={marketingPlan.door_knock_streets}
+                existingPhoneCalls={marketingPlan.phone_call_streets}
+              />
+            )}
 
             <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-800 flex items-center">Activities</h3>
-                <select
-                  value={selectedActivity}
-                  onChange={(e) => setSelectedActivity(e.target.value as 'all' | 'door_knock' | 'phone_call')}
-                  className="p-2 border border-gray-200 rounded-lg bg-gray-50"
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">Activities</h3>
+              <div className="flex gap-4 mb-4">
+                <motion.button
+                  onClick={() => setSelectedActivity('all')}
+                  className={`px-4 py-2 rounded-full ${
+                    selectedActivity === 'all'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-200 text-gray-800'
+                  } hover:bg-indigo-700 hover:text-white transition-all`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  <option value="all">All Activities</option>
-                  <option value="door_knock">Door Knocks</option>
-                  <option value="phone_call">Phone Calls</option>
-                </select>
+                  All
+                </motion.button>
+                <motion.button
+                  onClick={() => setSelectedActivity('door_knock')}
+                  className={`px-4 py-2 rounded-full ${
+                    selectedActivity === 'door_knock'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-200 text-gray-800'
+                  } hover:bg-indigo-700 hover:text-white transition-all`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Door Knocks
+                </motion.button>
+                <motion.button
+                  onClick={() => setSelectedActivity('phone_call')}
+                  className={`px-4 py-2 rounded-full ${
+                    selectedActivity === 'phone_call'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-200 text-gray-800'
+                  } hover:bg-indigo-700 hover:text-white transition-all`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Phone Calls
+                </motion.button>
               </div>
               <div className="flex justify-between mb-4">
                 <p className="text-gray-700 font-medium">Total Knocks: {totalKnocks}</p>
-                <p className="text-gray-700 font-medium">Total Knocks Made: {totalKnocksMade}</p>
-                <p className="text-gray-700 font-medium">Total Answers: {totalAnswers}</p>
                 <p className="text-gray-700 font-medium">Total Calls: {totalCalls}</p>
               </div>
               {errors.streets && <p className="text-red-600 text-sm mb-4 font-medium">{errors.streets}</p>}
@@ -1409,7 +935,7 @@ export function MarketingPlanPage() {
                       Add Street
                     </motion.button>
                   </div>
-                  {marketingPlan.door_knock_streets.map((street, index) => (
+                  {(marketingPlan.door_knock_streets || []).map((street, index) => (
                     <motion.div
                       key={street.id}
                       className="border border-gray-200 p-4 mb-4 rounded-lg bg-gray-50 hover:shadow-md transition-shadow duration-200"
@@ -1466,74 +992,6 @@ export function MarketingPlanPage() {
                             </p>
                           )}
                         </div>
-                        <div>
-                          <input
-                            type="number"
-                            value={street.target_made}
-                            onChange={(e) => updateStreet('door_knock', street.id, 'target_made', e.target.value)}
-                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                            placeholder="Target Knocks Made *"
-                            min="1"
-                            aria-label={`Door knock street ${index + 1} target made`}
-                          />
-                          {errors[`door_knock_street_${index}_target_made`] && (
-                            <p className="text-red-600 text-sm mt-1 font-medium">
-                              {errors[`door_knock_street_${index}_target_made`]}
-                            </p>
-                          )}
-                        </div>
-                        <div>
-                          <input
-                            type="number"
-                            value={street.target_answers}
-                            onChange={(e) => updateStreet('door_knock', street.id, 'target_answers', e.target.value)}
-                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                            placeholder="Target Answers *"
-                            min="1"
-                            aria-label={`Door knock street ${index + 1} target answers`}
-                          />
-                          {errors[`door_knock_street_${index}_target_answers`] && (
-                            <p className="text-red-600 text-sm mt-1 font-medium">
-                              {errors[`door_knock_street_${index}_target_answers`]}
-                            </p>
-                          )}
-                        </div>
-                        <div>
-                          <input
-                            type="number"
-                            value={street.target_connects}
-                            onChange={(e) => updateStreet('door_knock', street.id, 'target_connects', e.target.value)}
-                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                            placeholder="Target Connects *"
-                            min="1"
-                            aria-label={`Door knock street ${index + 1} target connects`}
-                          />
-                          {errors[`door_knock_street_${index}_target_connects`] && (
-                            <p className="text-red-600 text-sm mt-1 font-medium">
-                              {errors[`door_knock_street_${index}_target_connects`]}
-                            </p>
-                          )}
-                        </div>
-                        <input
-                          type="number"
-                          value={street.desktop_appraisals}
-                          onChange={(e) => updateStreet('door_knock', street.id, 'desktop_appraisals', e.target.value)}
-                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                          placeholder="Desktop Appraisals"
-                          min="0"
-                          aria-label={`Door knock street ${index + 1} desktop appraisals`}
-                        />
-                        <input
-                          type="number"
-                          value={street.face_to_face_appraisals}
-                          onChange={(e) =>
-                            updateStreet('door_knock', street.id, 'face_to_face_appraisals', e.target.value)
-                          }
-                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                          placeholder="Face-to-Face Appraisals"
-                          min="0"
-                          aria-label={`Door knock street ${index + 1} face-to-face appraisals`}
-                        />
                       </div>
                       <motion.button
                         onClick={() => removeStreet('door_knock', street.id)}
@@ -1568,7 +1026,7 @@ export function MarketingPlanPage() {
                       Add Street
                     </motion.button>
                   </div>
-                  {marketingPlan.phone_call_streets.map((street, index) => (
+                  {(marketingPlan.phone_call_streets || []).map((street, index) => (
                     <motion.div
                       key={street.id}
                       className="border border-gray-200 p-4 mb-4 rounded-lg bg-gray-50 hover:shadow-md transition-shadow duration-200"
@@ -1623,7 +1081,7 @@ export function MarketingPlanPage() {
                             onChange={(e) => updateStreet('phone_call', street.id, 'target_connects', e.target.value)}
                             className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
                             placeholder="Target Connects *"
-                            min="1"
+                            min="0"
                             aria-label={`Phone call street ${index + 1} target connects`}
                           />
                           {errors[`phone_call_street_${index}_target_connects`] && (
@@ -1632,26 +1090,6 @@ export function MarketingPlanPage() {
                             </p>
                           )}
                         </div>
-                        <input
-                          type="number"
-                          value={street.desktop_appraisals}
-                          onChange={(e) => updateStreet('phone_call', street.id, 'desktop_appraisals', e.target.value)}
-                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                          placeholder="Desktop Appraisals"
-                          min="0"
-                          aria-label={`Phone call street ${index + 1} desktop appraisals`}
-                        />
-                        <input
-                          type="number"
-                          value={street.face_to_face_appraisals}
-                          onChange={(e) =>
-                            updateStreet('phone_call', street.id, 'face_to_face_appraisals', e.target.value)
-                          }
-                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                          placeholder="Face-to-Face Appraisals"
-                          min="0"
-                          aria-label={`Phone call street ${index + 1} face-to-face appraisals`}
-                        />
                       </div>
                       <motion.button
                         onClick={() => removeStreet('phone_call', street.id)}
@@ -1667,6 +1105,54 @@ export function MarketingPlanPage() {
                   ))}
                 </div>
               )}
+
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                    />
+                  </svg>
+                  Appraisals
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <input
+                      type="number"
+                      value={marketingPlan.desktop_appraisals}
+                      onChange={(e) =>
+                        setMarketingPlan({ ...marketingPlan, desktop_appraisals: e.target.value })
+                      }
+                      className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+                      placeholder="Desktop Appraisals *"
+                      min="0"
+                      aria-label="Desktop appraisals"
+                    />
+                    {errors.desktop_appraisals && (
+                      <p className="text-red-600 text-sm mt-1 font-medium">{errors.desktop_appraisals}</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      type="number"
+                      value={marketingPlan.face_to_face_appraisals}
+                      onChange={(e) =>
+                        setMarketingPlan({ ...marketingPlan, face_to_face_appraisals: e.target.value })
+                      }
+                      className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+                      placeholder="Face-to-Face Appraisals *"
+                      min="0"
+                      aria-label="Face-to-face appraisals"
+                    />
+                    {errors.face_to_face_appraisals && (
+                      <p className="text-red-600 text-sm mt-1 font-medium">{errors.face_to_face_appraisals}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-4">
@@ -1681,7 +1167,7 @@ export function MarketingPlanPage() {
                 {isSaving ? (
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                 ) : (
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 024 24">
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"

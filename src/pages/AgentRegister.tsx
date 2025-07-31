@@ -155,7 +155,7 @@ export function AgentRegister() {
           name: formData.name.slice(0, 50),
           phone: formattedPhone,
           email: formData.email,
-          role: 'agent',
+          role: 'agent', // Explicitly set role to 'agent'
           agency_name: formData.agencyName.slice(0, 50),
         });
 

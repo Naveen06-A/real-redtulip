@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Home, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { normalizeSuburb, formatCurrency } from '../reportsUtils';
 
 interface Property {
@@ -87,7 +87,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
         let filteredProperties = propertiesData;
         if (localFilter !== 'all') {
-          const now = new Date('2025-07-31T17:32:00+05:30'); // Current date: July 31, 2025, 5:32 PM IST
+          const now = new Date('2025-08-01T19:58:00+05:30'); // Current date: August 1, 2025, 7:58 PM IST
           let startDate: Date;
           switch (localFilter) {
             case '30_days':
@@ -171,11 +171,13 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
             b.listed_count - a.listed_count
         );
 
-        console.log('Street stats:', statsArray);
+        // Limit to 25 streets for 5x5 grid
+        const limitedStatsArray = statsArray.slice(0, 25);
 
-        // Initialize addedStreets based on existingDoorKnocks and existingPhoneCalls
+        console.log('Street stats:', limitedStatsArray);
+
         const newAddedStreets: { [key: string]: { door_knock: number; phone_call: number } } = {};
-        statsArray.forEach((street) => {
+        limitedStatsArray.forEach((street) => {
           const streetName = street.street_name;
           const doorKnockCount = Array.isArray(existingDoorKnocks)
             ? existingDoorKnocks.filter((s) => s.name === streetName).length
@@ -187,7 +189,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
         });
 
         setAddedStreets(newAddedStreets);
-        setStreetStats(statsArray);
+        setStreetStats(limitedStatsArray);
       } catch (err: any) {
         setError(`Error fetching street suggestions for ${suburb}: ${err.message}`);
         console.error('Fetch error:', err);
@@ -197,7 +199,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
     };
 
     fetchData();
-  }, [suburb, localFilter]); // Dependencies exclude existingDoorKnocks and existingPhoneCalls to prevent refresh
+  }, [suburb, localFilter]);
 
   const handleSelectStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
     console.log(`handleSelectStreet called with street: ${street.street_name}, type: ${type}`);
@@ -218,12 +220,12 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
   if (!suburb) {
     return (
       <motion.div
-        className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mt-6"
+        className="bg-white p-4 rounded-xl shadow-lg border border-gray-200 mt-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <p className="text-gray-600 text-center">Please select a suburb to view street suggestions.</p>
+        <p className="text-gray-600 text-center text-sm">Select a suburb to view streets</p>
       </motion.div>
     );
   }
@@ -231,17 +233,18 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
   if (loading) {
     return (
       <motion.div
-        className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mt-6"
+        className="bg-white p-4 rounded-xl shadow-lg border border-gray-200 mt-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <div className="flex justify-center items-center py-4">
+        <div className="flex justify-center items-center py-3">
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+            className="text-xl"
           >
-            <Home className="w-8 h-8 text-indigo-600" />
+            🏠
           </motion.div>
         </div>
       </motion.div>
@@ -250,29 +253,29 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
   return (
     <motion.div
-      className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mt-6"
+      className="bg-white p-4 rounded-xl shadow-lg border border-gray-200 mt-4"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
-        <Home className="w-6 h-6 mr-3 text-indigo-600" />
-        Street Suggestions in {suburb} (Filter: {localFilter.replace('_', ' ')})
+      <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
+        <span className="mr-2 text-indigo-600 text-xl">🏠</span>
+        Streets in {suburb} ({localFilter.replace('_', ' ')})
       </h2>
       {error && (
-        <div className="text-red-600 text-center py-4 bg-red-50 rounded-lg mb-6">{error}</div>
+        <div className="text-red-600 text-center py-2 bg-red-50 rounded-lg mb-4 text-sm">{error}</div>
       )}
       {streetStats.length === 0 && !error && (
-        <p className="text-gray-600 text-center py-4">No street suggestions found for {suburb} with the selected filter.</p>
+        <p className="text-gray-600 text-center py-2 text-sm">No streets found for {suburb}</p>
       )}
       {streetStats.length > 0 && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div>
-            <label className="block text-gray-800 font-semibold mb-2">Filter Sold Properties</label>
+            <label className="block text-gray-800 font-semibold mb-1 text-sm">Filter Sold</label>
             <select
               value={localFilter}
               onChange={(e) => setLocalFilter(e.target.value)}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50 text-sm"
               aria-label="Select sold properties filter"
             >
               <option value="all">All Time</option>
@@ -283,115 +286,131 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
             </select>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3">
             {streetStats.map((street, index) => (
               <motion.div
                 key={street.street_name}
-                className="bg-gray-50 p-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 border border-gray-200"
-                initial={{ opacity: 0, y: 20 }}
+                className="bg-gray-50 p-2 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100"
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
+                transition={{ duration: 0.3, delay: index * 0.05 }}
               >
-                <div className="flex justify-between items-center mb-3">
+                <div className="flex justify-between items-center mb-1">
                   <h3
-                    className="text-lg font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 transition-colors"
+                    className="text-sm font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 transition-colors truncate"
                     onClick={() => toggleExpandStreet(street.street_name)}
                   >
                     {street.street_name}
                   </h3>
                   <motion.button
                     onClick={() => toggleExpandStreet(street.street_name)}
-                    className="text-gray-600 hover:text-indigo-600"
+                    className="text-gray-600 hover:text-indigo-600 flex-shrink-0"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                   >
                     {expandedStreet === street.street_name ? (
-                      <ChevronUp className="w-5 h-5" />
+                      <ChevronUp className="w-4 h-4" />
                     ) : (
-                      <ChevronDown className="w-5 h-5" />
+                      <ChevronDown className="w-4 h-4" />
                     )}
                   </motion.button>
                 </div>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-sm text-gray-600">Total Properties</p>
-                    <p className="text-base font-semibold text-gray-900">{street.total_properties}</p>
+                <div className="grid grid-cols-2 gap-1 mb-2">
+                  <div className="flex items-center">
+                    <span className="text-indigo-600 mr-1 text-sm">🏠</span>
+                    <div>
+                      <p className="text-xs text-gray-600">Total</p>
+                      <p className="text-xs font-semibold text-gray-900">{street.total_properties}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Listings</p>
-                    <p className="text-base font-semibold text-gray-900">{street.listed_count}</p>
+                  <div className="flex items-center">
+                    <span className="text-indigo-600 mr-1 text-sm">📋</span>
+                    <div>
+                      <p className="text-xs text-gray-600">List/Sold</p>
+                      <p className="text-xs font-semibold text-gray-900">{street.listed_count}/{street.sold_count}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Sold</p>
-                    <p className="text-base font-semibold text-gray-900">{street.sold_count}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Average Sold Price</p>
-                    <p className="text-base font-semibold text-gray-900">
-                      {street.average_sold_price ? formatCurrency(street.average_sold_price) : 'N/A'}
-                    </p>
+                  <div className="flex items-center col-span-2">
+                    <span className="text-indigo-600 mr-1 text-sm">💰</span>
+                    <div>
+                      <p className="text-xs text-gray-600">ASP</p>
+                      <p className="text-xs font-semibold text-gray-900">
+                        {street.average_sold_price ? formatCurrency(street.average_sold_price) : 'N/A'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                   <motion.button
                     onClick={() => handleSelectStreet(street, 'door_knock')}
-                    className={`flex-1 py-2 rounded-lg text-white text-sm font-medium ${
+                    className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
                       addedStreets[street.street_name]?.door_knock > 0
-                        ? 'bg-green-600 hover:bg-green-700'
-                        : 'bg-indigo-600 hover:bg-indigo-700'
+                        ? 'bg-green-300 hover:bg-green-400'
+                        : 'bg-blue-300 hover:bg-blue-400'
                     } transition-all`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    {addedStreets[street.street_name]?.door_knock > 0
-                      ? `Added to Door Knocks (${addedStreets[street.street_name].door_knock})`
-                      : 'Add to Door Knocks'}
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M13 3H7a2 2 0 00-2 2v14a2 2 0 002 2h6m4-14v10m-4-10v2a2 2 0 002 2h2m-4 4v2a2 2 0 002 2h2" />
+                      <circle cx="10" cy="12" r="1" />
+                    </svg>
+                    {addedStreets[street.street_name]?.door_knock > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
+                        {addedStreets[street.street_name].door_knock}
+                      </span>
+                    )}
                   </motion.button>
                   <motion.button
                     onClick={() => handleSelectStreet(street, 'phone_call')}
-                    className={`flex-1 py-2 rounded-lg text-white text-sm font-medium ${
+                    className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
                       addedStreets[street.street_name]?.phone_call > 0
-                        ? 'bg-green-600 hover:bg-green-700'
-                        : 'bg-blue-600 hover:bg-blue-700'
+                        ? 'bg-green-300 hover:bg-green-400'
+                        : 'bg-blue-300 hover:bg-blue-400'
                     } transition-all`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    {addedStreets[street.street_name]?.phone_call > 0
-                      ? `Added to Phone Calls (${addedStreets[street.street_name].phone_call})`
-                      : 'Add to Phone Calls'}
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
+                    </svg>
+                    {addedStreets[street.street_name]?.phone_call > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
+                        {addedStreets[street.street_name].phone_call}
+                      </span>
+                    )}
                   </motion.button>
                 </div>
                 <AnimatePresence>
                   {expandedStreet === street.street_name && (
                     <motion.div
-                      className="mt-4 border-t border-gray-200 pt-4"
+                      className="mt-2 border-t border-gray-200 pt-2"
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <h4 className="text-md font-semibold text-gray-800 mb-2">Properties on {street.street_name}</h4>
+                      <h4 className="text-xs font-semibold text-gray-800 mb-1">Properties on {street.street_name}</h4>
                       {street.properties.length === 0 ? (
-                        <p className="text-gray-600">No properties found for {street.street_name}.</p>
+                        <p className="text-gray-600 text-xs">No properties found for {street.street_name}.</p>
                       ) : (
                         <div className="overflow-x-auto">
-                          <table className="w-full border-collapse">
+                          <table className="w-full border-collapse text-xs">
                             <thead>
-                              <tr className="bg-indigo-600 text-white text-sm">
-                                <th className="p-2 text-left">Street Number</th>
-                                <th className="p-2 text-left">Street Name</th>
-                                <th className="p-2 text-left">Suburb</th>
-                                <th className="p-2 text-left">Property Type</th>
-                                <th className="p-2 text-left">Bedrooms</th>
-                                <th className="p-2 text-left">Bathrooms</th>
-                                <th className="p-2 text-left">Car Garage</th>
-                                <th className="p-2 text-left">SQM</th>
-                                <th className="p-2 text-left">Land Size</th>
-                                <th className="p-2 text-left">Listed Price</th>
-                                <th className="p-2 text-left">Sold Price</th>
-                                <th className="p-2 text-left">Sold Date</th>
-                                <th className="p-2 text-left">Status</th>
+                              <tr className="bg-indigo-600 text-white text-xs">
+                                <th className="p-1 text-left">Street Number</th>
+                                <th className="p-1 text-left">Street Name</th>
+                                <th className="p-1 text-left">Suburb</th>
+                                <th className="p-1 text-left">Property Type</th>
+                                <th className="p-1 text-left">Bed</th>
+                                <th className="p-1 text-left">Bath</th>
+                                <th className="p-1 text-left">Car</th>
+                                <th className="p-1 text-left">SQM</th>
+                                <th className="p-1 text-left">Land</th>
+                                <th className="p-1 text-left">List Price</th>
+                                <th className="p-1 text-left">Sold Price</th>
+                                <th className="p-1 text-left">Sold Date</th>
+                                <th className="p-1 text-left">Status</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -403,19 +422,19 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                                   animate={{ opacity: 1 }}
                                   transition={{ duration: 0.3 }}
                                 >
-                                  <td className="p-2">{property.street_number || 'N/A'}</td>
-                                  <td className="p-2">{property.street_name || 'N/A'}</td>
-                                  <td className="p-2">{normalizeSuburb(property.suburb)}</td>
-                                  <td className="p-2">{property.property_type || 'N/A'}</td>
-                                  <td className="p-2">{property.bedrooms ?? 'N/A'}</td>
-                                  <td className="p-2">{property.bathrooms ?? 'N/A'}</td>
-                                  <td className="p-2">{property.car_garage ?? 'N/A'}</td>
-                                  <td className="p-2">{property.sqm ?? 'N/A'}</td>
-                                  <td className="p-2">{property.landsize ?? 'N/A'}</td>
-                                  <td className="p-2">{property.price ? formatCurrency(property.price) : 'N/A'}</td>
-                                  <td className="p-2">{property.sold_price ? formatCurrency(property.sold_price) : 'N/A'}</td>
-                                  <td className="p-2">{property.sold_date ? new Date(property.sold_date).toLocaleDateString() : 'N/A'}</td>
-                                  <td className="p-2">{property.status}</td>
+                                  <td className="p-1">{property.street_number || 'N/A'}</td>
+                                  <td className="p-1">{property.street_name || 'N/A'}</td>
+                                  <td className="p-1">{normalizeSuburb(property.suburb)}</td>
+                                  <td className="p-1">{property.property_type || 'N/A'}</td>
+                                  <td className="p-1">{property.bedrooms ?? 'N/A'}</td>
+                                  <td className="p-1">{property.bathrooms ?? 'N/A'}</td>
+                                  <td className="p-1">{property.car_garage ?? 'N/A'}</td>
+                                  <td className="p-1">{property.sqm ?? 'N/A'}</td>
+                                  <td className="p-1">{property.landsize ?? 'N/A'}</td>
+                                  <td className="p-1">{property.price ? formatCurrency(property.price) : 'N/A'}</td>
+                                  <td className="p-1">{property.sold_price ? formatCurrency(property.sold_price) : 'N/A'}</td>
+                                  <td className="p-1">{property.sold_date ? new Date(property.sold_date).toLocaleDateString() : 'N/A'}</td>
+                                  <td className="p-1">{property.status}</td>
                                 </motion.tr>
                               ))}
                             </tbody>

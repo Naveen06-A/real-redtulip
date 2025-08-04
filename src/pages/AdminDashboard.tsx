@@ -59,6 +59,7 @@ export function AdminDashboard() {
     { name: 'Reports', path: '/reports', icon: FileText },
     { name: 'Business Plan', path: '/agent-business-plan', icon: FileText },
     { name: 'AdminBusinessPlan', path: '/admin-business-plan', icon: FileText },
+    {name: 'EMIPLAN',path:'/emi-calculator',icon:FileText},
     {
       name: 'Agent Report',
       path: '/agent-reports',

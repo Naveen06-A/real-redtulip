@@ -34,6 +34,7 @@ import { AdminBusinessPlan } from './pages/AdminBusinessPlan';
 import { AgentProfilePage } from './pages/AgentProfilePage';
 import { AgentExpensesPage } from './pages/AgentExpensesPage';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import {EMIPlanCalculator}  from './pages/EMIPlanCalculator';
 import Enquiryjob from './pages/Enquiryjob'; // Fixed to default import
 import EnquiryForm from './pages/EnquiryForm'; // Fixed import name
 
@@ -137,6 +138,8 @@ const routes = [
   { path: '/property-form', element: <PropertyForm /> },
   { path: '/comparisons', element: <AgentRoute><Comparisons /></AgentRoute> },
   { path: '/enquiryjob', element: <Enquiryjob /> },
+  {path: '/emi-calculator', element: <EMIPlanCalculator />},
+  { path: '/enquiry-form', element: <EnquiryForm />},
   { path: '/enquiry-form', element: <EnquiryForm /> }, // Uncommented and fixed
   {
     path: '/commission-by-agency',

@@ -1646,6 +1646,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                 disabled={plansLoading}
                 className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
               >
+                
                 <List className="w-4 h-4 mr-2" />
                 {plansLoading ? 'Loading Plans...' : 'Saved Plans'}
               </button>

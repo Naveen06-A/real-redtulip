@@ -1,14 +1,15 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { X, Save, Eye, Download } from 'lucide-react';
+import { X, Save, Eye, Download, Calendar } from 'lucide-react';
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 interface Expense {
   name: string;
   amount: number;
+  period: 'monthly' | 'yearly';
 }
 
 interface EMIPlan {
@@ -20,7 +21,11 @@ interface EMIPlan {
   interestPerAnnum: number;
   ownFunds: number;
   ownFundsInterestRate: number;
-  monthlyRevenue: number;
+  borrowedFunds: number;
+  borrowedFundsInterestRate: number;
+  revenue1: number;
+  revenue2: number;
+  revenuePeriod: 'monthly' | 'yearly';
   expenses: Expense[];
 }
 
@@ -31,9 +36,22 @@ interface EMICalculations {
   ownFundsMonthlyPrincipal: number;
   ownFundsMonthlyInterest: number;
   ownFundsMonthlyTotal: number;
+  borrowedFundsMonthlyPrincipal: number;
+  borrowedFundsMonthlyInterest: number;
+  borrowedFundsMonthlyTotal: number;
+  totalRevenue: number;
   totalExpenses: number;
   monthlyProfitLoss: number;
   yearlyProfitLoss: number;
+}
+
+interface AmortizationSchedule {
+  month: number;
+  beginningPrincipal: number;
+  monthlyPrincipal: number;
+  monthlyInterest: number;
+  totalEMI: number;
+  endingPrincipal: number;
 }
 
 interface SavedPlan {
@@ -41,14 +59,6 @@ interface SavedPlan {
   emiPlan: EMIPlan;
   calculations: EMICalculations;
 }
-
-const formatCurrency = (value: number): string => {
-  return new Intl.NumberFormat('en-AU', {
-    style: 'currency',
-    currency: 'AUD',
-    minimumFractionDigits: 2,
-  }).format(value);
-};
 
 const formatNumberInput = (value: number): string => {
   if (value === 0) return '';
@@ -71,13 +81,13 @@ const CurrencyInput: React.FC<{
   className?: string;
   min?: string;
   step?: string;
-}> = ({ value, onChange, placeholder, className, min, step }) => {
+  disabled?: boolean;
+}> = ({ value, onChange, placeholder, className, min, step, disabled }) => {
   const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
-    // Allow only digits and commas
     if (/^[\d,]*$/.test(input)) {
       if (input === '') {
         setDisplayValue('');
@@ -90,7 +100,6 @@ const CurrencyInput: React.FC<{
         setDisplayValue(newDisplayValue);
         onChange(numericValue);
 
-        // Restore cursor position
         if (inputRef.current && cursorPosition !== null) {
           const newLength = newDisplayValue.length;
           const diff = newLength - oldLength;
@@ -120,6 +129,7 @@ const CurrencyInput: React.FC<{
       placeholder={placeholder}
       min={min}
       step={step}
+      disabled={disabled}
     />
   );
 };
@@ -128,7 +138,15 @@ const formatPercentage = (value: number): string => {
   return `${value.toFixed(2)}%`;
 };
 
-const calculateEMI = (plan: EMIPlan): EMICalculations => {
+const formatCurrency = (value: number): string => {
+  return new Intl.NumberFormat('en-AU', {
+    style: 'currency',
+    currency: 'AUD',
+    minimumFractionDigits: 2,
+  }).format(value);
+};
+
+const calculateEMI = (plan: EMIPlan): { calculations: EMICalculations; schedule: AmortizationSchedule[] } => {
   const loanTenureMonths = plan.repaymentTerm === 'years' ? plan.loanTenure * 12 : plan.loanTenure;
   const monthlyRepayment = loanTenureMonths > 0 ? plan.loanAmount / loanTenureMonths : 0;
   const monthlyInterest = (plan.loanAmount * (plan.interestPerAnnum / 100)) / 12;
@@ -136,20 +154,52 @@ const calculateEMI = (plan: EMIPlan): EMICalculations => {
   const ownFundsMonthlyPrincipal = loanTenureMonths > 0 ? plan.ownFunds / loanTenureMonths : 0;
   const ownFundsMonthlyInterest = (plan.ownFunds * (plan.ownFundsInterestRate / 100)) / 12;
   const ownFundsMonthlyTotal = ownFundsMonthlyPrincipal + ownFundsMonthlyInterest;
-  const totalExpenses = plan.expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
-  const monthlyProfitLoss = plan.monthlyRevenue - (monthlyTotal + ownFundsMonthlyTotal + totalExpenses);
-  const yearlyProfitLoss = (plan.monthlyRevenue * 12) - ((monthlyTotal + ownFundsMonthlyTotal + totalExpenses) * 12);
+  const borrowedFundsMonthlyPrincipal = loanTenureMonths > 0 ? plan.borrowedFunds / loanTenureMonths : 0;
+  const borrowedFundsMonthlyInterest = (plan.borrowedFunds * (plan.borrowedFundsInterestRate / 100)) / 12;
+  const borrowedFundsMonthlyTotal = borrowedFundsMonthlyPrincipal + borrowedFundsMonthlyInterest;
+  const totalRevenue = plan.revenuePeriod === 'yearly' ? (plan.revenue1 + plan.revenue2) / 12 : plan.revenue1 + plan.revenue2;
+  const totalExpenses = plan.expenses.reduce((sum, expense) => {
+    const amount = expense.period === 'yearly' ? expense.amount / 12 : expense.amount;
+    return sum + amount;
+  }, 0);
+  const monthlyProfitLoss = totalRevenue - (monthlyTotal + ownFundsMonthlyTotal + borrowedFundsMonthlyTotal + totalExpenses);
+  const yearlyProfitLoss = monthlyProfitLoss * 12;
+
+  // Generate amortization schedule for full loan tenure
+  const schedule: AmortizationSchedule[] = [];
+  let remainingPrincipal = plan.loanAmount;
+  for (let month = 1; month <= loanTenureMonths; month++) {
+    const monthlyInterest = (remainingPrincipal * (plan.interestPerAnnum / 100)) / 12;
+    const totalEMI = monthlyRepayment + monthlyInterest;
+    const endingPrincipal = remainingPrincipal - monthlyRepayment;
+    schedule.push({
+      month,
+      beginningPrincipal: remainingPrincipal,
+      monthlyPrincipal: monthlyRepayment,
+      monthlyInterest,
+      totalEMI,
+      endingPrincipal: endingPrincipal > 0 ? endingPrincipal : 0,
+    });
+    remainingPrincipal = endingPrincipal > 0 ? endingPrincipal : 0;
+  }
 
   return {
-    monthlyInterest,
-    monthlyRepayment,
-    monthlyTotal,
-    ownFundsMonthlyPrincipal,
-    ownFundsMonthlyInterest,
-    ownFundsMonthlyTotal,
-    totalExpenses,
-    monthlyProfitLoss,
-    yearlyProfitLoss,
+    calculations: {
+      monthlyInterest,
+      monthlyRepayment,
+      monthlyTotal,
+      ownFundsMonthlyPrincipal,
+      ownFundsMonthlyInterest,
+      ownFundsMonthlyTotal,
+      borrowedFundsMonthlyPrincipal,
+      borrowedFundsMonthlyInterest,
+      borrowedFundsMonthlyTotal,
+      totalRevenue,
+      totalExpenses,
+      monthlyProfitLoss,
+      yearlyProfitLoss,
+    },
+    schedule,
   };
 };
 
@@ -160,10 +210,13 @@ const validateInputs = (plan: EMIPlan): string | null => {
   }
   if (plan.loanAmount < 0) return 'Loan Amount cannot be negative.';
   if (plan.ownFunds < 0) return 'Own Funds cannot be negative.';
+  if (plan.borrowedFunds < 0) return 'Borrowed Funds cannot be negative.';
   if (plan.loanTenure <= 0) return 'Loan Tenure must be greater than zero.';
   if (plan.interestPerAnnum < 0) return 'Interest Per Annum cannot be negative.';
   if (plan.ownFundsInterestRate < 0) return 'Own Funds Interest Rate cannot be negative.';
-  if (plan.monthlyRevenue < 0) return 'Monthly Revenue cannot be negative.';
+  if (plan.borrowedFundsInterestRate < 0) return 'Borrowed Funds Interest Rate cannot be negative.';
+  if (plan.revenue1 < 0) return 'Revenue 1 cannot be negative.';
+  if (plan.revenue2 < 0) return 'Revenue 2 cannot be negative.';
   if (plan.expenses.some((expense) => expense.amount < 0)) return 'Expenses cannot be negative.';
   if (plan.expenses.length < 2) return 'At least two expenses are required.';
   return null;
@@ -179,27 +232,32 @@ export function EMIPlanCalculator() {
     interestPerAnnum: 0,
     ownFunds: 0,
     ownFundsInterestRate: 0,
-    monthlyRevenue: 0,
+    borrowedFunds: 0,
+    borrowedFundsInterestRate: 0,
+    revenue1: 0,
+    revenue2: 0,
+    revenuePeriod: 'monthly',
     expenses: [
-      { name: 'Staff Salary', amount: 0 },
-      { name: 'Rent', amount: 0 },
+      { name: 'Expense 1', amount: 0, period: 'monthly' },
+      { name: 'Expense 2', amount: 0, period: 'monthly' },
     ],
   });
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [savedPlans, setSavedPlans] = useState<SavedPlan[]>(() => {
     const saved = localStorage.getItem('emiPlans');
     return saved ? JSON.parse(saved) : [];
   });
 
-  const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
+  const { calculations, schedule } = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
 
   const handleInputChange = useCallback(
-    (field: keyof EMIPlan, value: string | 'months' | 'years' | number) => {
+    (field: keyof EMIPlan, value: string | 'months' | 'years' | 'monthly' | 'yearly' | number) => {
       setEmiPlan((prev) => {
         const updatedPlan = {
           ...prev,
-          [field]: field === 'repaymentTerm' || field === 'typeOfLoan' ? value : typeof value === 'number' ? value : parseInt(value) || 0,
+          [field]: field === 'repaymentTerm' || field === 'typeOfLoan' || field === 'revenuePeriod' ? value : typeof value === 'number' ? value : parseInt(value) || 0,
         };
         if (field === 'typeOfLoan' && value !== 'Manual Entry') {
           updatedPlan.customLoanType = '';
@@ -225,12 +283,12 @@ export function EMIPlanCalculator() {
   );
 
   const handleExpenseChange = useCallback(
-    (index: number, field: 'name' | 'amount', value: string | number) => {
+    (index: number, field: 'name' | 'amount' | 'period', value: string | number | 'monthly' | 'yearly') => {
       setEmiPlan((prev) => {
         const updatedExpenses = [...prev.expenses];
         updatedExpenses[index] = {
           ...updatedExpenses[index],
-          [field]: field === 'amount' ? (typeof value === 'number' ? value : parseInt(value) || 0) : value,
+          [field]: field === 'amount' ? (typeof value === 'number' ? value : parseInt(value as string) || 0) : value,
         };
         const updatedPlan = { ...prev, expenses: updatedExpenses };
         const validationError = validateInputs(updatedPlan);
@@ -245,7 +303,7 @@ export function EMIPlanCalculator() {
     if (emiPlan.expenses.length < 3) {
       setEmiPlan((prev) => ({
         ...prev,
-        expenses: [...prev.expenses, { name: 'Others', amount: 0 }],
+        expenses: [...prev.expenses, { name: 'Others', amount: 0, period: 'monthly' }],
       }));
     }
   }, [emiPlan.expenses.length]);
@@ -302,19 +360,28 @@ export function EMIPlanCalculator() {
     }
     console.log('Generating PDF with LaTeX content...');
     const link = document.createElement('a');
-    link.href = '#'; // Placeholder; actual implementation needs a LaTeX-to-PDF service
+    link.href = '#';
     link.download = 'EMIBreakdown.pdf';
     link.click();
   }, [emiPlan]);
 
+  const totalPrincipalPaid = useMemo(() => {
+    return schedule.slice(0, 12).reduce((sum, row) => sum + row.monthlyPrincipal, 0);
+  }, [schedule]);
+
+  const remainingAmount = useMemo(() => {
+    return schedule.length > 0 ? schedule[Math.min(11, schedule.length - 1)].endingPrincipal : emiPlan.loanAmount;
+  }, [schedule, emiPlan.loanAmount]);
+
   const chartData = useMemo(() => ({
-    labels: ['Bank Loan', 'Own Funds', 'Expenses', 'Profit/Loss'],
+    labels: ['Bank Loan', 'Own Funds', 'Borrowed Funds', 'Expenses', 'Profit/Loss'],
     datasets: [
       {
         label: 'Principal/Expenses',
         data: [
           calculations.monthlyRepayment,
           calculations.ownFundsMonthlyPrincipal,
+          calculations.borrowedFundsMonthlyPrincipal,
           calculations.totalExpenses,
           Math.max(0, calculations.monthlyProfitLoss),
         ],
@@ -327,6 +394,7 @@ export function EMIPlanCalculator() {
         data: [
           calculations.monthlyInterest,
           calculations.ownFundsMonthlyInterest,
+          calculations.borrowedFundsMonthlyInterest,
           0,
           calculations.monthlyProfitLoss < 0 ? Math.abs(calculations.monthlyProfitLoss) : 0,
         ],
@@ -385,116 +453,170 @@ export function EMIPlanCalculator() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type of Loan</label>
-            <select
-              value={emiPlan.typeOfLoan}
-              onChange={(e) => handleInputChange('typeOfLoan', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="" disabled>Select loan type</option>
-              {loanTypeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            {emiPlan.typeOfLoan === 'Manual Entry' && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Loan Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type of Loan</label>
+              <select
+                value={emiPlan.typeOfLoan}
+                onChange={(e) => handleInputChange('typeOfLoan', e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="" disabled>Select loan type</option>
+                {loanTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              {emiPlan.typeOfLoan === 'Manual Entry' && (
+                <input
+                  type="text"
+                  value={emiPlan.customLoanType}
+                  onChange={(e) => handleCustomLoanTypeChange(e.target.value)}
+                  className="mt-2 w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter custom loan type"
+                />
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Term</label>
+              <select
+                value={emiPlan.repaymentTerm}
+                onChange={(e) => handleInputChange('repaymentTerm', e.target.value as 'months' | 'years')}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="years">Years</option>
+                <option value="months">Months</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Loan Tenure ({emiPlan.repaymentTerm})</label>
               <input
-                type="text"
-                value={emiPlan.customLoanType}
-                onChange={(e) => handleCustomLoanTypeChange(e.target.value)}
-                className="mt-2 w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter custom loan type"
+                type="number"
+                value={emiPlan.loanTenure || ''}
+                onChange={(e) => handleInputChange('loanTenure', e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="1"
+                step="1"
+                placeholder={`Enter tenure in ${emiPlan.repaymentTerm}`}
               />
-            )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Loan Amount (A$)</label>
+              <CurrencyInput
+                value={emiPlan.loanAmount}
+                onChange={(value) => handleInputChange('loanAmount', value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="1000"
+                placeholder="1,234,567"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Interest Per Annum (%)</label>
+              <input
+                type="number"
+                value={emiPlan.interestPerAnnum || ''}
+                onChange={(e) => handleInputChange('interestPerAnnum', e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="0.1"
+                placeholder="Enter annual interest rate"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Own Funds (A$)</label>
+              <CurrencyInput
+                value={emiPlan.ownFunds}
+                onChange={(value) => handleInputChange('ownFunds', value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="1000"
+                placeholder="1,234,567"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Own Funds Interest Rate (% Annual)</label>
+              <input
+                type="number"
+                value={emiPlan.ownFundsInterestRate || ''}
+                onChange={(e) => handleInputChange('ownFundsInterestRate', e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="0.1"
+                placeholder="Enter own funds interest rate"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Borrowed Funds (A$)</label>
+              <CurrencyInput
+                value={emiPlan.borrowedFunds}
+                onChange={(value) => handleInputChange('borrowedFunds', value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="1000"
+                placeholder="1,234,567"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Borrowed Funds Interest Rate (% Annual)</label>
+              <input
+                type="number"
+                value={emiPlan.borrowedFundsInterestRate || ''}
+                onChange={(e) => handleInputChange('borrowedFundsInterestRate', e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="0.1"
+                placeholder="Enter borrowed funds interest rate"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Term</label>
-            <select
-              value={emiPlan.repaymentTerm}
-              onChange={(e) => handleInputChange('repaymentTerm', e.target.value as 'months' | 'years')}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="years">Years</option>
-              <option value="months">Months</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Loan Tenure ({emiPlan.repaymentTerm})</label>
-            <input
-              type="number"
-              value={emiPlan.loanTenure || ''}
-              onChange={(e) => handleInputChange('loanTenure', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="1"
-              step="1"
-              placeholder={`Enter tenure in ${emiPlan.repaymentTerm}`}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Loan Amount (A$)</label>
-            <CurrencyInput
-              value={emiPlan.loanAmount}
-              onChange={(value) => handleInputChange('loanAmount', value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="1000"
-              placeholder="1,234,567"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Interest Per Annum (%)</label>
-            <input
-              type="number"
-              value={emiPlan.interestPerAnnum || ''}
-              onChange={(e) => handleInputChange('interestPerAnnum', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="0.1"
-              placeholder="Enter annual interest rate"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Own Funds (A$)</label>
-            <CurrencyInput
-              value={emiPlan.ownFunds}
-              onChange={(value) => handleInputChange('ownFunds', value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="1000"
-              placeholder="1,234,567"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Own Funds Interest Rate (% Annual)</label>
-            <input
-              type="number"
-              value={emiPlan.ownFundsInterestRate || ''}
-              onChange={(e) => handleInputChange('ownFundsInterestRate', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="0.1"
-              placeholder="Enter own funds interest rate"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Monthly Revenue (A$)</label>
-            <CurrencyInput
-              value={emiPlan.monthlyRevenue}
-              onChange={(value) => handleInputChange('monthlyRevenue', value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="1000"
-              placeholder="1,234,567"
-            />
+        </div>
+
+        <div className="mb-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Revenue Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue Period</label>
+              <select
+                value={emiPlan.revenuePeriod}
+                onChange={(e) => handleInputChange('revenuePeriod', e.target.value as 'monthly' | 'yearly')}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue 1 (A$)</label>
+              <CurrencyInput
+                value={emiPlan.revenue1}
+                onChange={(value) => handleInputChange('revenue1', value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="1000"
+                placeholder="1,234,567"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue 2 (A$)</label>
+              <CurrencyInput
+                value={emiPlan.revenue2}
+                onChange={(value) => handleInputChange('revenue2', value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                min="0"
+                step="1000"
+                placeholder="1,234,567"
+              />
+            </div>
           </div>
         </div>
 
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-gray-800">Monthly Expenses</h2>
+            <h2 className="text-xl font-bold text-gray-800">Expenses</h2>
             {emiPlan.expenses.length < 3 && (
               <motion.button
                 onClick={addExpense}
@@ -529,6 +651,17 @@ export function EMIPlanCalculator() {
                   placeholder="1,234,567"
                 />
               </div>
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+                <select
+                  value={expense.period}
+                  onChange={(e) => handleExpenseChange(index, 'period', e.target.value as 'monthly' | 'yearly')}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
               {emiPlan.expenses.length > 2 && (
                 <motion.button
                   onClick={() => removeExpense(index)}
@@ -561,6 +694,15 @@ export function EMIPlanCalculator() {
           >
             <Eye className="w-5 h-5" />
             Preview Plan
+          </motion.button>
+          <motion.button
+            onClick={() => setShowSchedule(true)}
+            className="bg-gradient-to-r from-teal-600 to-teal-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-teal-700 hover:to-teal-800 flex items-center gap-2"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Calendar className="w-5 h-5" />
+            View Schedule
           </motion.button>
           <motion.button
             onClick={generatePDF}
@@ -635,35 +777,91 @@ export function EMIPlanCalculator() {
                   <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.ownFundsMonthlyTotal)}</td>
                 </tr>
                 <tr>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Revenue</td>
-                  <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.monthlyRevenue)}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds</td>
+                  <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.borrowedFunds)}</td>
                 </tr>
-                {emiPlan.expenses.map((expense, index) => (
-                  <tr key={index}>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{expense.name || `Expense ${index + 1}`}</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(expense.amount)}</td>
-                  </tr>
-                ))}
                 <tr>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Monthly Expenses</td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds Interest Rate (Annual)</td>
+                  <td className="px-6 py-4 text-sm text-right text-gray-700">{formatPercentage(emiPlan.borrowedFundsInterestRate)}</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds Monthly Principal Repayment</td>
+                  <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.borrowedFundsMonthlyPrincipal)}</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds Monthly Interest</td>
+                  <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.borrowedFundsMonthlyInterest)}</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Monthly Allocation for Borrowed Funds</td>
+                  <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.borrowedFundsMonthlyTotal)}</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Expenses</td>
                   <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.totalExpenses)}</td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Profit/Loss</td>
                   <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">
-                    {formatCurrency(calculations.monthlyProfitLoss)} {calculations.monthlyProfitLoss >= 0 ? '(Profit)' : '(Loss)'}
+                    {formatCurrency(calculations.monthlyProfitLoss)}
+                    {calculations.monthlyProfitLoss >= 0 ? ' (Profit)' : ' (Loss)'}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">Yearly Profit/Loss</td>
                   <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">
-                    {formatCurrency(calculations.yearlyProfitLoss)} {calculations.yearlyProfitLoss >= 0 ? '(Profit)' : '(Loss)'}
+                    {formatCurrency(calculations.yearlyProfitLoss)}
+                    {calculations.yearlyProfitLoss >= 0 ? ' (Profit)' : ' (Loss)'}
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
+
+        {showSchedule && (
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Amortization Schedule</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal (A$)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Monthly Principal (A$)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Monthly Interest (A$)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI (A$)</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal (A$)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {schedule.map((row, index) => (
+                    <React.Fragment key={row.month}>
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-left text-gray-700">{row.month}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(row.beginningPrincipal)}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(row.monthlyPrincipal)}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(row.monthlyInterest)}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(row.totalEMI)}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(row.endingPrincipal)}</td>
+                      </tr>
+                      {index === 11 && (
+                        <tr className="bg-gray-100">
+                          <td className="px-6 py-4 text-sm font-bold text-gray-900">Total (12 Months)</td>
+                          <td className="px-6 py-4 text-sm text-right text-gray-700"></td>
+                          <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">{formatCurrency(totalPrincipalPaid)}</td>
+                          <td className="px-6 py-4 text-sm text-right text-gray-700"></td>
+                          <td className="px-6 py-4 text-sm text-right text-gray-700"></td>
+                          <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">{formatCurrency(remainingAmount)}</td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {emiPlan.loanTenure > 0 && (
           <div className="mb-8">
@@ -720,92 +918,162 @@ export function EMIPlanCalculator() {
                   <X className="w-6 h-6" />
                 </motion.button>
               </div>
-              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Component</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Type of Loan</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">
-                      {emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType || 'Not specified' : emiPlan.typeOfLoan || 'Not specified'}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Loan Tenure ({emiPlan.repaymentTerm})</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{emiPlan.loanTenure} {emiPlan.repaymentTerm}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Loan Amount</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.loanAmount)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Interest Per Annum</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatPercentage(emiPlan.interestPerAnnum)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Interest</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.monthlyInterest)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Repayment</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.monthlyRepayment)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Repayments + Interest</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.monthlyTotal)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.ownFunds)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds Interest Rate (Annual)</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatPercentage(emiPlan.ownFundsInterestRate)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds Monthly Principal Repayment</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.ownFundsMonthlyPrincipal)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds Monthly Interest</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.ownFundsMonthlyInterest)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Monthly Allocation for Own Funds</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.ownFundsMonthlyTotal)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Revenue</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.monthlyRevenue)}</td>
-                  </tr>
-                  {emiPlan.expenses.map((expense, index) => (
-                    <tr key={index}>
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{expense.name || `Expense ${index + 1}`}</td>
-                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(expense.amount)}</td>
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Loan Details</h3>
+                <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Component</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
                     </tr>
-                  ))}
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Monthly Expenses</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.totalExpenses)}</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Profit/Loss</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">
-                      {formatCurrency(calculations.monthlyProfitLoss)} {calculations.monthlyProfitLoss >= 0 ? '(Profit)' : '(Loss)'}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">Yearly Profit/Loss</td>
-                    <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">
-                      {formatCurrency(calculations.yearlyProfitLoss)} {calculations.yearlyProfitLoss >= 0 ? '(Profit)' : '(Loss)'}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Type of Loan</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">
+                        {emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType || 'Not specified' : emiPlan.typeOfLoan || 'Not specified'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Loan Tenure ({emiPlan.repaymentTerm})</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{emiPlan.loanTenure} {emiPlan.repaymentTerm}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Loan Amount</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.loanAmount)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Interest Per Annum</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatPercentage(emiPlan.interestPerAnnum)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Interest</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.monthlyInterest)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Repayment</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.monthlyRepayment)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Repayments + Interest</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.monthlyTotal)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.ownFunds)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds Interest Rate (Annual)</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatPercentage(emiPlan.ownFundsInterestRate)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds Monthly Principal Repayment</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.ownFundsMonthlyPrincipal)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Own Funds Monthly Interest</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.ownFundsMonthlyInterest)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Monthly Allocation for Own Funds</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.ownFundsMonthlyTotal)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.borrowedFunds)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds Interest Rate (Annual)</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatPercentage(emiPlan.borrowedFundsInterestRate)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds Monthly Principal Repayment</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.borrowedFundsMonthlyPrincipal)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Borrowed Funds Monthly Interest</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(calculations.borrowedFundsMonthlyInterest)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Monthly Allocation for Borrowed Funds</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.borrowedFundsMonthlyTotal)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Expenses</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.totalExpenses)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Monthly Profit/Loss</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">
+                        {formatCurrency(calculations.monthlyProfitLoss)}
+                        {calculations.monthlyProfitLoss >= 0 ? ' (Profit)' : ' (Loss)'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Yearly Profit/Loss</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-bold">
+                        {formatCurrency(calculations.yearlyProfitLoss)}
+                        {calculations.yearlyProfitLoss >= 0 ? ' (Profit)' : ' (Loss)'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Revenue Details</h3>
+                <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Component</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Revenue Period</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{emiPlan.revenuePeriod}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Revenue 1</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.revenue1)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Revenue 2</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(emiPlan.revenue2)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Revenue</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.totalRevenue)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Expenses</h3>
+                <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expense Name</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount (A$)</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {emiPlan.expenses.map((expense, index) => (
+                      <tr key={index}>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{expense.name || `Expense ${index + 1}`}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{formatCurrency(expense.amount)}</td>
+                        <td className="px-6 py-4 text-sm text-right text-gray-700">{expense.period}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Total Expenses</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700 font-semibold">{formatCurrency(calculations.totalExpenses)}</td>
+                      <td className="px-6 py-4 text-sm text-right text-gray-700"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </motion.div>
         )}

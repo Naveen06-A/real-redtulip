@@ -3,14 +3,39 @@ import autoTable from 'jspdf-autotable';
 import moment from 'moment';
 import logo from '../assets/logo.png';
 
-export const generatePdf = async (
+// Function overloads for better type safety
+export function generatePdf(
+  title: string,
+  head: string[][],
+  body: (string | number)[][],
+  fileName: string,
+  outputType: 'blob',
+  summaryData?: (string | number)[][]
+): Promise<Blob>;
+export function generatePdf(
+  title: string,
+  head: string[][],
+  body: (string | number)[][],
+  fileName: string,
+  outputType: 'datauristring',
+  summaryData?: (string | number)[][]
+): Promise<string>;
+export function generatePdf(
+  title: string,
+  head: string[][],
+  body: (string | number)[][],
+  fileName: string,
+  outputType: 'save',
+  summaryData?: (string | number)[][]
+): Promise<void>;
+export async function generatePdf(
   title: string,
   head: string[][],
   body: (string | number)[][],
   fileName: string,
   outputType: 'datauristring' | 'blob' | 'save' = 'blob',
   summaryData?: (string | number)[][]
-): Promise<string | Blob> => {
+): Promise<string | Blob | void> {
   try {
     // Input validation
     if (!title || typeof title !== 'string') {
@@ -181,33 +206,24 @@ export const generatePdf = async (
     });
 
     // Output based on type
-    let result: string | Blob;
     if (outputType === 'save') {
       doc.save(fileName);
-      result = new Blob([''], { type: 'application/pdf' });
+      return;
     } else if (outputType === 'datauristring') {
-      result = doc.output('datauristring');
+      const result = doc.output('datauristring');
       if (typeof result !== 'string' || !result.startsWith('data:application/pdf;base64,')) {
         const blob = doc.output('blob') as Blob;
-        result = await new Promise<string>((resolve, reject) => {
+        return await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
           reader.onerror = () => reject(new Error('Failed to convert blob to data URL'));
           reader.readAsDataURL(blob);
         });
       }
+      return result;
     } else {
-      result = doc.output('blob');
+      return doc.output('blob') as Blob;
     }
-
-    console.debug('PDF generated:', {
-      outputType,
-      type: typeof result,
-      isBlob: result instanceof Blob,
-      dataLength: typeof result === 'string' ? result.length : result instanceof Blob ? result.size : 'N/A',
-    });
-
-    return result;
   } catch (error: any) {
     console.error('Error generating PDF:', {
       message: error.message,
@@ -220,4 +236,4 @@ export const generatePdf = async (
     });
     throw error;
   }
-};
+}

@@ -139,7 +139,7 @@ const routes = [
   { path: '/comparisons', element: <AgentRoute><Comparisons /></AgentRoute> },
   { path: '/enquiryjob', element: <Enquiryjob /> },
   {path: '/emi-calculator', element: <EMIPlanCalculator />},
-  { path: '/enquiry-form', element: <EnquiryForm />},
+  // { path: '/enquiry-form', element: <EnquiryForm />},
   { path: '/enquiry-form', element: <EnquiryForm /> }, // Uncommented and fixed
   {
     path: '/commission-by-agency',

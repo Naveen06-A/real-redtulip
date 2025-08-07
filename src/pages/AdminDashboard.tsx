@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CreateAgentModal } from '../components/CreateAgentModal';
 import { EnquiryPDFPreview } from './EnquiryPDFPreview';
 import { Agent, Property, Enquiry } from '../types';
+
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 

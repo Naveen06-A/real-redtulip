@@ -64,8 +64,8 @@ interface BusinessPlanTargets {
   commission_average: number | null;
   agent_percentage: number | null;
   business_percentage: number | null;
-  agent_commission: number | null;
-  business_commission: number | null;
+  agent_amount: number | null;
+  business_amount: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -165,8 +165,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     commission_average: null,
     agent_percentage: null,
     business_percentage: null,
-    agent_commission: null,
-    business_commission: null,
+    agent_amount: null,
+    business_amount: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
@@ -188,7 +188,7 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
   const filteredAgents = agents.filter(agent =>
     agent.name.toLowerCase().includes(agentSearch.toLowerCase())
   );
-
+  
   useEffect(() => {
     const initializeAgentData = async () => {
       setLoading(true);
@@ -282,20 +282,20 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     let total_third_party_calls: number | null = null;
     let total_cost_appraisals: number | null = null;
     let commission_average: number | null = null;
-    let agent_commission: number | null = null;
-    let business_commission: number | null = null;
+    let agent_amount: number | null = null;
+    let business_amount: number | null = null;
 
     if (avg_commission_price_per_property != null && franchise_fee != null) {
       commission_average = Math.round(avg_commission_price_per_property * (1 - franchise_fee / 100));
     }
 
     if (commission_average != null && agent_percentage != null && business_percentage != null && agent_percentage + business_percentage === 100) {
-      agent_commission = Math.round(commission_average * (agent_percentage / 100));
-      business_commission = Math.round(commission_average * (business_percentage / 100));
+      agent_amount = Math.round(commission_average * (agent_percentage / 100));
+      business_amount = Math.round(commission_average * (business_percentage / 100));
     }
 
-    if (gross_commission_target != null && agent_commission != null && agent_commission > 0) {
-      settled_sales_target = Math.round(gross_commission_target / agent_commission);
+    if (gross_commission_target != null && agent_amount != null && agent_amount > 0) {
+      settled_sales_target = Math.round(gross_commission_target / agent_amount);
     }
 
     if (settled_sales_target != null && listing_to_written_ratio != null && listing_to_written_ratio > 0) {
@@ -364,9 +364,9 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       total_cost_appraisals,
       net_commission,
       commission_average,
-      agent_commission,
-      business_commission,
-      avg_commission_per_sale: agent_commission
+      agent_amount,
+      business_amount,
+      avg_commission_per_sale: agent_amount
     }));
   }, [
     targets.gross_commission_target,
@@ -523,8 +523,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           commission_average: planData.commission_average != null ? Math.round(planData.commission_average) : null,
           agent_percentage: planData.agent_percentage != null ? Math.round(planData.agent_percentage) : null,
           business_percentage: planData.business_percentage != null ? Math.round(planData.business_percentage) : null,
-          agent_commission: planData.agent_commission != null ? Math.round(planData.agent_commission) : null,
-          business_commission: planData.business_commission != null ? Math.round(planData.business_commission) : null
+          agent_amount: planData.agent_amount != null ? Math.round(planData.agent_amount) : null,
+          business_amount: planData.business_amount != null ? Math.round(planData.business_amount) : null
         });
         setAgentSearch(agentName);
       }
@@ -617,8 +617,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       commission_average: plan.commission_average != null ? Math.round(plan.commission_average) : null,
       agent_percentage: plan.agent_percentage != null ? Math.round(plan.agent_percentage) : null,
       business_percentage: plan.business_percentage != null ? Math.round(plan.business_percentage) : null,
-      agent_commission: plan.agent_commission != null ? Math.round(plan.agent_commission) : null,
-      business_commission: plan.business_commission != null ? Math.round(plan.business_commission) : null
+      agent_amount: plan.agent_amount != null ? Math.round(plan.agent_amount) : null,
+      business_amount: plan.business_amount != null ? Math.round(plan.business_amount) : null
     });
     setAgentSearch(plan.agent_name || '');
     setShowSavedPlans(false);
@@ -701,8 +701,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         commission_average: targets.commission_average != null ? Math.round(targets.commission_average) : null,
         agent_percentage: targets.agent_percentage != null ? Math.round(targets.agent_percentage) : null,
         business_percentage: targets.business_percentage != null ? Math.round(targets.business_percentage) : null,
-        agent_commission: targets.agent_commission != null ? Math.round(targets.agent_commission) : null,
-        business_commission: targets.business_commission != null ? Math.round(targets.business_commission) : null
+        agent_amount: targets.agent_amount != null ? Math.round(targets.agent_amount) : null,
+        business_amount: targets.business_amount != null ? Math.round(targets.business_amount) : null
       };
 
       let savedPlan: BusinessPlanTargets | null = null;
@@ -757,8 +757,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           commission_average: savedPlan.commission_average != null ? Math.round(savedPlan.commission_average) : null,
           agent_percentage: savedPlan.agent_percentage != null ? Math.round(savedPlan.agent_percentage) : null,
           business_percentage: savedPlan.business_percentage != null ? Math.round(savedPlan.business_percentage) : null,
-          agent_commission: savedPlan.agent_commission != null ? Math.round(savedPlan.agent_commission) : null,
-          business_commission: savedPlan.business_commission != null ? Math.round(savedPlan.business_commission) : null
+          agent_amount: savedPlan.agent_amount != null ? Math.round(savedPlan.agent_amount) : null,
+          business_amount: savedPlan.business_amount != null ? Math.round(savedPlan.business_amount) : null
         });
         setAgentSearch(savedPlan.agent_name || agentName);
         setShowSaveConfirmation(true);
@@ -835,8 +835,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
         commission_average: null,
         agent_percentage: null,
         business_percentage: null,
-        agent_commission: null,
-        business_commission: null,
+        agent_amount: null,
+        business_amount: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
@@ -916,8 +916,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           commission_average: null,
           agent_percentage: null,
           business_percentage: null,
-          agent_commission: null,
-          business_commission: null,
+          agent_amount: null,
+          business_amount: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
@@ -1001,8 +1001,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
           ['Commission Average', targets.commission_average != null ? `$${Math.round(targets.commission_average).toLocaleString()}` : 'N/A'],
           ['Agent Percentage', targets.agent_percentage != null ? `${Math.round(targets.agent_percentage)}%` : '50%'],
           ['Business Percentage', targets.business_percentage != null ? `${Math.round(targets.business_percentage)}%` : '50%'],
-          ['Agent Commission', targets.agent_commission != null ? `$${Math.round(targets.agent_commission).toLocaleString()}` : 'N/A'],
-          ['Business Commission', targets.business_commission != null ? `$${Math.round(targets.business_commission).toLocaleString()}` : 'N/A']
+          ['Agent Commission', targets.agent_amount != null ? `$${Math.round(targets.agent_amount).toLocaleString()}` : 'N/A'],
+          ['Business Commission', targets.business_amount != null ? `$${Math.round(targets.business_amount).toLocaleString()}` : 'N/A']
         ],
         theme: 'striped',
         styles: { fontSize: 7, cellPadding: 2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.1, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
@@ -1194,8 +1194,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
       commission_average: null,
       agent_percentage: 50,
       business_percentage: 50,
-      agent_commission: null,
-      business_commission: null,
+      agent_amount: null,
+      business_amount: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -1258,8 +1258,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     { name: 'Third Party Calls', value: targets.total_third_party_calls, fill: '#1E90FF' },
     { name: 'Total Cost Appraisals', value: targets.total_cost_appraisals, fill: '#1D4ED8' },
     { name: 'Net Commission', value: targets.net_commission, fill: '#3B82F6' },
-    { name: 'Agent Commission', value: targets.agent_commission, fill: '#1E90FF' },
-    { name: 'Business Commission', value: targets.business_commission, fill: '#2563EB' }
+    { name: 'Agent Commission', value: targets.agent_amount, fill: '#1E90FF' },
+    { name: 'Business Commission', value: targets.business_amount, fill: '#2563EB' }
   ].filter(item => item.value != null);
 
   const progressData = [
@@ -1550,22 +1550,22 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
     },
     { 
       title: 'Agent Commission', 
-      value: targets.agent_commission ?? '', 
+      value: targets.agent_amount ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-50', 
       isCurrency: true,
-      field: 'agent_commission',
+      field: 'agent_amount',
       isReadOnly: true
     },
     { 
       title: 'Business Commission', 
-      value: targets.business_commission ?? '', 
+      value: targets.business_amount ?? '', 
       icon: DollarSign, 
       color: 'bg-blue-600', 
       bgColor: 'bg-blue-50', 
       isCurrency: true,
-      field: 'business_commission',
+      field: 'business_amount',
       isReadOnly: true
     }
   ];
@@ -1906,8 +1906,8 @@ export function AgentBusinessPlan({ isAdmin = false }: { isAdmin?: boolean }) {
                             <p><strong>Commission Average:</strong> {targets.commission_average != null ? `$${Math.round(targets.commission_average).toLocaleString()}` : 'N/A'}</p>
                             <p><strong>Agent Percentage:</strong> {targets.agent_percentage != null ? `${Math.round(targets.agent_percentage)}%` : 'N/A'}</p>
                             <p><strong>Business Percentage:</strong> {targets.business_percentage != null ? `${Math.round(targets.business_percentage)}%` : 'N/A'}</p>
-                            <p><strong>Agent Commission:</strong> {targets.agent_commission != null ? `$${Math.round(targets.agent_commission).toLocaleString()}` : 'N/A'}</p>
-                            <p><strong>Business Commission:</strong> {targets.business_commission != null ? `$${Math.round(targets.business_commission).toLocaleString()}` : 'N/A'}</p>
+                            <p><strong>Agent Commission:</strong> {targets.agent_amount != null ? `$${Math.round(targets.agent_amount).toLocaleString()}` : 'N/A'}</p>
+                            <p><strong>Business Commission:</strong> {targets.business_amount != null ? `$${Math.round(targets.business_amount).toLocaleString()}` : 'N/A'}</p>
                           </Disclosure.Panel>
                         </>
                       )}

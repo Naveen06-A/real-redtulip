@@ -15,8 +15,8 @@ interface EMIPlan {
   loanTenure: number;
   loanAmount: number;
   interestPerAnnum: number;
-  bankPercent: number; // Will be controlled by progress bar
-  ownPercent: number;  // Will be controlled by progress bar
+  bankPercent: number;
+  ownPercent: number;
   ownFundsInterestRate: number;
   ownTenure: number;
   hasBorrowedFunds: 'yes' | 'no';
@@ -31,6 +31,9 @@ interface EMIPlan {
 
 interface YearlyAvg {
   year: number;
+  avgRepayBank: number;
+  avgRepayOwn: number;
+  avgRepayBorrowed: number;
   avgRepay: number;
   pl: number;
 }
@@ -212,6 +215,9 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       const monthsInYear = currentMonth % 12 === 0 ? 12 : currentMonth % 12;
       yearlyAvg.push({
         year: currentYear,
+        avgRepayBank: (yearPrincipalBank + yearInterestBank) / monthsInYear,
+        avgRepayOwn: (yearPrincipalOwn + yearInterestOwn) / monthsInYear,
+        avgRepayBorrowed: (yearPrincipalBorrowed + yearInterestBorrowed) / monthsInYear,
         avgRepay: yearTotalRepayment / monthsInYear,
         pl: yearlyRevenue - yearlyExpenses - yearTotalRepayment,
       });
@@ -275,25 +281,25 @@ const validateInputs = (plan: EMIPlan): string | null => {
 
 export function EMIPlanCalculator() {
   const [emiPlan, setEmiPlan] = useState<EMIPlan>({
-    typeOfLoan: 'Business Loan',
+    typeOfLoan: '',
     customLoanType: '',
-    loanTenure: 5,
-    loanAmount: 1000000,
-    interestPerAnnum: 7.5,
+    loanTenure: 0,
+    loanAmount: 0,
+    interestPerAnnum: 0,
     bankPercent: 70,
     ownPercent: 30,
-    ownFundsInterestRate: 4.0,
-    ownTenure: 5,
-    hasBorrowedFunds: 'yes',
-    borrowedFunds: 200000,
-    borrowedFundsInterestRate: 6.0,
-    borrowedTenure: 3,
-    revenue1: 50000,
-    revenue2: 30000,
+    ownFundsInterestRate: 0,
+    ownTenure: 0,
+    hasBorrowedFunds: 'no',
+    borrowedFunds: 0,
+    borrowedFundsInterestRate: 0,
+    borrowedTenure: 0,
+    revenue1: 0,
+    revenue2: 0,
     revenuePeriod: 'monthly',
     expenses: [
-      { name: 'Rent', amount: 10000, period: 'monthly' },
-      { name: 'Utilities', amount: 5000, period: 'monthly' },
+      { name: 'Expense 1', amount: 0, period: 'monthly' },
+      { name: 'Expense 2', amount: 0, period: 'monthly' },
     ],
   });
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +307,8 @@ export function EMIPlanCalculator() {
     const saved = localStorage.getItem('emiPlans');
     return saved ? JSON.parse(saved) : [];
   });
+  const [view, setView] = useState<'loan' | 'own' | 'borrowed'>('loan');
+  const [showAmortizationTable, setShowAmortizationTable] = useState(false);
 
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
 
@@ -309,7 +317,7 @@ export function EMIPlanCalculator() {
       setEmiPlan((prev) => {
         const updatedPlan = {
           ...prev,
-          [field]: field === 'typeOfLoan' || field === 'revenuePeriod' || field === 'hasBorrowedFunds' ? value : typeof value === 'number' ? value : parseInt(value) || 0,
+          [field]: field === 'typeOfLoan' || field === 'revenuePeriod' || field === 'hasBorrowedFunds' ? value : typeof value === 'number' ? value : parseFloat(value) || 0,
         };
         if (field === 'typeOfLoan' && value !== 'Manual Entry') {
           updatedPlan.customLoanType = '';
@@ -421,16 +429,6 @@ export function EMIPlanCalculator() {
     link.click();
   }, [emiPlan]);
 
-  const handleProgressChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const bankPercent = parseInt(event.target.value, 10);
-    const ownPercent = 100 - bankPercent;
-    setEmiPlan((prev) => ({
-      ...prev,
-      bankPercent,
-      ownPercent,
-    }));
-  };
-
   const loanTypeOptions = [
     'Business Loan',
     'Vehicle Loan',
@@ -440,15 +438,43 @@ export function EMIPlanCalculator() {
     'Manual Entry',
   ];
 
+  // Calculate amortization schedule for the bank loan
+  const amortizationSchedule = useMemo(() => {
+    const schedule = [];
+    const loanAmount = emiPlan.loanAmount * emiPlan.bankPercent / 100;
+    const monthlyPrincipal = loanAmount / (emiPlan.loanTenure * 12);
+    let remainingPrincipal = loanAmount;
+
+    for (let month = 1; month <= emiPlan.loanTenure * 12; month++) {
+      const monthlyInterest = remainingPrincipal * (emiPlan.interestPerAnnum / 100 / 12);
+      const totalEMI = monthlyPrincipal + monthlyInterest;
+      const endingPrincipal = remainingPrincipal - monthlyPrincipal;
+
+      schedule.push({
+        month,
+        beginningPrincipal: remainingPrincipal,
+        monthlyPrincipal,
+        monthlyInterest,
+        totalEMI,
+        endingPrincipal,
+      });
+
+      remainingPrincipal = endingPrincipal;
+      if (remainingPrincipal < 0) remainingPrincipal = 0;
+    }
+
+    return schedule;
+  }, [emiPlan]);
+
   return (
-    <div className="max-w-4xl mx-auto p-6 bg-gray-100 min-h-screen">
+    <div className="max-w-7xl mx-auto p-6 bg-gray-100 min-h-screen">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="bg-white p-8 rounded-2xl shadow-2xl"
       >
-        <h1 className="text-3xl font-extrabold text-gray-900 mb-6">EMI Plan Calculator</h1>
+        <h1 className="text-3xl font-extrabold text-gray-900 mb-6 text-center">EMI Plan Calculator</h1>
 
         {error && (
           <motion.div
@@ -458,16 +484,16 @@ export function EMIPlanCalculator() {
               error.includes('successfully') ? 'bg-green-100 border-green-500 text-green-700' : 'bg-red-100 border-red-500 text-red-700'
             }`}
           >
-            <p>{error}</p>
+            <p className="text-center">{error}</p>
           </motion.div>
         )}
 
         {savedPlans.length > 0 && (
-          <div className="mb-6">
+          <div className="mb-6 text-center">
             <label className="block text-sm font-medium text-gray-700 mb-1">Load Saved Plan</label>
             <select
               onChange={(e) => loadPlan(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-1/3 mx-auto p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select a saved plan</option>
               {savedPlans.map((plan) => (
@@ -479,257 +505,447 @@ export function EMIPlanCalculator() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type of Loan</label>
-            <select
-              value={emiPlan.typeOfLoan}
-              onChange={(e) => handleInputChange('typeOfLoan', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+        <div className="mb-8">
+          <div className="mb-4 flex justify-center gap-4">
+            <button
+              onClick={() => setView('loan')}
+              className={`px-4 py-2 rounded-lg ${view === 'loan' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
             >
-              <option value="" disabled>Select loan type</option>
-              {loanTypeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            {emiPlan.typeOfLoan === 'Manual Entry' && (
-              <input
-                type="text"
-                value={emiPlan.customLoanType}
-                onChange={(e) => handleCustomLoanTypeChange(e.target.value)}
-                className="mt-2 w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter custom loan type"
-              />
-            )}
+              Loan Amount
+            </button>
+            <button
+              onClick={() => setView('own')}
+              className={`px-4 py-2 rounded-lg ${view === 'own' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
+            >
+              Own Amount
+            </button>
+            <button
+              onClick={() => setView('borrowed')}
+              className={`px-4 py-2 rounded-lg ${view === 'borrowed' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
+            >
+              Borrowed Amount
+            </button>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Loan Tenure (Years)</label>
-            <input
-              type="number"
-              value={emiPlan.loanTenure || ''}
-              onChange={(e) => handleInputChange('loanTenure', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="1"
-              step="1"
-              placeholder="Enter tenure in years"
-            />
+
+          <div className="mb-4">
+            <button
+              onClick={() => setShowAmortizationTable(!showAmortizationTable)}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+            >
+              {showAmortizationTable ? 'Hide Amortization Table' : 'Show Amortization Table'}
+            </button>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Loan Amount (₹)</label>
-            <CurrencyInput
-              value={emiPlan.loanAmount}
-              onChange={(value) => handleInputChange('loanAmount', value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="1000"
-              placeholder="3,00,000"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Interest Per Annum (%)</label>
-            <input
-              type="number"
-              value={emiPlan.interestPerAnnum || ''}
-              onChange={(e) => handleInputChange('interestPerAnnum', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="0.1"
-              placeholder="Enter annual interest rate"
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Loan Distribution (Bank vs Own Funds)</label>
-            <div className="flex items-center gap-4">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={emiPlan.bankPercent}
-                onChange={handleProgressChange}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-              />
-              <span className="text-sm font-medium text-gray-700">{formatPercentage(emiPlan.bankPercent)} (Bank) / {formatPercentage(emiPlan.ownPercent)} (Own)</span>
+
+          {showAmortizationTable && (
+            <div className="overflow-x-auto mb-6">
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal (A$)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Monthly Principal (A$)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Monthly Interest (A$)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI (A$)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal (A$)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {amortizationSchedule.map((entry, index) => (
+                    <tr key={index}>
+                      <td className="px-4 py-4 text-sm text-gray-700">{entry.month}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.beginningPrincipal)}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.monthlyPrincipal)}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.monthlyInterest)}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.totalEMI)}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.endingPrincipal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Own Funds Interest Rate (% Annual)</label>
-            <input
-              type="number"
-              value={emiPlan.ownFundsInterestRate || ''}
-              onChange={(e) => handleInputChange('ownFundsInterestRate', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="0"
-              step="0.1"
-              placeholder="Enter own funds interest rate"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Own Tenure (Years)</label>
-            <input
-              type="number"
-              value={emiPlan.ownTenure || ''}
-              onChange={(e) => handleInputChange('ownTenure', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              min="1"
-              step="1"
-              placeholder="Enter tenure in years"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Has Borrowed Funds?</label>
-            <select
-              value={emiPlan.hasBorrowedFunds}
-              onChange={(e) => handleInputChange('hasBorrowedFunds', e.target.value as 'yes' | 'no')}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </div>
-          {emiPlan.hasBorrowedFunds === 'yes' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Borrowed Funds (₹)</label>
-                <CurrencyInput
-                  value={emiPlan.borrowedFunds}
-                  onChange={(value) => handleInputChange('borrowedFunds', value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  min="0"
-                  step="1000"
-                  placeholder="3,00,000"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Borrowed Funds Interest Rate (% Annual)</label>
-                <input
-                  type="number"
-                  value={emiPlan.borrowedFundsInterestRate || ''}
-                  onChange={(e) => handleInputChange('borrowedFundsInterestRate', e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  min="0"
-                  step="0.1"
-                  placeholder="Enter borrowed funds interest rate"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Borrowed Tenure (Years)</label>
-                <input
-                  type="number"
-                  value={emiPlan.borrowedTenure || ''}
-                  onChange={(e) => handleInputChange('borrowedTenure', e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  min="1"
-                  step="1"
-                  placeholder="Enter tenure in years"
-                />
-              </div>
-            </>
           )}
-        </div>
 
-        <div className="mb-8">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Revenue Details</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-gray-50 p-4 rounded-lg shadow">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue Period</label>
-              <select
-                value={emiPlan.revenuePeriod}
-                onChange={(e) => handleInputChange('revenuePeriod', e.target.value as 'monthly' | 'yearly')}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue 1 (₹)</label>
-              <CurrencyInput
-                value={emiPlan.revenue1}
-                onChange={(value) => handleInputChange('revenue1', value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-                min="0"
-                step="1000"
-                placeholder="3,00,000"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue 2 (₹)</label>
-              <CurrencyInput
-                value={emiPlan.revenue2}
-                onChange={(value) => handleInputChange('revenue2', value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-                min="0"
-                step="1000"
-                placeholder="3,00,000"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-gray-800">Expenses</h2>
-            {emiPlan.expenses.length < 3 && (
-              <motion.button
-                onClick={addExpense}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Add Expense
-              </motion.button>
-            )}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-gray-50 p-4 rounded-lg shadow">
-            {emiPlan.expenses.map((expense, index) => (
-              <div key={index} className="flex items-center gap-4 bg-white p-3 rounded-lg">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Expense Name</label>
-                  <input
-                    type="text"
-                    value={expense.name}
-                    onChange={(e) => handleExpenseChange(index, 'name', e.target.value)}
+          {view === 'loan' && (
+            <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month/Year</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Repay</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {calculations.yearlyAvg.map((ya, idx) => (
+                  <tr key={idx}>
+                    <td className="px-4 py-4 text-sm text-gray-700">{`Year ${ya.year}`}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBank * 12)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBank * 12 * (emiPlan.interestPerAnnum / 100))}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBank)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBank * 12)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency((emiPlan.loanAmount * emiPlan.bankPercent / 100) - (ya.avgRepayBank * idx * 12))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {view === 'own' && (
+            <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month/Year</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Repay</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {calculations.yearlyAvg.map((ya, idx) => (
+                  <tr key={idx}>
+                    <td className="px-4 py-4 text-sm text-gray-700">{`Year ${ya.year}`}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayOwn * 12)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayOwn * 12 * (emiPlan.ownFundsInterestRate / 100))}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayOwn)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayOwn * 12)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency((emiPlan.loanAmount * emiPlan.ownPercent / 100) - (ya.avgRepayOwn * idx * 12))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {view === 'borrowed' && (
+            <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month/Year</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Borrowed</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Repay</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Borrowed Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {calculations.yearlyAvg.map((ya, idx) => (
+                  <tr key={idx}>
+                    <td className="px-4 py-4 text-sm text-gray-700">{`Year ${ya.year}`}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBorrowed * 12)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBorrowed * 12 * (emiPlan.borrowedFundsInterestRate / 100))}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBorrowed)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepayBorrowed * 12)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.borrowedFunds - (ya.avgRepayBorrowed * idx * 12))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Term (Years)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Loan (₹)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              <tr>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <select
+                    value={emiPlan.typeOfLoan}
+                    onChange={(e) => handleInputChange('typeOfLoan', e.target.value)}
                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter expense name"
+                  >
+                    <option value="" disabled>Select loan type</option>
+                    {loanTypeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  {emiPlan.typeOfLoan === 'Manual Entry' && (
+                    <input
+                      type="text"
+                      value={emiPlan.customLoanType}
+                      onChange={(e) => handleCustomLoanTypeChange(e.target.value)}
+                      className="mt-2 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter custom loan type"
+                    />
+                  )}
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.loanTenure || ''}
+                    onChange={(e) => handleInputChange('loanTenure', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="1"
+                    step="1"
+                    placeholder="7"
                   />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (₹)</label>
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
                   <CurrencyInput
-                    value={expense.amount}
-                    onChange={(value) => handleExpenseChange(index, 'amount', value)}
+                    value={emiPlan.loanAmount}
+                    onChange={(value) => handleInputChange('loanAmount', value)}
                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     min="0"
                     step="1000"
                     placeholder="3,00,000"
                   />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.interestPerAnnum || ''}
+                    onChange={(e) => handleInputChange('interestPerAnnum', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="0.1"
+                    placeholder="9"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.bankPercent || ''}
+                    onChange={(e) => handleInputChange('bankPercent', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    max="100"
+                    step="1"
+                    placeholder="70"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.ownPercent || ''}
+                    onChange={(e) => handleInputChange('ownPercent', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    max="100"
+                    step="1"
+                    placeholder="30"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.bankPercent / 100)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.ownPercent / 100)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.bankYear1Principal + calculations.bankYear1Interest)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenure (Years)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment Total (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Own (₹)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              <tr>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.ownPercent / 100)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.ownTenure || ''}
+                    onChange={(e) => handleInputChange('ownTenure', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="1"
+                    step="1"
+                    placeholder="2"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.ownFundsInterestRate || ''}
+                    onChange={(e) => handleInputChange('ownFundsInterestRate', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="0.1"
+                    placeholder="9"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Principal)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Interest)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Total)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Principal + calculations.ownYear1Interest)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Borrowed Funds?</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Borrowed Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenure (Years)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest %</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment Total (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Borrowed (₹)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              <tr>
+                <td className="px-4 py-4 text-sm text-gray-700">
                   <select
-                    value={expense.period}
-                    onChange={(e) => handleExpenseChange(index, 'period', e.target.value as 'monthly' | 'yearly')}
+                    value={emiPlan.hasBorrowedFunds}
+                    onChange={(e) => handleInputChange('hasBorrowedFunds', e.target.value as 'yes' | 'no')}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <CurrencyInput
+                    value={emiPlan.borrowedFunds}
+                    onChange={(value) => handleInputChange('borrowedFunds', value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="1000"
+                    placeholder="3,00,000"
+                    disabled={emiPlan.hasBorrowedFunds === 'no'}
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.borrowedTenure || ''}
+                    onChange={(e) => handleInputChange('borrowedTenure', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="1"
+                    step="1"
+                    placeholder="2"
+                    disabled={emiPlan.hasBorrowedFunds === 'no'}
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <input
+                    type="number"
+                    value={emiPlan.borrowedFundsInterestRate || ''}
+                    onChange={(e) => handleInputChange('borrowedFundsInterestRate', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="0.1"
+                    placeholder="9"
+                    disabled={emiPlan.hasBorrowedFunds === 'no'}
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Principal)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Interest)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Total)}</td>
+                <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Principal + calculations.borrowedYear1Interest)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue Period</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue 1 (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue 2 (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              <tr>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <select
+                    value={emiPlan.revenuePeriod}
+                    onChange={(e) => handleInputChange('revenuePeriod', e.target.value as 'monthly' | 'yearly')}
                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="monthly">Monthly</option>
                     <option value="yearly">Yearly</option>
                   </select>
-                </div>
-                {emiPlan.expenses.length > 2 && (
-                  <motion.button
-                    onClick={() => removeExpense(index)}
-                    className="text-red-600 hover:text-red-800 p-2"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <X className="w-5 h-5" />
-                  </motion.button>
-                )}
-              </div>
-            ))}
-          </div>
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <CurrencyInput
+                    value={emiPlan.revenue1}
+                    onChange={(value) => handleInputChange('revenue1', value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="1000"
+                    placeholder="3,00,000"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  <CurrencyInput
+                    value={emiPlan.revenue2}
+                    onChange={(value) => handleInputChange('revenue2', value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="1000"
+                    placeholder="3,00,000"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-700">
+                  {emiPlan.expenses.map((expense, index) => (
+                    <div key={index} className="mb-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={expense.name}
+                          onChange={(e) => handleExpenseChange(index, 'name', e.target.value)}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Expense Name"
+                        />
+                        <CurrencyInput
+                          value={expense.amount}
+                          onChange={(value) => handleExpenseChange(index, 'amount', value)}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          min="0"
+                          step="1000"
+                          placeholder="0"
+                        />
+                        <select
+                          value={expense.period}
+                          onChange={(e) => handleExpenseChange(index, 'period', e.target.value as 'monthly' | 'yearly')}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="monthly">Monthly</option>
+                          <option value="yearly">Yearly</option>
+                        </select>
+                        {index >= 2 && (
+                          <button
+                            onClick={() => removeExpense(index)}
+                            className="ml-2 text-red-600 hover:text-red-800"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {emiPlan.expenses.length < 3 && (
+                    <button
+                      onClick={addExpense}
+                      className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+                    >
+                      Add Expense
+                    </button>
+                  )}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <div className="flex justify-end gap-4 mb-8">
@@ -751,107 +967,6 @@ export function EMIPlanCalculator() {
             <Download className="w-5 h-5" />
             Save as PDF
           </motion.button>
-        </div>
-
-        <div className="mb-8">
-          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Term</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount Int %</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount %</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount %</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              <tr>
-                <td className="px-6 py-4 text-sm text-gray-700">{emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{emiPlan.loanTenure}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount)} {formatPercentage(emiPlan.interestPerAnnum)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatPercentage(emiPlan.bankPercent)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatPercentage(emiPlan.ownPercent)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.bankPercent / 100)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.ownPercent / 100)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              <tr>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.bankYear1Principal)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.bankYear1Interest)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.bankYear1Total)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Funds Repayment</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Repayment</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              <tr>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Principal)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Interest)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.ownYear1Total)}</td>
-              </tr>
-            </tbody>
-          </table>
-          {emiPlan.hasBorrowedFunds === 'yes' && (
-            <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Borrowed Funds Repayment</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Repayment</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                <tr>
-                  <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Principal)}</td>
-                  <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Interest)}</td>
-                  <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(calculations.borrowedYear1Total)}</td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-          <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay</th>
-                {calculations.yearlyAvg.map((ya) => (
-                  <th key={ya.year} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{ya.year}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              <tr>
-                <td className="px-6 py-4 text-sm text-gray-700">Avg Repay</td>
-                {calculations.yearlyAvg.map((ya) => (
-                  <td key={ya.year} className="px-6 py-4 text-sm text-gray-700">{formatCurrency(ya.avgRepay)}</td>
-                ))}
-              </tr>
-              <tr>
-                <td className="px-6 py-4 text-sm text-gray-700">P/L</td>
-                {calculations.yearlyAvg.map((ya) => (
-                  <td key={ya.year} className="px-6 py-4 text-sm text-gray-700">{formatCurrency(ya.pl)}</td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
         </div>
       </motion.div>
     </div>

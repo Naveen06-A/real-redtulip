@@ -1025,6 +1025,11 @@ export function AgentDashboard() {
           <CheckCircle className="w-8 h-8 mb-2" />
           <h2 className="text-xl font-semibold text-center">Progress Report</h2>
         </Link>
+        <Link to="/nurturing-list" className="bg-teal-600 text-white p-6 rounded-lg hover:bg-teal-700 transition flex flex-col items-center justify-center">
+          <CheckCircle className="w-8 h-8 mb-2" />
+          <h2 className="text-xl font-semibold text-center">Nurting kist</h2>
+        </Link>
+        
       </div>
 
       <div className="mb-8 p-4 bg-blue-50 rounded-lg shadow-md flex items-center gap-4">

@@ -37,7 +37,7 @@ import { LoadingOverlay } from './components/LoadingOverlay';
 import {EMIPlanCalculator}  from './pages/EMIPlanCalculator';
 import Enquiryjob from './pages/Enquiryjob'; // Fixed to default import
 import EnquiryForm from './pages/EnquiryForm'; // Fixed import name
-
+import { NurturingList } from './pages/NurturingList';
 // Error Boundary to catch import or runtime errors
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   state = { hasError: false, error: null };
@@ -139,6 +139,7 @@ const routes = [
   { path: '/comparisons', element: <AgentRoute><Comparisons /></AgentRoute> },
   { path: '/enquiryjob', element: <Enquiryjob /> },
   {path: '/emi-calculator', element: <EMIPlanCalculator />},
+  {path: '/nurturing-list', element: <NurturingList />},
   // { path: '/enquiry-form', element: <EnquiryForm />},
   { path: '/enquiry-form', element: <EnquiryForm /> }, // Uncommented and fixed
   {

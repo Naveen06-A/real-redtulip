@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, UserPlus, X, Check } from 'lucide-react';
 import { normalizeSuburb, formatCurrency } from '../reportsUtils';
 
 interface Property {
@@ -21,6 +21,15 @@ interface Property {
   status: 'Listed' | 'Sold';
 }
 
+interface Contact {
+  id?: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  street_name: string | null;
+}
+
 interface StreetStats {
   street_name: string;
   listed_count: number;
@@ -28,6 +37,7 @@ interface StreetStats {
   total_properties: number;
   average_sold_price: number | null;
   properties: Property[];
+  contacts: Contact[];
 }
 
 interface StreetSuggestionsProps {
@@ -44,7 +54,18 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
   const [error, setError] = useState<string | null>(null);
   const [localFilter, setLocalFilter] = useState(soldPropertiesFilter);
   const [expandedStreet, setExpandedStreet] = useState<string | null>(null);
-  const [addedStreets, setAddedStreets] = useState<{ [key: string]: { door_knock: number; phone_call: number } }>({});
+  const [addedStreets, setAddedStreets] = useState<{ [key: string]: { door_knock: number; phone_call: number; contacts: number } }>({});
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [selectedStreet, setSelectedStreet] = useState<string | null>(null);
+  const [newContact, setNewContact] = useState<Contact>({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone_number: '',
+    street_name: null,
+  });
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [contactSuccess, setContactSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalFilter(soldPropertiesFilter);
@@ -70,6 +91,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
         console.log('Fetching properties for suburb:', suburb, 'Normalized:', normalizedInput, 'Query:', queryString);
 
+        // Fetch properties
         const { data: propertiesData, error: propError } = await supabase
           .from('properties')
           .select('id, street_name, street_number, suburb, price, sold_price, sold_date, property_type, bedrooms, bathrooms, car_garage, sqm, landsize')
@@ -85,9 +107,19 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
         console.log('Properties fetched:', propertiesData);
 
+        // Fetch contacts from nurturing_list
+        const { data: contactsData, error: contactError } = await supabase
+          .from('nurturing_list')
+          .select('id, first_name, last_name, email, phone_number, street_name')
+          .ilike('suburb', queryString);
+
+        if (contactError) throw new Error(`Failed to fetch contacts: ${contactError.message}`);
+
+        console.log('Contacts fetched:', contactsData);
+
         let filteredProperties = propertiesData;
         if (localFilter !== 'all') {
-          const now = new Date('2025-08-01T19:58:00+05:30'); // Current date: August 1, 2025, 7:58 PM IST
+          const now = new Date('2025-08-22T10:18:00+05:30'); // Updated to current date: August 22, 2025, 10:18 AM IST
           let startDate: Date;
           switch (localFilter) {
             case '30_days':
@@ -138,11 +170,11 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
         const streetMap = new Map<
           string,
-          { listed: number; sold: number; total: number; totalSoldPrice: number; properties: Property[] }
+          { listed: number; sold: number; total: number; totalSoldPrice: number; properties: Property[]; contacts: Contact[] }
         >();
         combinedProperties.forEach((prop) => {
           const streetName = prop.street_name?.trim() || 'Unknown Street';
-          const stats = streetMap.get(streetName) || { listed: 0, sold: 0, total: 0, totalSoldPrice: 0, properties: [] };
+          const stats = streetMap.get(streetName) || { listed: 0, sold: 0, total: 0, totalSoldPrice: 0, properties: [], contacts: [] };
           stats.total += 1;
           if (prop.status === 'Listed') stats.listed += 1;
           if (prop.status === 'Sold') {
@@ -150,6 +182,14 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
             if (prop.sold_price) stats.totalSoldPrice += prop.sold_price;
           }
           stats.properties.push(prop);
+          streetMap.set(streetName, stats);
+        });
+
+        // Add contacts to streetMap
+        (contactsData || []).forEach((contact) => {
+          const streetName = contact.street_name?.trim() || 'Unknown Street';
+          const stats = streetMap.get(streetName) || { listed: 0, sold: 0, total: 0, totalSoldPrice: 0, properties: [], contacts: [] };
+          stats.contacts.push(contact);
           streetMap.set(streetName, stats);
         });
 
@@ -161,6 +201,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
             total_properties: stats.total,
             average_sold_price: stats.sold > 0 ? stats.totalSoldPrice / stats.sold : null,
             properties: stats.properties,
+            contacts: stats.contacts,
           })
         );
 
@@ -176,7 +217,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
         console.log('Street stats:', limitedStatsArray);
 
-        const newAddedStreets: { [key: string]: { door_knock: number; phone_call: number } } = {};
+        const newAddedStreets: { [key: string]: { door_knock: number; phone_call: number; contacts: number } } = {};
         limitedStatsArray.forEach((street) => {
           const streetName = street.street_name;
           const doorKnockCount = Array.isArray(existingDoorKnocks)
@@ -185,7 +226,8 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
           const phoneCallCount = Array.isArray(existingPhoneCalls)
             ? existingPhoneCalls.filter((s) => s.name === streetName).length
             : 0;
-          newAddedStreets[streetName] = { door_knock: doorKnockCount, phone_call: phoneCallCount };
+          const contactCount = street.contacts.length;
+          newAddedStreets[streetName] = { door_knock: doorKnockCount, phone_call: phoneCallCount, contacts: contactCount };
         });
 
         setAddedStreets(newAddedStreets);
@@ -211,6 +253,57 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
         [type]: (prev[street.street_name]?.[type] || 0) + 1,
       },
     }));
+  };
+
+  const handleAddContact = async () => {
+    if (!newContact.first_name || !newContact.last_name || !newContact.email || !newContact.phone_number) {
+      setContactError('All fields are required');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('nurturing_list')
+        .insert([{ first_name: newContact.first_name, last_name: newContact.last_name, email: newContact.email, phone_number: newContact.phone_number, street_name: selectedStreet, suburb }])
+        .select();
+
+      if (error) throw new Error(`Failed to add contact: ${error.message}`);
+
+      setStreetStats((prev) =>
+        prev.map((street) =>
+          street.street_name === selectedStreet
+            ? { ...street, contacts: [...street.contacts, data[0]] }
+            : street
+        )
+      );
+      setAddedStreets((prev) => ({
+        ...prev,
+        [selectedStreet!]: {
+          ...prev[selectedStreet!],
+          contacts: (prev[selectedStreet!]?.contacts || 0) + 1,
+        },
+      }));
+      setNewContact({ first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
+      setContactSuccess('Contact added successfully');
+      setContactError(null);
+      setTimeout(() => setContactSuccess(null), 3000);
+    } catch (err: any) {
+      setContactError(`Error adding contact: ${err.message}`);
+    } finally {
+      setLoading(false);
+      setIsContactModalOpen(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setNewContact((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const openContactModal = (streetName: string) => {
+    setSelectedStreet(streetName);
+    setIsContactModalOpen(true);
   };
 
   const toggleExpandStreet = (streetName: string) => {
@@ -380,6 +473,23 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                       </span>
                     )}
                   </motion.button>
+                  <motion.button
+                    onClick={() => openContactModal(street.street_name)}
+                    className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
+                      addedStreets[street.street_name]?.contacts > 0
+                        ? 'bg-purple-300 hover:bg-purple-400'
+                        : 'bg-purple-200 hover:bg-purple-300'
+                    } transition-all`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {addedStreets[street.street_name]?.contacts > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
+                        {addedStreets[street.street_name].contacts}
+                      </span>
+                    )}
+                  </motion.button>
                 </div>
                 <AnimatePresence>
                   {expandedStreet === street.street_name && (
@@ -394,7 +504,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                       {street.properties.length === 0 ? (
                         <p className="text-gray-600 text-xs">No properties found for {street.street_name}.</p>
                       ) : (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto mb-4">
                           <table className="w-full border-collapse text-xs">
                             <thead>
                               <tr className="bg-indigo-600 text-white text-xs">
@@ -441,6 +551,39 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                           </table>
                         </div>
                       )}
+                      <h4 className="text-xs font-semibold text-gray-800 mb-1">Contacts on {street.street_name}</h4>
+                      {street.contacts.length === 0 ? (
+                        <p className="text-gray-600 text-xs">No contacts found for {street.street_name}.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-purple-600 text-white text-xs">
+                                <th className="p-1 text-left">First Name</th>
+                                <th className="p-1 text-left">Last Name</th>
+                                <th className="p-1 text-left">Email</th>
+                                <th className="p-1 text-left">Phone Number</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {street.contacts.map((contact) => (
+                                <motion.tr
+                                  key={contact.id}
+                                  className="border-b border-gray-200 hover:bg-gray-100"
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  transition={{ duration: 0.3 }}
+                                >
+                                  <td className="p-1">{contact.first_name}</td>
+                                  <td className="p-1">{contact.last_name}</td>
+                                  <td className="p-1">{contact.email}</td>
+                                  <td className="p-1">{contact.phone_number}</td>
+                                </motion.tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -449,6 +592,106 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {isContactModalOpen && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white p-6 rounded-xl shadow-lg max-w-md w-full"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-800">Add Contact for {selectedStreet}</h3>
+                <motion.button
+                  onClick={() => setIsContactModalOpen(false)}
+                  className="text-gray-600 hover:text-gray-800"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <X className="w-5 h-5" />
+                </motion.button>
+              </div>
+              {contactError && (
+                <motion.div
+                  className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  {contactError}
+                </motion.div>
+              )}
+              {contactSuccess && (
+                <motion.div
+                  className="bg-green-50 text-green-600 p-3 rounded-lg mb-4 text-sm flex items-center"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <Check className="w-5 h-5 mr-2" /> {contactSuccess}
+                </motion.div>
+              )}
+              <div className="grid grid-cols-1 gap-4">
+                <input
+                  type="text"
+                  name="first_name"
+                  value={newContact.first_name}
+                  onChange={handleInputChange}
+                  placeholder="First Name"
+                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                  aria-label="First Name"
+                />
+                <input
+                  type="text"
+                  name="last_name"
+                  value={newContact.last_name}
+                  onChange={handleInputChange}
+                  placeholder="Last Name"
+                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                  aria-label="Last Name"
+                />
+                <input
+                  type="email"
+                  name="email"
+                  value={newContact.email}
+                  onChange={handleInputChange}
+                  placeholder="Email"
+                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                  aria-label="Email"
+                />
+                <input
+                  type="tel"
+                  name="phone_number"
+                  value={newContact.phone_number}
+                  onChange={handleInputChange}
+                  placeholder="Phone Number"
+                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                  aria-label="Phone Number"
+                />
+              </div>
+              <motion.button
+                onClick={handleAddContact}
+                disabled={loading}
+                className={`mt-4 w-full flex items-center justify-center px-4 py-2 rounded-lg text-white ${
+                  loading ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'
+                } transition-all duration-200`}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <UserPlus className="w-5 h-5 mr-2" /> Add Contact
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

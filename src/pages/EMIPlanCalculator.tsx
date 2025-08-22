@@ -24,14 +24,17 @@ interface EMIPlan {
   expenses: Expense[];
 }
 
-interface YearlyAvg {
-  year: number;
-  avgRepayBank: number;
-  avgRepayOwn: number;
-  avgRepay: number;
+interface PeriodData {
+  period: number; // Represents year or month
+  revenue: number;
+  expenses: number;
+  ownAmount: number;
+  ownRepayment: number;
+  loanAmount: number;
+  loanRepayment: number;
+  ownInterest: number;
+  loanInterest: number;
   pl: number;
-  yearBankInterest: number;
-  yearOwnInterest: number;
 }
 
 interface Calculations {
@@ -41,7 +44,8 @@ interface Calculations {
   ownYear1Principal: number;
   ownYear1Interest: number;
   ownYear1Total: number;
-  yearlyAvg: YearlyAvg[];
+  yearlyAvg: PeriodData[];
+  monthlyAvg: PeriodData[];
   totalBankInterest: number;
   totalOwnInterest: number;
 }
@@ -140,8 +144,13 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
   const yearlyRevenue = plan.revenuePeriod === 'yearly' ? plan.revenue1 + plan.revenue2 : (plan.revenue1 + plan.revenue2) * 12;
+  const monthlyRevenue = plan.revenuePeriod === 'yearly' ? (plan.revenue1 + plan.revenue2) / 12 : plan.revenue1 + plan.revenue2;
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
     const amount = expense.period === 'yearly' ? expense.amount : expense.amount * 12;
+    return sum + amount;
+  }, 0);
+  const monthlyExpenses = plan.expenses.reduce((sum, expense) => {
+    const amount = expense.period === 'monthly' ? expense.amount : expense.amount / 12;
     return sum + amount;
   }, 0);
 
@@ -160,7 +169,8 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   let yearTotalRepayment = 0;
   let totalBankInterest = 0;
   let totalOwnInterest = 0;
-  const yearlyAvg: YearlyAvg[] = [];
+  const yearlyAvg: PeriodData[] = [];
+  const monthlyAvg: PeriodData[] = [];
 
   while (currentMonth <= maxMonths) {
     let interestBank = 0;
@@ -172,8 +182,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       remainingBank = Math.max(remainingBank, 0);
       totalBankInterest += interestBank;
     }
-    yearInterestBank += interestBank;
-    yearPrincipalBank += principalBank;
 
     let interestOwn = 0;
     let principalOwn = 0;
@@ -184,29 +192,51 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       remainingOwn = Math.max(remainingOwn, 0);
       totalOwnInterest += interestOwn;
     }
+
+    yearInterestBank += interestBank;
+    yearPrincipalBank += principalBank;
     yearInterestOwn += interestOwn;
     yearPrincipalOwn += principalOwn;
-
     yearTotalRepayment += (interestBank + principalBank) + (interestOwn + principalOwn);
+
+    // Monthly data
+    const monthlyRepayment = (principalBank + interestBank) + (principalOwn + interestOwn);
+    monthlyAvg.push({
+      period: currentMonth,
+      revenue: monthlyRevenue,
+      expenses: monthlyExpenses,
+      ownAmount: ownFunds,
+      ownRepayment: principalOwn + interestOwn,
+      loanAmount: bankLoanAmount,
+      loanRepayment: principalBank + interestBank,
+      ownInterest: interestOwn,
+      loanInterest: interestBank,
+      pl: monthlyRevenue - (monthlyExpenses + monthlyRepayment),
+    });
 
     if (currentMonth % 12 === 0 || currentMonth === maxMonths) {
       const monthsInYear = currentMonth % 12 === 0 ? 12 : currentMonth % 12;
       const totalInterestOverTerm = (totalBankInterest + totalOwnInterest) / Math.max(plan.loanTenure, plan.ownTenure);
       yearlyAvg.push({
-        year: currentYear,
-        avgRepayBank: (yearPrincipalBank + yearInterestBank) / monthsInYear,
-        avgRepayOwn: (yearPrincipalOwn + yearInterestOwn) / monthsInYear,
-        avgRepay: yearTotalRepayment / monthsInYear,
+        period: currentYear,
+        revenue: yearlyRevenue,
+        expenses: yearlyExpenses,
+        ownAmount: ownFunds,
+        ownRepayment: (yearPrincipalOwn + yearInterestOwn) * monthsInYear,
+        loanAmount: bankLoanAmount,
+        loanRepayment: (yearPrincipalBank + yearInterestBank) * monthsInYear,
+        ownInterest: yearInterestOwn,
+        loanInterest: yearInterestBank,
         pl: yearlyRevenue - (yearTotalRepayment + totalInterestOverTerm + yearlyExpenses),
-        yearBankInterest: currentYear <= plan.loanTenure ? yearInterestBank : 0,
-        yearOwnInterest: currentYear <= plan.ownTenure ? yearInterestOwn : 0,
       });
+
       if (currentYear === 1) {
         bankYear1Principal = yearPrincipalBank;
         bankYear1Interest = yearInterestBank;
         ownYear1Principal = yearPrincipalOwn;
         ownYear1Interest = yearInterestOwn;
       }
+
       yearPrincipalBank = 0;
       yearInterestBank = 0;
       yearPrincipalOwn = 0;
@@ -216,6 +246,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     }
     currentMonth++;
   }
+
   return {
     bankYear1Principal,
     bankYear1Interest,
@@ -224,6 +255,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     ownYear1Interest,
     ownYear1Total: ownYear1Principal + ownYear1Interest,
     yearlyAvg,
+    monthlyAvg,
     totalBankInterest,
     totalOwnInterest,
   };
@@ -275,8 +307,8 @@ export function EMIPlanCalculator() {
     const saved = localStorage.getItem('emiPlans');
     return saved ? JSON.parse(saved) : [];
   });
-  const [view, setView] = useState<'loan' | 'own'>('loan');
   const [showAmortizationTable, setShowAmortizationTable] = useState(false);
+  const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
 
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
 
@@ -288,15 +320,12 @@ export function EMIPlanCalculator() {
           [field]: field === 'typeOfLoan' || field === 'revenuePeriod' ? value : typeof value === 'number' ? value : parseFloat(value) || 0,
         };
 
-        // Automatically adjust ownPercent when bankPercent changes
         if (field === 'bankPercent') {
           updatedPlan = {
             ...updatedPlan,
             ownPercent: 100 - (typeof value === 'number' ? value : parseFloat(value as string) || 0),
           };
-        }
-        // Automatically adjust bankPercent when ownPercent changes
-        else if (field === 'ownPercent') {
+        } else if (field === 'ownPercent') {
           updatedPlan = {
             ...updatedPlan,
             bankPercent: 100 - (typeof value === 'number' ? value : parseFloat(value as string) || 0),
@@ -418,10 +447,8 @@ export function EMIPlanCalculator() {
     'Manual Entry',
   ];
 
-  const amortizationSchedules = useMemo(() => {
-    const bankSchedule = [];
-    const ownSchedule = [];
-
+  const amortizationSchedule = useMemo(() => {
+    const schedule = [];
     const bankLoanAmount = emiPlan.loanAmount * emiPlan.bankPercent / 100;
     const bankMonthlyPrincipal = bankLoanAmount / (emiPlan.loanTenure * 12);
     let bankRemainingPrincipal = bankLoanAmount;
@@ -430,10 +457,7 @@ export function EMIPlanCalculator() {
     const ownMonthlyPrincipal = ownAmount / (emiPlan.ownTenure * 12);
     let ownRemainingPrincipal = ownAmount;
 
-    const maxMonths = Math.max(
-      emiPlan.loanTenure * 12,
-      emiPlan.ownTenure * 12
-    );
+    const maxMonths = Math.max(emiPlan.loanTenure * 12, emiPlan.ownTenure * 12);
 
     for (let month = 1; month <= maxMonths; month++) {
       let bankMonthlyInterest = 0;
@@ -454,26 +478,22 @@ export function EMIPlanCalculator() {
         if (ownRemainingPrincipal < 0) ownRemainingPrincipal = 0;
       }
 
-      bankSchedule.push({
+      schedule.push({
         month,
-        beginningPrincipal: bankRemainingPrincipal + bankMonthlyPrincipal,
-        monthlyPrincipal: bankMonthlyPrincipal,
-        monthlyInterest: bankMonthlyInterest,
-        totalEMI: bankTotalEMI,
-        endingPrincipal: bankRemainingPrincipal,
-      });
-
-      ownSchedule.push({
-        month,
-        beginningPrincipal: ownRemainingPrincipal + ownMonthlyPrincipal,
-        monthlyPrincipal: ownMonthlyPrincipal,
-        monthlyInterest: ownMonthlyInterest,
-        totalEMI: ownTotalEMI,
-        endingPrincipal: ownRemainingPrincipal,
+        bankBeginningPrincipal: bankRemainingPrincipal + bankMonthlyPrincipal,
+        bankMonthlyPrincipal,
+        bankMonthlyInterest,
+        bankTotalEMI,
+        bankEndingPrincipal: bankRemainingPrincipal,
+        ownBeginningPrincipal: ownRemainingPrincipal + ownMonthlyPrincipal,
+        ownMonthlyPrincipal,
+        ownMonthlyInterest,
+        ownTotalEMI,
+        ownEndingPrincipal: ownRemainingPrincipal,
       });
     }
 
-    return { bankSchedule, ownSchedule };
+    return schedule;
   }, [emiPlan]);
 
   return (
@@ -516,21 +536,6 @@ export function EMIPlanCalculator() {
         )}
 
         <div className="mb-8">
-          <div className="mb-4 flex justify-center gap-4">
-            <button
-              onClick={() => setView('loan')}
-              className={`px-4 py-2 rounded-lg ${view === 'loan' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
-            >
-              Loan Amount
-            </button>
-            <button
-              onClick={() => setView('own')}
-              className={`px-4 py-2 rounded-lg ${view === 'own' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
-            >
-              Own Amount
-            </button>
-          </div>
-
           {/* Loan Details Tables */}
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
@@ -772,35 +777,71 @@ export function EMIPlanCalculator() {
             </tbody>
           </table>
 
-          {/* Innovative Profit/Loss Display */}
+          {/* Profit/Loss Overview */}
           <div className="mt-8">
-            <h2 className="text-xl font-bold mb-4 text-center bg-blue-200">Profit/Loss Overview</h2>
-            <div className="flex flex-wrap justify-center gap-4">
-              {calculations.yearlyAvg.map((year, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.3, delay: index * 0.1 }}
-                  className={`relative p-6 rounded-xl shadow-lg w-40 h-40 flex flex-col items-center justify-center text-center
-                    ${year.pl >= 0 ? 'bg-gradient-to-br from-green-100 to-green-300' : 'bg-gradient-to-br from-red-100 to-red-300'}`}
-                >
-                  <div className="absolute top-2 left-2 text-sm font-semibold text-gray-600">Year {year.year}</div>
-                  <div className="text-2xl font-bold mt-4">
-                    {year.pl >= 0 ? (
-                      <span className="text-green-700">+{formatCurrency(year.pl)}</span>
-                    ) : (
-                      <span className="text-red-700">{formatCurrency(year.pl)}</span>
-                    )}
-                  </div>
-                  <div className="text-sm font-medium text-gray-600 mt-2">
-                    {year.pl >= 0 ? 'Profit' : 'Loss'}
-                  </div>
-                  <div className="absolute bottom-2 right-2 w-6 h-6 rounded-full bg-white flex items-center justify-center">
-                    <span className="text-xs font-bold text-gray-800">{index + 1}</span>
-                  </div>
-                </motion.div>
-              ))}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-center bg-blue-200 w-full py-2">Profit/Loss Overview</h2>
+            </div>
+            <div className="mb-4 flex justify-center">
+              <select
+                value={plPeriod}
+                onChange={(e) => setPlPeriod(e.target.value as 'monthly' | 'yearly')}
+                className="p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="yearly">Yearly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{plPeriod === 'yearly' ? 'Year' : 'Month'}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Repayment (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount Repayment (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Interest (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Interest (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L Progress</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((entry, index) => {
+                    const maxPL = Math.max(...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map(e => Math.abs(e.pl))) || 1;
+                    const progress = (Math.abs(entry.pl) / maxPL) * 100;
+
+                    return (
+                      <tr key={index}>
+                        <td className="px-4 py-4 text-sm text-gray-700">{entry.period}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.revenue)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.expenses)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownAmount)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownRepayment)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.loanAmount)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.loanRepayment)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownInterest)}</td>
+                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.loanInterest)}</td>
+                        <td className={`px-4 py-4 text-sm font-medium ${entry.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(entry.pl)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700">
+                          <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div
+                              className={`${entry.pl >= 0 ? 'bg-green-600' : 'bg-red-600'} h-2.5 rounded-full`}
+                              style={{ width: `${progress}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs">{progress.toFixed(1)}%</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -817,86 +858,70 @@ export function EMIPlanCalculator() {
 
             {showAmortizationTable && (
               <div className="overflow-x-auto mb-6">
-                {view === 'loan' && (
-                  <table className="min-w-full bg-white border border-gray-200 rounded-lg mb-8">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {amortizationSchedules.bankSchedule.map((entry, index) => {
-                        const totalLoan = emiPlan.loanAmount * emiPlan.bankPercent / 100;
-                        const progress = ((totalLoan - entry.endingPrincipal) / totalLoan) * 100;
-                        return (
-                          <tr key={index}>
-                            <td className="px-4 py-4 text-sm text-gray-700">{entry.month}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.beginningPrincipal)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.monthlyPrincipal)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.monthlyInterest)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.totalEMI)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.endingPrincipal)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">
-                              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                <div 
-                                  className="bg-blue-600 h-2.5 rounded-full" 
-                                  style={{ width: `${progress}%` }}
-                                ></div>
-                              </div>
-                              <span className="text-xs">{progress.toFixed(1)}%</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-                {view === 'own' && (
-                  <table className="min-w-full bg-white border border-gray-200 rounded-lg mb-8">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {amortizationSchedules.ownSchedule.map((entry, index) => {
-                        const totalOwn = emiPlan.loanAmount * emiPlan.ownPercent / 100;
-                        const progress = ((totalOwn - entry.endingPrincipal) / totalOwn) * 100;
-                        return (
-                          <tr key={index}>
-                            <td className="px-4 py-4 text-sm text-gray-700">{entry.month}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.beginningPrincipal)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.monthlyPrincipal)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.monthlyInterest)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.totalEMI)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.endingPrincipal)}</td>
-                            <td className="px-4 py-4 text-sm text-gray-700">
-                              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                <div 
-                                  className="bg-green-600 h-2.5 rounded-full" 
-                                  style={{ width: `${progress}%` }}
-                                ></div>
-                              </div>
-                              <span className="text-xs">{progress.toFixed(1)}%</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                <table className="min-w-full bg-white border border-gray-200 rounded-lg mb-8">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th rowSpan={2} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Month</th>
+                      <th colSpan={6} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Loan Details</th>
+                      <th colSpan={6} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Own Funds Details</th>
+                    </tr>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {amortizationSchedule.map((entry, index) => {
+                      const totalLoan = emiPlan.loanAmount * emiPlan.bankPercent / 100;
+                      const loanProgress = totalLoan ? ((totalLoan - entry.bankEndingPrincipal) / totalLoan) * 100 : 0;
+                      const totalOwn = emiPlan.loanAmount * emiPlan.ownPercent / 100;
+                      const ownProgress = totalOwn ? ((totalOwn - entry.ownEndingPrincipal) / totalOwn) * 100 : 0;
+                      return (
+                        <tr key={index}>
+                          <td className="px-4 py-4 text-sm text-gray-700">{entry.month}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankBeginningPrincipal)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankMonthlyPrincipal)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankMonthlyInterest)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankTotalEMI)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankEndingPrincipal)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                              <div
+                                className="bg-blue-600 h-2.5 rounded-full"
+                                style={{ width: `${loanProgress}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-xs">{loanProgress.toFixed(1)}%</span>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownBeginningPrincipal)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownMonthlyPrincipal)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownMonthlyInterest)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownTotalEMI)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownEndingPrincipal)}</td>
+                          <td className="px-4 py-4 text-sm text-gray-700">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                              <div
+                                className="bg-green-600 h-2.5 rounded-full"
+                                style={{ width: `${ownProgress}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-xs">{ownProgress.toFixed(1)}%</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -904,7 +929,6 @@ export function EMIPlanCalculator() {
             <div className="mb-8">
               <h2 className="text-xl font-bold mb-4 bg-blue-200">Yearly Average Repayment Breakdown</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Yearly Average Repayment */}
                 <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="text-lg font-semibold mb-3 bg-blue-200">Yearly Average Repayment</h3>
                   <div className="overflow-x-auto">
@@ -920,10 +944,10 @@ export function EMIPlanCalculator() {
                       <tbody className="divide-y divide-gray-200">
                         {calculations.yearlyAvg.map((year, index) => (
                           <tr key={index}>
-                            <td className="px-4 py-2 text-sm text-gray-700">{year.year}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.avgRepayBank)}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.avgRepayOwn)}</td>
-                            <td className="px-4 py-2 text-sm font-medium text-gray-700">{formatCurrency(year.avgRepay)}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanRepayment)}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.ownRepayment)}</td>
+                            <td className="px-4 py-2 text-sm font-medium text-gray-700">{formatCurrency(year.ownRepayment + year.loanRepayment)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -931,7 +955,6 @@ export function EMIPlanCalculator() {
                   </div>
                 </div>
 
-                {/* Yearly Interest Breakdown */}
                 <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="text-lg font-semibold mb-3 bg-blue-200">Yearly Interest Breakdown</h3>
                   <div className="overflow-x-auto">
@@ -947,10 +970,10 @@ export function EMIPlanCalculator() {
                       <tbody className="divide-y divide-gray-200">
                         {calculations.yearlyAvg.map((year, index) => (
                           <tr key={index}>
-                            <td className="px-4 py-2 text-sm text-gray-700">{year.year}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.yearBankInterest)}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.yearOwnInterest)}</td>
-                            <td className="px-4 py-2 text-sm font-medium text-gray-700">{formatCurrency(year.yearBankInterest + year.yearOwnInterest)}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanInterest)}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.ownInterest)}</td>
+                            <td className="px-4 py-2 text-sm font-medium text-gray-700">{formatCurrency(year.loanInterest + year.ownInterest)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -977,21 +1000,13 @@ export function EMIPlanCalculator() {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {calculations.yearlyAvg.map((year, index) => {
-                      const yearlyRevenue = emiPlan.revenuePeriod === 'yearly'
-                        ? emiPlan.revenue1 + emiPlan.revenue2
-                        : (emiPlan.revenue1 + emiPlan.revenue2) * 12;
-                      const yearlyExpenses = emiPlan.expenses.reduce((sum, expense) => {
-                        const amount = expense.period === 'yearly' ? expense.amount : expense.amount * 12;
-                        return sum + amount;
-                      }, 0);
-                      const yearlyLoanPayments = year.avgRepay * 12;
                       const totalInterestOverTerm = (calculations.totalBankInterest + calculations.totalOwnInterest) / Math.max(emiPlan.loanTenure, emiPlan.ownTenure);
                       return (
                         <tr key={index}>
-                          <td className="px-4 py-2 text-sm text-gray-700">{year.year}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(yearlyRevenue)}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(yearlyExpenses)}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(yearlyLoanPayments)}</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.revenue)}</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.expenses)}</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanRepayment + year.ownRepayment)}</td>
                           <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(totalInterestOverTerm)}</td>
                           <td className={`px-4 py-2 text-sm font-medium ${year.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {formatCurrency(year.pl)}

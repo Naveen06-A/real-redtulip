@@ -1027,7 +1027,7 @@ export function AgentDashboard() {
         </Link>
         <Link to="/nurturing-list" className="bg-teal-600 text-white p-6 rounded-lg hover:bg-teal-700 transition flex flex-col items-center justify-center">
           <CheckCircle className="w-8 h-8 mb-2" />
-          <h2 className="text-xl font-semibold text-center">Nurting kist</h2>
+          <h2 className="text-xl font-semibold text-center">Nurturing list</h2>
         </Link>
         
       </div>

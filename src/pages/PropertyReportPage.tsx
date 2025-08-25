@@ -651,7 +651,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       const body = filteredProperties.map((prop: PropertyDetails) => [
         prop.street_number || 'N/A',
         prop.street_name || 'N/A',
-        normalizeSuburb(prop.suburb || ''),
+        normalizeSuburb(prop.suburb || '') || 'N/A',
         prop.postcode || 'N/A',
         prop.agent_name || 'N/A',
         prop.property_type || 'N/A',
@@ -676,6 +676,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         formatArray(prop.features || []),
       ]);
 
+      console.log('Export PDF - Head:', head);
+      console.log('Export PDF - Body sample (first 2 rows):', body.slice(0, 2));
+
       const pdfBlob = await generatePdf({
         title: 'Property Report',
         head,
@@ -688,7 +691,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = fileName;
+        a.download = 'property_report.pdf';
         a.click();
         URL.revokeObjectURL(url);
         toast.success('PDF downloaded successfully');
@@ -704,91 +707,97 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
   };
 
   const previewPropertyReportPDF = async () => {
-    if (!propertyMetrics) {
-      toast.error('No property metrics available for preview');
-      return;
-    }
-    setExportLoading(true);
-    try {
-      const head = [
-        [
-          'Street Number',
-          'Street Name',
-          'Suburb',
-          'Postcode',
-          'Agent',
-          'Type',
-          'Price',
-          'Sold Price',
-          'Status',
-          'Commission (%)',
-          'Commission Earned',
-          'Agency',
-          'Expected Price',
-          'Sale Type',
-          'Bedrooms',
-          'Bathrooms',
-          'Car Garage',
-          'SQM',
-          'Land Size',
-          'Listed Date',
-          'Sold Date',
-          'Flood Risk',
-          'Bushfire Risk',
-          'Contract Status',
-          'Features',
-        ],
-      ];
-      const body = filteredProperties.map((prop: PropertyDetails) => [
-        prop.street_number || 'N/A',
-        prop.street_name || 'N/A',
-        normalizeSuburb(prop.suburb || ''),
-        prop.postcode || 'N/A',
-        prop.agent_name || 'N/A',
-        prop.property_type || 'N/A',
-        formatCurrency(prop.price || 0),
-        prop.sold_price ? formatCurrency(prop.sold_price) : 'N/A',
-        prop.category || 'N/A',
-        prop.commission ? `${prop.commission}%` : 'N/A',
-        prop.commission_earned ? formatCurrency(prop.commission_earned) : 'N/A',
-        prop.agency_name || 'N/A',
-        prop.expected_price ? formatCurrency(prop.expected_price) : 'N/A',
-        prop.sale_type || 'N/A',
-        String(prop.bedrooms ?? 'N/A'),
-        String(prop.bathrooms ?? 'N/A'),
-        String(prop.car_garage ?? 'N/A'),
-        String(prop.sqm ?? 'N/A'),
-        String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date) || 'N/A',
-        formatDate(prop.sold_date) || 'N/A',
-        prop.flood_risk || 'N/A',
-        prop.bushfire_risk || 'N/A',
-        prop.contract_status || 'N/A',
-        formatArray(prop.features || []),
-      ]);
+  if (!propertyMetrics) {
+    toast.error('No property metrics available for preview');
+    return;
+  }
+  setExportLoading(true);
+  try {
+    const head = [
+      [
+        'Street Number',
+        'Street Name',
+        'Suburb',
+        'Postcode',
+        'Agent',
+        'Type',
+        'Price',
+        'Sold Price',
+        'Status',
+        'Commission (%)',
+        'Commission Earned',
+        'Agency',
+        'Expected Price',
+        'Sale Type',
+        'Bedrooms',
+        'Bathrooms',
+        'Car Garage',
+        'SQM',
+        'Land Size',
+        'Listed Date',
+        'Sold Date',
+        'Flood Risk',
+        'Bushfire Risk',
+        'Contract Status',
+        'Features',
+      ],
+    ];
+    const body = filteredProperties.map((prop: PropertyDetails) => [
+      prop.street_number || 'N/A',
+      prop.street_name || 'N/A',
+      normalizeSuburb(prop.suburb || '') || 'N/A',
+      prop.postcode || 'N/A',
+      prop.agent_name || 'N/A',
+      prop.property_type || 'N/A',
+      formatCurrency(prop.price || 0),
+      prop.sold_price ? formatCurrency(prop.sold_price) : 'N/A',
+      prop.category || 'N/A',
+      prop.commission ? `${prop.commission}%` : 'N/A',
+      prop.commission_earned ? formatCurrency(prop.commission_earned) : 'N/A',
+      prop.agency_name || 'N/A',
+      prop.expected_price ? formatCurrency(prop.expected_price) : 'N/A',
+      prop.sale_type || 'N/A',
+      String(prop.bedrooms ?? 'N/A'),
+      String(prop.bathrooms ?? 'N/A'),
+      String(prop.car_garage ?? 'N/A'),
+      String(prop.sqm ?? 'N/A'),
+      String(prop.landsize ?? 'N/A'),
+      formatDate(prop.listed_date) || 'N/A',
+      formatDate(prop.sold_date) || 'N/A',
+      prop.flood_risk || 'N/A',
+      prop.bushfire_risk || 'N/A',
+      prop.contract_status || 'N/A',
+      formatArray(prop.features || []),
+    ]);
 
-      const pdfDataUri = await generatePdf({
-        title: 'Property Report',
-        head,
-        body,
-        fileName: 'property_report.pdf',
-        outputType: 'datauristring',
-      });
+    console.log('Preview PDF - Head:', head);
+    console.log('Preview PDF - Body sample (first 2 rows):', body.slice(0, 2));
 
-      if (typeof pdfDataUri === 'string') {
-        setPdfUrl(pdfDataUri);
-        setIsPdfPreviewOpen(true);
-        toast.success('PDF preview generated successfully');
-      } else {
-        throw new Error('PDF generation did not return a data URI');
-      }
-    } catch (err: any) {
-      console.error('PDF preview error:', err);
-      toast.error(err.message || 'Failed to generate PDF preview');
-    } finally {
-      setExportLoading(false);
+    // Generate PDF as Blob instead of data URI
+    const pdfBlob = await generatePdf({
+      title: 'Property Report',
+      head,
+      body,
+      fileName: 'property_report.pdf',
+      outputType: 'blob', // Changed to blob
+    });
+
+    if (!(pdfBlob instanceof Blob)) {
+      throw new Error('PDF generation did not return a Blob');
     }
-  };
+
+    const url = URL.createObjectURL(pdfBlob);
+    console.log('Generated PDF Blob URL:', url);
+    setPdfUrl(url);
+    setIsPdfPreviewOpen(true);
+    toast.success('PDF preview generated successfully');
+  } catch (err: any) {
+    console.error('PDF preview error:', err);
+    toast.error(err.message || 'Failed to generate PDF preview');
+  } finally {
+    setExportLoading(false);
+  }
+};
 
   const exportPropertyReportCSV = async () => {
     if (!propertyMetrics) {
@@ -800,7 +809,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       const data = [
         ['Property Report'],
         [`Generated on: ${moment().format('MMMM Do YYYY, h:mm:ss a')}`],
-        ['Generated by xAI Property Management'],
+        ['Generated by RedTulip Property Management'],
         [],
         ['Property Details'],
         [

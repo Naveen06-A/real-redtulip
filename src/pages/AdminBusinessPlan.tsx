@@ -256,30 +256,81 @@ export function AdminBusinessPlan() {
   };
 
   const fetchSavedAgentPlans = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('agent_business_plans')
-        .select('id, agent_id, business_commission_percentage, agent_commission_percentage, franchise_percentage, business_amount, agent_amount, created_at, updated_at, agent_name')
-        .order('created_at', { ascending: false });
+  if (!user?.id) {
+    console.error('No user ID found. Cannot fetch saved plans.');
+    toast.error('User not authenticated. Please log in.');
+    return;
+  }
 
-      if (error) throw error;
-      console.log('Fetched saved agent plans:', data); // Enhanced debug log
-      if (data) {
-        data.forEach((plan, index) => {
-          console.log(`Plan ${index + 1}:`, {
-            agent_name: plan.agent_name,
-            business_amount: plan.business_amount,
-            agent_amount: plan.agent_amount
-          });
-        });
-      }
-      setSavedPlans(data || []);
-    } catch (error: any) {
-      console.error('Error fetching saved agent plans:', error);
-      toast.error('Failed to load saved agent plans');
+  setLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from('agent_business_plans')
+      .select(`
+        id,
+        agent_id,
+        agent_name,
+        business_commission_percentage,
+        agent_commission_percentage,
+        franchise_percentage,
+        business_amount,
+        agent_amount,
+        created_at,
+        updated_at
+      `)
+      .eq('agent_id', user.id) // Filter by user ID if admin is fetching their managed agents
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Supabase error fetching saved agent plans:', error);
+      throw error;
     }
-  };
 
+    if (!data || data.length === 0) {
+      console.log('No saved agent plans found for user:', user.id);
+      toast.info('No saved agent plans found.');
+      setSavedPlans([]);
+      return;
+    }
+
+    console.log('Fetched saved agent plans:', data);
+    data.forEach((plan, index) => {
+      console.log(`Plan ${index + 1}:`, {
+        agent_id: plan.agent_id,
+        agent_name: plan.agent_name,
+        business_amount: plan.business_amount,
+        agent_amount: plan.agent_amount,
+        business_commission_percentage: plan.business_commission_percentage,
+        agent_commission_percentage: plan.agent_commission_percentage,
+        franchise_percentage: plan.franchise_percentage,
+        created_at: plan.created_at,
+        updated_at: plan.updated_at,
+      });
+    });
+
+    // Validate and clean data
+    const cleanedPlans = data.map(plan => ({
+      id: plan.id,
+      agent_id: plan.agent_id,
+      agent_name: plan.agent_name || 'Unknown',
+      business_commission_percentage: plan.business_commission_percentage != null ? Math.round(plan.business_commission_percentage) : null,
+      agent_commission_percentage: plan.agent_commission_percentage != null ? Math.round(plan.agent_commission_percentage) : null,
+      franchise_percentage: plan.franchise_percentage != null ? Math.round(plan.franchise_percentage) : null,
+      business_amount: plan.business_amount != null && !isNaN(plan.business_amount) ? Math.round(plan.business_amount) : null,
+      agent_amount: plan.agent_amount != null && !isNaN(plan.agent_amount) ? Math.round(plan.agent_amount) : null,
+      created_at: plan.created_at,
+      updated_at: plan.updated_at,
+    }));
+
+    setSavedPlans(cleanedPlans);
+    toast.success('Saved agent plans loaded successfully!');
+  } catch (error: any) {
+    console.error('Error fetching saved agent plans:', error.message, error.details, error.hint);
+    toast.error('Failed to load saved agent plans. Please check your database configuration.');
+  } finally {
+    setLoading(false);
+  }
+};
   const fetchAgentBusinessPlan = async (agentId: string, agentName: string) => {
     if (!agentId || !agentName) {
       toast.error('Please select or enter a valid agent name');

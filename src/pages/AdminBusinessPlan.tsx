@@ -303,22 +303,22 @@ export function AdminBusinessPlan() {
       }
 
       console.log('Fetched saved agent plans:', data);
-      data.forEach((plan, index) => {
-        console.log(`Plan ${index + 1}:`, {
-          agent_id: plan.agent_id,
-          agent_name: plan.agent_name,
-          business_amount: plan.business_amount,
-          agent_amount: plan.agent_amount,
-          business_commission_percentage: plan.business_commission_percentage,
-          agent_commission_percentage: plan.agent_commission_percentage,
-          franchise_percentage: plan.franchise_percentage,
-          created_at: plan.created_at,
-          updated_at: plan.updated_at,
-        });
+      // Remove duplicates by agent_id - keep only the latest entry for each agent
+      const uniquePlansMap = new Map();
+      data.forEach(plan => {
+        if (!uniquePlansMap.has(plan.agent_id) || 
+            new Date(plan.created_at) > new Date(uniquePlansMap.get(plan.agent_id).created_at)) {
+          uniquePlansMap.set(plan.agent_id, plan);
+        }
       });
+      
+      const uniquePlans = Array.from(uniquePlansMap.values());
+      
+      console.log('Unique saved agent plans after deduplication:', uniquePlans);
+
 
       // Clean and validate data
-      const cleanedPlans = data.map(plan => ({
+      const cleanedPlans = uniquePlans.map(plan => ({
         id: plan.id,
         agent_id: plan.agent_id,
         agent_name: plan.agent_name || 'Unknown',
@@ -596,7 +596,20 @@ export function AdminBusinessPlan() {
 
     const additionalExpenses = calculateAdditionalExpensesTotal();
 
-    return agents.map((agent) => {
+    // Use a Map to ensure we only process unique agents by agent_id
+    const uniqueAgentsMap = new Map();
+    
+    agents.forEach((agent) => {
+      // If we already have this agent, keep the one with more complete data
+      if (!uniqueAgentsMap.has(agent.agent_id) || 
+          (agent.commission_amount !== null && uniqueAgentsMap.get(agent.agent_id).commission_amount === null)) {
+        uniqueAgentsMap.set(agent.agent_id, agent);
+      }
+    });
+    
+    const uniqueAgents = Array.from(uniqueAgentsMap.values());
+
+    return uniqueAgents.map((agent) => {
       const {
         name,
         commission_amount,

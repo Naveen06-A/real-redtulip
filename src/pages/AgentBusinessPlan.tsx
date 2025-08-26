@@ -1,32 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Target, 
-  DollarSign, 
-  CheckCircle, 
-  FileText, 
-  Home, 
-  Phone, 
-  Calendar,
-  Settings,
-  Save,
-  RotateCcw,
-  BarChart3,
-  Download,
-  Eye,
-  X,
-  Trash2,
-  List
-} from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { useAuthStore } from '../store/authStore';
-import { toast } from 'react-hot-toast';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
 import { Disclosure } from '@headlessui/react';
+import { AnimatePresence, motion } from 'framer-motion';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import autoTable from 'jspdf-autotable';
+import {
+  BarChart3,
+  CheckCircle,
+  DollarSign,
+  Download,
+  Eye,
+  FileText,
+  Home,
+  List,
+  Phone,
+  RotateCcw,
+  Save,
+  Settings,
+  Target,
+  Trash2,
+  X
+} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/authStore';
 
 interface BusinessPlanTargets {
   id?: string;

@@ -948,37 +948,33 @@ const generatePDF = (forView = false) => {
     agent_earnings: agent.agent_earnings
   })));
 
-  // Header
+  // Header (unchanged from previous response)
   doc.setFillColor(59, 130, 246);
-  doc.rect(0, 0, pageWidth, 18, 'F');
+  doc.rect(0, 0, pageWidth, 28, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
   doc.setFont('Helvetica', 'bold');
-  doc.text(`Business Plan (${timeFrame ? timeFrame.charAt(0).toUpperCase() + timeFrame.slice(1) : 'N/A'})`, margin, yOffset + 7);
+  doc.text(`Admin Business Plan (${timeFrame ? timeFrame.charAt(0).toUpperCase() + timeFrame.slice(1) : 'N/A'})`, margin, yOffset + 12);
   doc.setFontSize(12);
   doc.setFont('Helvetica', 'normal');
   doc.text(
-    `Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`,
-    pageWidth - margin - 50,
-    yOffset + 7,
+    `Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+    pageWidth - margin - 60,
+    yOffset + 12,
   );
-  yOffset += 18;
+  yOffset += 34;
 
   // Agent Financials Section
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(16);
   doc.setFillColor(219, 234, 254);
-  doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+  doc.rect(margin, yOffset, pageWidth - 2 * margin, 16, 'F');
   doc.setTextColor(17, 24, 39);
-  doc.text('Agent Financials', margin + 2, yOffset + 6);
-  yOffset += 8;
+  doc.text('Agent Financials', margin + 3, yOffset + 11);
+  yOffset += 18;
 
   doc.setFont('Helvetica', 'normal');
   doc.setFontSize(12);
-  // Calculate max width for currency values
-  const sampleCurrency = '$1,234,567';
-  const currencyWidth = doc.getTextWidth(sampleCurrency) / (72 / 25.4); // Convert points to mm
-  console.log('Currency Width (mm):', currencyWidth); // Should be ~14mm at 12pt
   autoTable(doc, {
     startY: yOffset,
     head: [
@@ -997,7 +993,8 @@ const generatePDF = (forView = false) => {
       ],
     ],
     body: uniqueAgentsData.map(agent => [
-      agent.name || 'N/A', // No truncation, wrap enabled
+      // Truncate agent name to 20 characters to prevent overflow
+      (agent.name || 'N/A').length > 20 ? `${agent.name.slice(0, 17)}...` : agent.name || 'N/A',
       agent.business_commission_percentage != null ? `${Math.round(agent.business_commission_percentage)}%` : 'N/A',
       agent.agent_commission_percentage != null ? `${Math.round(agent.agent_commission_percentage)}%` : 'N/A',
       agent.franchise_percentage != null ? `${Math.round(agent.franchise_percentage)}%` : 'N/A',
@@ -1043,53 +1040,53 @@ const generatePDF = (forView = false) => {
             ? `$${Math.round(totals.agent_earnings).toLocaleString('en-US')}`
             : 'N/A',
         ],
-        styles: { fillColor: [229, 231, 235], fontStyle: 'bold' },
+        styles: { fillColor: [229, 231, 235], fontStyle: 'bold' }, // Highlight totals row
       },
     ]),
     theme: 'striped',
     styles: {
       fontSize: 12,
-      cellPadding: 0.2, // Minimal padding for single-page
+      cellPadding: 0.4,
       textColor: [17, 24, 39],
       fillColor: [243, 244, 246],
-      lineWidth: 0.2,
+      lineWidth: 0.2, // Thicker grid lines for clarity
       lineColor: [209, 213, 219],
       halign: 'center',
       valign: 'middle',
     },
     headStyles: {
-      fillColor: [37, 99, 235],
+      fillColor: [37, 99, 235], // Darker blue for contrast
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       halign: 'center',
       fontSize: 12,
-      cellPadding: 0.2,
+      cellPadding: 0.4,
     },
     columnStyles: {
-      0: { cellWidth: 22, halign: 'left', overflow: 'linebreak' }, // Agent, wrap enabled
-      1: { cellWidth: 10, halign: 'center' }, // Bus. %
-      2: { cellWidth: 10, halign: 'center' }, // Agt. %
-      3: { cellWidth: 10, halign: 'center' }, // Fran. %
-      4: { cellWidth: 14, halign: 'center' }, // Comm.
-      5: { cellWidth: 14, halign: 'center' }, // F. Fee
-      6: { cellWidth: 14, halign: 'center' }, // A. Comm
-      7: { cellWidth: 14, halign: 'center' }, // B. Exp
-      8: { cellWidth: 14, halign: 'center' }, // A. Exp
-      9: { cellWidth: 14, halign: 'center' }, // B. Earn
-      10: { cellWidth: 15, halign: 'center' }, // A. Earn
+      0: { cellWidth: 18, halign: 'left' }, // Agent
+      1: { cellWidth: 11, halign: 'center' }, // Bus. %
+      2: { cellWidth: 11, halign: 'center' }, // Agt. %
+      3: { cellWidth: 11, halign: 'center' }, // Fran. %
+      4: { cellWidth: 16, halign: 'center' }, // Comm.
+      5: { cellWidth: 16, halign: 'center' }, // F. Fee
+      6: { cellWidth: 16, halign: 'center' }, // A. Comm
+      7: { cellWidth: 16, halign: 'center' }, // B. Exp
+      8: { cellWidth: 16, halign: 'center' }, // A. Exp
+      9: { cellWidth: 16, halign: 'center' }, // B. Earn
+      10: { cellWidth: 19, halign: 'center' }, // A. Earn
     },
     margin: { left: margin, right: margin },
   });
-  yOffset = (doc as any).lastAutoTable.finalY + 8;
+  yOffset = (doc as any).lastAutoTable.finalY + 18;
 
-  // Additional Expenses Section
+  // Additional Expenses Section (unchanged, using 12pt font for consistency)
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(16);
   doc.setFillColor(219, 234, 254);
-  doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+  doc.rect(margin, yOffset, pageWidth - 2 * margin, 16, 'F');
   doc.setTextColor(17, 24, 39);
-  doc.text('Additional Expenses', margin + 2, yOffset + 6);
-  yOffset += 8;
+  doc.text('Additional Expenses', margin + 3, yOffset + 11);
+  yOffset += 18;
 
   doc.setFont('Helvetica', 'normal');
   doc.setFontSize(12);
@@ -1105,24 +1102,24 @@ const generatePDF = (forView = false) => {
       ['Total', additionalExpensesTotal ? `$${Math.round(additionalExpensesTotal).toLocaleString('en-US')}` : 'N/A'],
     ],
     theme: 'striped',
-    styles: { fontSize: 12, cellPadding: 0.2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.2, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
-    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 12, cellPadding: 0.2 },
+    styles: { fontSize: 12, cellPadding: 0.4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.2, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 12, cellPadding: 0.4 },
     columnStyles: {
-      0: { cellWidth: 40, halign: 'left', overflow: 'linebreak' },
-      1: { cellWidth: 40, halign: 'center' },
+      0: { cellWidth: 50, halign: 'left' },
+      1: { cellWidth: 50, halign: 'center' },
     },
     margin: { left: margin, right: margin },
   });
-  yOffset = (doc as any).lastAutoTable.finalY + 8;
+  yOffset = (doc as any).lastAutoTable.finalY + 18;
 
-  // Net Income and Profit/Loss Section
+  // Net Income and Profit/Loss Section (unchanged, using 12pt font)
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(16);
   doc.setFillColor(219, 234, 254);
-  doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+  doc.rect(margin, yOffset, pageWidth - 2 * margin, 16, 'F');
   doc.setTextColor(17, 24, 39);
-  doc.text('Net Income & Profit/Loss', margin + 2, yOffset + 6);
-  yOffset += 8;
+  doc.text('Net Income and Profit/Loss', margin + 3, yOffset + 11);
+  yOffset += 18;
 
   const netIncomeData = calculateNetIncomeAndProfitLoss();
   doc.setFont('Helvetica', 'normal');
@@ -1135,24 +1132,24 @@ const generatePDF = (forView = false) => {
       ['Profit/Loss', netIncomeData.profit_loss != null ? `$${Math.round(netIncomeData.profit_loss).toLocaleString('en-US')}` : 'N/A'],
     ],
     theme: 'striped',
-    styles: { fontSize: 12, cellPadding: 0.2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.2, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
-    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 12, cellPadding: 0.2 },
+    styles: { fontSize: 12, cellPadding: 0.4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.2, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 12, cellPadding: 0.4 },
     columnStyles: {
-      0: { cellWidth: 40, halign: 'left', overflow: 'linebreak' },
-      1: { cellWidth: 40, halign: 'center' },
+      0: { cellWidth: 50, halign: 'left' },
+      1: { cellWidth: 50, halign: 'center' },
     },
     margin: { left: margin, right: margin },
   });
-  yOffset = (doc as any).lastAutoTable.finalY + 8;
+  yOffset = (doc as any).lastAutoTable.finalY + 18;
 
-  // Metadata Section
+  // Metadata Section (unchanged, using uniqueAgentsData for Agent Names)
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(16);
   doc.setFillColor(219, 234, 254);
-  doc.rect(margin, yOffset, pageWidth - 2 * margin, 8, 'F');
+  doc.rect(margin, yOffset, pageWidth - 2 * margin, 16, 'F');
   doc.setTextColor(17, 24, 39);
-  doc.text('Metadata', margin + 2, yOffset + 6);
-  yOffset += 8;
+  doc.text('Metadata', margin + 3, yOffset + 11);
+  yOffset += 18;
 
   doc.setFont('Helvetica', 'normal');
   doc.setFontSize(12);
@@ -1160,26 +1157,26 @@ const generatePDF = (forView = false) => {
     startY: yOffset,
     head: [['Field', 'Value']],
     body: [
-      ['Created At', plan.created_at ? plan.created_at.slice(0, 10) : 'N/A'],
-      ['Updated At', plan.updated_at ? plan.updated_at.slice(0, 10) : 'N/A'],
+      ['Created At', plan.created_at || 'N/A'],
+      ['Updated At', plan.updated_at || 'N/A'],
       ['Agent Names', uniqueAgentsData.map(agent => agent.name).join(', ') || 'N/A'],
       ['Time Frame', timeFrame ? timeFrame.charAt(0).toUpperCase() + timeFrame.slice(1) : 'N/A'],
     ],
     theme: 'striped',
-    styles: { fontSize: 12, cellPadding: 0.2, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.2, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
-    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 12, cellPadding: 0.2 },
+    styles: { fontSize: 12, cellPadding: 0.4, textColor: [17, 24, 39], fillColor: [243, 244, 246], lineWidth: 0.2, lineColor: [209, 213, 219], halign: 'center', valign: 'middle' },
+    headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 12, cellPadding: 0.4 },
     columnStyles: {
-      0: { cellWidth: 40, halign: 'left', overflow: 'linebreak' },
-      1: { cellWidth: 40, halign: 'center', overflow: 'linebreak' },
+      0: { cellWidth: 50, halign: 'left' },
+      1: { cellWidth: 90, halign: 'center' },
     },
     margin: { left: margin, right: margin },
   });
 
-  // Footer
+  // Footer (unchanged)
   doc.setFontSize(12);
   doc.setTextColor(100, 100, 100);
-  doc.text(`Page 1`, pageWidth - margin - 10, pageHeight - margin);
-  doc.text('RealRed Enterprises', margin, pageHeight - margin);
+  doc.text(`Page 1 of 1`, pageWidth - margin - 18, pageHeight - margin);
+  doc.text('Generated by RealRed Enterprises', margin, pageHeight - margin);
 
   if (forView) {
     const pdfDataUri = doc.output('datauristring');
@@ -1187,7 +1184,7 @@ const generatePDF = (forView = false) => {
     setGenerating(false);
     toast.success('PDF generated for viewing!');
   } else {
-    doc.save(`business_plan_${timeFrame || 'total'}_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`admin_business_plan_${timeFrame || 'total'}_${new Date().toISOString().split('T')[0]}.pdf`);
     setGenerating(false);
     toast.success('PDF downloaded successfully!');
   }

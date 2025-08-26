@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash,Upload } from 'lucide-react';
+import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash, Upload } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-toastify';
 import jsPDF from 'jspdf';
@@ -25,6 +25,7 @@ interface NurturingContact {
   call_back_date: string | null;
   needs_monthly_appraisals: boolean;
   status: string | null;
+  priority: 'hot' | 'warm' | 'cold' | null;
   agent_id: string;
 }
 
@@ -60,6 +61,7 @@ export function NurturingList() {
     call_back_date: '',
     needs_monthly_appraisals: false,
     status: 'New',
+    priority: 'warm',
   });
   const [hasPhoneNumber, setHasPhoneNumber] = useState<string>('No');
   const [contactError, setContactError] = useState<string | null>(null);
@@ -81,6 +83,12 @@ export function NurturingList() {
     { value: 'commercial', label: 'Commercial' },
   ];
 
+  const priorityOptions = [
+    { value: 'hot', label: 'Hot 🔥', emoji: '🔥' },
+    { value: 'warm', label: 'Warm ☀️', emoji: '☀️' },
+    { value: 'cold', label: 'Cold ❄️', emoji: '❄️' },
+  ];
+
   useEffect(() => {
     const fetchNurturingContacts = async () => {
       if (!user || !profile) {
@@ -93,7 +101,7 @@ export function NurturingList() {
       try {
         let query = supabase
           .from('nurturing_list')
-          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, agent_id');
+          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, priority, agent_id');
         if (profile.role === 'agent') {
           query = query.eq('agent_id', user.id);
         }
@@ -101,9 +109,13 @@ export function NurturingList() {
         if (error) {
           throw new Error(`Failed to fetch nurturing contacts: ${error.message}`);
         }
-        const fetchedContacts = (data || []).sort((a, b) =>
-          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
-        );
+        const fetchedContacts = (data || []).sort((a, b) => {
+          const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+          const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+          const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+          if (priorityA !== priorityB) return priorityA - priorityB;
+          return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+        });
         setContacts(fetchedContacts);
       } catch (err: any) {
         setError(`Error fetching nurturing contacts: ${err.message}`);
@@ -175,13 +187,18 @@ export function NurturingList() {
           call_back_date: newContact.call_back_date || '',
           needs_monthly_appraisals: newContact.needs_monthly_appraisals,
           status: newContact.status || 'New',
+          priority: newContact.priority || 'warm',
           agent_id: user.id,
         }])
         .select();
       if (error) throw new Error(`Failed to add contact: ${error.message}`);
-      const updatedContacts = [...contacts, data[0]].sort((a, b) =>
-        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
-      );
+      const updatedContacts = [...contacts, data[0]].sort((a, b) => {
+        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+      });
       setContacts(updatedContacts);
       resetForm();
       setContactSuccess('Contact added successfully');
@@ -227,6 +244,7 @@ export function NurturingList() {
           call_back_date: newContact.call_back_date || '',
           needs_monthly_appraisals: newContact.needs_monthly_appraisals,
           status: newContact.status || 'New',
+          priority: newContact.priority || 'warm',
         })
         .eq('id', selectedContact.id)
         .eq('agent_id', user.id)
@@ -239,7 +257,13 @@ export function NurturingList() {
       }
       const updatedContacts = contacts.map((contact) =>
         contact.id === selectedContact.id ? { ...contact, ...data[0] } : contact
-      ).sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
+      ).sort((a, b) => {
+        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+      });
       setContacts(updatedContacts);
       resetForm();
       setContactSuccess('Contact updated successfully');
@@ -266,9 +290,13 @@ export function NurturingList() {
         .eq('id', id)
         .eq('agent_id', user?.id);
       if (error) throw new Error(`Failed to delete contact: ${error.message}`);
-      const updatedContacts = contacts.filter((contact) => contact.id !== id).sort((a, b) =>
-        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
-      );
+      const updatedContacts = contacts.filter((contact) => contact.id !== id).sort((a, b) => {
+        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+      });
       setContacts(updatedContacts);
       setSelectedContactIds(selectedContactIds.filter(contactId => contactId !== id));
       toast.success('Contact deleted successfully');
@@ -293,9 +321,13 @@ export function NurturingList() {
         .in('id', selectedContactIds)
         .eq('agent_id', user?.id);
       if (error) throw new Error(`Failed to delete contacts: ${error.message}`);
-      const updatedContacts = contacts.filter((contact) => !selectedContactIds.includes(contact.id)).sort((a, b) =>
-        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
-      );
+      const updatedContacts = contacts.filter((contact) => !selectedContactIds.includes(contact.id)).sort((a, b) => {
+        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+      });
       setContacts(updatedContacts);
       setSelectedContactIds([]);
       setSelectAll(false);
@@ -352,6 +384,32 @@ export function NurturingList() {
     }
   };
 
+  const getPriorityBadgeClass = (priority: string | null) => {
+    switch (priority) {
+      case 'hot':
+        return 'bg-red-100 text-red-800 border-red-300';
+      case 'warm':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'cold':
+        return 'bg-blue-100 text-blue-800 border-blue-300';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-300';
+    }
+  };
+
+  const getPriorityEmoji = (priority: string | null) => {
+    switch (priority) {
+      case 'hot':
+        return '🔥';
+      case 'warm':
+        return '☀️';
+      case 'cold':
+        return '❄️';
+      default:
+        return '⚪';
+    }
+  };
+
   const handleDownloadPDF = (contact: NurturingContact) => {
     try {
       const doc = new jsPDF();
@@ -372,6 +430,7 @@ export function NurturingList() {
         `Postcode: ${contact.postcode || 'N/A'}`,
         `House Type: ${contact.house_type || 'N/A'}`,
         `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
+        `Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`,
       ];
       const rightColumn = [
         `Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`,
@@ -436,7 +495,7 @@ export function NurturingList() {
         doc.roundedRect(pageWidth - margin - 30, y - 4, 25, 6, 2, 2, 'F');
         doc.setFontSize(8);
         doc.setTextColor(0, 0, 0);
-        doc.text(contact.status || 'New', pageWidth - margin - 28, y);
+        doc.text(`${contact.status || 'New'} ${getPriorityEmoji(contact.priority)}`, pageWidth - margin - 28, y);
         y += 8;
         doc.setFontSize(10);
         doc.text(`Closed: ${contact.status === 'Closed' ? '[X]' : '[ ]'}`, margin + 5, y);
@@ -450,6 +509,7 @@ export function NurturingList() {
           `Postcode: ${contact.postcode || 'N/A'}`,
           `House Type: ${contact.house_type || 'N/A'}`,
           `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
+          `Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`,
         ];
         const rightColumn = [
           `Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`,
@@ -505,6 +565,7 @@ export function NurturingList() {
         email: c.email,
         phone_number: c.phone_number || '',
         status: 'New',
+        priority: 'warm',
         agent_id: user.id,
       }));
       const { data, error } = await supabase
@@ -512,9 +573,13 @@ export function NurturingList() {
         .insert(importData)
         .select();
       if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-      const updatedContacts = [...contacts, ...data].sort((a, b) =>
-        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
-      );
+      const updatedContacts = [...contacts, ...data].sort((a, b) => {
+        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+      });
       setContacts(updatedContacts);
       toast.success(`${toImport.length} contacts imported successfully`);
     } catch (err: any) {
@@ -525,175 +590,189 @@ export function NurturingList() {
   };
 
   const handleExcelImport = async () => {
-  if (!user) {
-    toast.error('User not authenticated');
-    return;
-  }
-  if (!excelFile) {
-    toast.error('Please select an Excel file to import');
-    return;
-  }
+    if (!user) {
+      toast.error('User not authenticated');
+      return;
+    }
+    if (!excelFile) {
+      toast.error('Please select an Excel file to import');
+      return;
+    }
 
-  setLoading(true);
-  try {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const fileData = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(fileData, { type: 'array', dateNF: 'dd-mm-yyyy' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
+    setLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const fileData = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(fileData, { type: 'array', dateNF: 'dd-mm-yyyy' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
 
-        const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
-        const validContacts: Partial<NurturingContact>[] = [];
-        const errors: string[] = [];
+          const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
+          const validContacts: Partial<NurturingContact>[] = [];
+          const errors: string[] = [];
 
-        // Define allowed status values (update based on check constraint)
-        const allowedStatuses = ['New', 'Contacted', 'Followed Up', 'Closed'];
+          const allowedStatuses = ['New', 'Contacted', 'Followed Up', 'Closed'];
+          const allowedPriorities = ['hot', 'warm', 'cold'];
 
-        // Function to convert Excel serial date to YYYY-MM-DD
-        const serialToDate = (serial: number): string | null => {
-          const excelEpoch = new Date(1899, 11, 31); // 1899-12-31
-          const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
-          if (serial < 60) {
-            date.setDate(date.getDate() - 1); // Adjust for Excel's 1900 leap year bug
-          }
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const isoDate = `${year}-${month}-${day}`;
-          const checkDate = new Date(isoDate);
-          if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) {
-            return null;
-          }
-          return isoDate;
-        };
+          const serialToDate = (serial: number): string | null => {
+            const excelEpoch = new Date(1899, 11, 31);
+            const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
+            if (serial < 60) {
+              date.setDate(date.getDate() - 1);
+            }
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const isoDate = `${year}-${month}-${day}`;
+            const checkDate = new Date(isoDate);
+            if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) {
+              return null;
+            }
+            return isoDate;
+          };
 
-        jsonData.forEach((row: any, index: number) => {
-          const email = row.email?.toString().trim();
-          if (!email || !row.first_name || !row.last_name) {
-            errors.push(`Row ${index + 2}: Missing required fields (first_name, last_name, or email)`);
-            return;
-          }
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            errors.push(`Row ${index + 2}: Invalid email format (${email})`);
-            return;
-          }
-          if (existingEmails.has(email.toLowerCase())) {
-            errors.push(`Row ${index + 2}: Duplicate email (${email})`);
-            return;
-          }
+          jsonData.forEach((row: any, index: number) => {
+            const email = row.email?.toString().trim();
+            if (!email || !row.first_name || !row.last_name) {
+              errors.push(`Row ${index + 2}: Missing required fields (first_name, last_name, or email)`);
+              return;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+              errors.push(`Row ${index + 2}: Invalid email format (${email})`);
+              return;
+            }
+            if (existingEmails.has(email.toLowerCase())) {
+              errors.push(`Row ${index + 2}: Duplicate email (${email})`);
+              return;
+            }
 
-          // Validate and convert call_back_date
-          let callBackDate = row.call_back_date?.toString().trim();
-          let formattedDate: string | null = null;
-          if (callBackDate) {
-            const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
-            if (dateRegex.test(callBackDate)) {
-              const [day, month, year] = callBackDate.split('-');
-              const isoDate = `${year}-${month}-${day}`;
-              const date = new Date(isoDate);
-              if (isNaN(date.getTime()) || date.getFullYear() !== parseInt(year) || date.getMonth() + 1 !== parseInt(month) || date.getDate() !== parseInt(day)) {
-                errors.push(`Row ${index + 2}: Invalid date value (${callBackDate})`);
-                return;
-              }
-              formattedDate = isoDate;
-            } else if (!isNaN(parseFloat(callBackDate)) && parseFloat(callBackDate) > 0) {
-              const serial = parseFloat(callBackDate);
-              const isoDate = serialToDate(serial);
-              if (isoDate) {
+            let callBackDate = row.call_back_date?.toString().trim();
+            let formattedDate: string | null = null;
+            if (callBackDate) {
+              const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
+              if (dateRegex.test(callBackDate)) {
+                const [day, month, year] = callBackDate.split('-');
+                const isoDate = `${year}-${month}-${day}`;
+                const date = new Date(isoDate);
+                if (isNaN(date.getTime()) || date.getFullYear() !== parseInt(year) || date.getMonth() + 1 !== parseInt(month) || date.getDate() !== parseInt(day)) {
+                  errors.push(`Row ${index + 2}: Invalid date value (${callBackDate})`);
+                  return;
+                }
                 formattedDate = isoDate;
+              } else if (!isNaN(parseFloat(callBackDate)) && parseFloat(callBackDate) > 0) {
+                const serial = parseFloat(callBackDate);
+                const isoDate = serialToDate(serial);
+                if (isoDate) {
+                  formattedDate = isoDate;
+                } else {
+                  errors.push(`Row ${index + 2}: Invalid Excel serial date (${callBackDate})`);
+                  return;
+                }
               } else {
-                errors.push(`Row ${index + 2}: Invalid Excel serial date (${callBackDate})`);
+                errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${callBackDate}). Use DD-MM-YYYY (e.g., 01-09-2025).`);
                 return;
               }
+            }
+
+            let status = row.status?.toString().trim();
+            if (!status) {
+              status = 'New';
             } else {
-              errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${callBackDate}). Use DD-MM-YYYY (e.g., 01-09-2025).`);
-              return;
+              const normalizedStatus = allowedStatuses.find(s => s.toLowerCase() === status.toLowerCase());
+              if (!normalizedStatus) {
+                errors.push(`Row ${index + 2}: Invalid status value (${status}). Must be one of: ${allowedStatuses.join(', ')}`);
+                return;
+              }
+              status = normalizedStatus;
             }
+
+            let priority = row.priority?.toString().trim().toLowerCase();
+            if (!priority) {
+              priority = 'warm';
+            } else {
+              const normalizedPriority = allowedPriorities.find(p => p.toLowerCase() === priority.toLowerCase());
+              if (!normalizedPriority) {
+                errors.push(`Row ${index + 2}: Invalid priority value (${priority}). Must be one of: ${allowedPriorities.join(', ')}`);
+                return;
+              }
+              priority = normalizedPriority;
+            }
+
+            const needsMonthlyAppraisals = row.needs_monthly_appraisals?.toString().toLowerCase() === 'yes' ||
+                                          row.needs_monthly_appraisals === true ||
+                                          row.needs_monthly_appraisals === 1;
+
+            validContacts.push({
+              first_name: row.first_name?.toString().trim() || '',
+              last_name: row.last_name?.toString().trim() || '',
+              email: email,
+              phone_number: row.phone_number?.toString().trim() || '',
+              mobile: row.mobile?.toString().trim() || '',
+              street_number: row.street_number?.toString().trim() || '',
+              street_name: row.street_name?.toString().trim() || '',
+              suburb: row.suburb?.toString().trim() || '',
+              postcode: row.postcode?.toString().trim() || '',
+              house_type: row.house_type?.toString().trim() || '',
+              requirements: row.requirements?.toString().trim() || '',
+              notes: row.notes?.toString().trim() || '',
+              call_back_date: formattedDate,
+              needs_monthly_appraisals: needsMonthlyAppraisals,
+              status: status,
+              priority: priority as 'hot' | 'warm' | 'cold',
+              agent_id: user.id,
+            });
+          });
+
+          if (errors.length > 0) {
+            toast.error(`Some rows could not be imported:\n${errors.join('\n')}`, {
+              autoClose: 10000,
+            });
           }
 
-          // Validate status
-          let status = row.status?.toString().trim();
-          if (!status) {
-            status = 'New'; // Default to 'New' if empty
-          } else {
-            // Normalize status case (e.g., 'new' → 'New')
-            const normalizedStatus = allowedStatuses.find(s => s.toLowerCase() === status.toLowerCase());
-            if (!normalizedStatus) {
-              errors.push(`Row ${index + 2}: Invalid status value (${status}). Must be one of: ${allowedStatuses.join(', ')}`);
-              return;
-            }
-            status = normalizedStatus; // Use normalized case
+          if (validContacts.length === 0) {
+            toast.info('No valid contacts to import');
+            setLoading(false);
+            return;
           }
 
-          const needsMonthlyAppraisals = row.needs_monthly_appraisals?.toString().toLowerCase() === 'yes' ||
-                                        row.needs_monthly_appraisals === true ||
-                                        row.needs_monthly_appraisals === 1;
+          const { data: importedData, error } = await supabase
+            .from('nurturing_list')
+            .insert(validContacts)
+            .select<unknown, NurturingContact>();
 
-          validContacts.push({
-            first_name: row.first_name?.toString().trim() || '',
-            last_name: row.last_name?.toString().trim() || '',
-            email: email,
-            phone_number: row.phone_number?.toString().trim() || '',
-            mobile: row.mobile?.toString().trim() || '',
-            street_number: row.street_number?.toString().trim() || '',
-            street_name: row.street_name?.toString().trim() || '',
-            suburb: row.suburb?.toString().trim() || '',
-            postcode: row.postcode?.toString().trim() || '',
-            house_type: row.house_type?.toString().trim() || '',
-            requirements: row.requirements?.toString().trim() || '',
-            notes: row.notes?.toString().trim() || '',
-            call_back_date: formattedDate,
-            needs_monthly_appraisals: needsMonthlyAppraisals,
-            status: status,
-            agent_id: user.id,
+          if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
+
+          const updatedContacts = [...contacts, ...importedData].sort((a, b) => {
+            const priorityOrder = { hot: 1, warm: 2, cold: 3 };
+            const priorityA = a.priority ? priorityOrder[a.priority] : 2;
+            const priorityB = b.priority ? priorityOrder[b.priority] : 2;
+            if (priorityA !== priorityB) return priorityA - priorityB;
+            return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
           });
-        });
-
-        if (errors.length > 0) {
-          toast.error(`Some rows could not be imported:\n${errors.join('\n')}`, {
-            autoClose: 10000,
-          });
-        }
-
-        if (validContacts.length === 0) {
-          toast.info('No valid contacts to import');
+          setContacts(updatedContacts);
+          setExcelFile(null);
+          resetForm();
+          toast.success(`${validContacts.length} contacts imported successfully from Excel`);
+        } catch (err: any) {
+          toast.error(`Error processing Excel file: ${err.message}`);
+        } finally {
           setLoading(false);
-          return;
         }
-
-        const { data: importedData, error } = await supabase
-          .from('nurturing_list')
-          .insert(validContacts)
-          .select<unknown, NurturingContact>();
-
-        if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
-
-        const updatedContacts = [...contacts, ...importedData].sort((a, b) =>
-          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
-        );
-        setContacts(updatedContacts);
-        setExcelFile(null);
-        resetForm();
-        toast.success(`${validContacts.length} contacts imported successfully from Excel`);
-      } catch (err: any) {
-        toast.error(`Error processing Excel file: ${err.message}`);
-      } finally {
+      };
+      reader.onerror = () => {
+        toast.error('Error reading Excel file');
         setLoading(false);
-      }
-    };
-    reader.onerror = () => {
-      toast.error('Error reading Excel file');
+      };
+      reader.readAsArrayBuffer(excelFile);
+    } catch (err: any) {
+      toast.error(`Error importing Excel contacts: ${err.message}`);
       setLoading(false);
-    };
-    reader.readAsArrayBuffer(excelFile);
-  } catch (err: any) {
-    toast.error(`Error importing Excel contacts: ${err.message}`);
-    setLoading(false);
-  }
-};
+    }
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
@@ -717,6 +796,7 @@ export function NurturingList() {
       last_name: basic.last_name,
       email: basic.email,
       phone_number: basic.phone_number || '',
+      priority: 'warm',
     });
     setHasPhoneNumber(basic.phone_number ? 'Yes' : 'No');
     setMode('manual');
@@ -740,6 +820,7 @@ export function NurturingList() {
       call_back_date: '',
       needs_monthly_appraisals: false,
       status: 'New',
+      priority: 'warm',
     });
     setHasPhoneNumber('No');
     setMode('manual');
@@ -1097,6 +1178,20 @@ export function NurturingList() {
                   <option value="Followed Up">Followed Up</option>
                   <option value="Closed">Closed</option>
                 </select>
+                <select
+                  name="priority"
+                  value={newContact.priority || 'warm'}
+                  onChange={handleInputChange}
+                  className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  aria-label="Priority"
+                  disabled={isViewMode}
+                >
+                  {priorityOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 <textarea
                   name="requirements"
                   value={newContact.requirements || ''}
@@ -1292,6 +1387,16 @@ export function NurturingList() {
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
+                            <motion.span
+                              className={`px-2 py-1 rounded text-xs font-medium border ${getPriorityBadgeClass(contact.priority)} flex items-center`}
+                              animate={{
+                                scale: contact.priority === 'hot' ? [1, 1.1, 1] : 1,
+                                transition: contact.priority === 'hot' ? { repeat: Infinity, duration: 1.5 } : {}
+                              }}
+                            >
+                              {getPriorityEmoji(contact.priority)}
+                              <span className="ml-1">{contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'}</span>
+                            </motion.span>
                             <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(contact.status)}`}>
                               {contact.status || 'New'}
                             </span>
@@ -1364,6 +1469,10 @@ export function NurturingList() {
                               {contact.call_back_date
                                 ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
                                 : 'N/A'}
+                            </p>
+                            <p>
+                              <span className="font-medium">Priority:</span>{' '}
+                              {contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} {getPriorityEmoji(contact.priority)}
                             </p>
                           </div>
                           <div>

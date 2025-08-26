@@ -69,6 +69,7 @@ interface AgentBusinessPlan {
   business_amount: number | null;
   agent_amount: number | null;
   franchise_percentage: number | null;
+  period_type: 'yearly' | 'monthly' | 'weekly' | null;
   created_at?: string;
   updated_at?: string;
   agent_name: string;
@@ -222,13 +223,18 @@ export function AdminBusinessPlan() {
   const [showAgentSuggestions, setShowAgentSuggestions] = useState(false);
   const [savedPlans, setSavedPlans] = useState<AgentBusinessPlan[]>([]);
   const [showSavedPlans, setShowSavedPlans] = useState(false);
+  const [showViewSavedButton, setShowViewSavedButton] = useState(false);
+  
   const agentInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  // Add new state for admin plans
+  const [savedAdminPlans, setSavedAdminPlans] = useState<AdminBusinessPlan[]>([]);
 
   useEffect(() => {
     if (user?.id) {
       fetchAvailableAgents();
       fetchSavedAgentPlans();
+      fetchSavedAdminPlans();
     }
   }, [user?.id]);
 
@@ -263,7 +269,6 @@ export function AdminBusinessPlan() {
       toast.error('Failed to load available agents');
     }
   };
-
   const fetchSavedAgentPlans = async () => {
     if (!user?.id) {
       console.error('No user ID found. Cannot fetch saved plans.');
@@ -359,6 +364,76 @@ export function AdminBusinessPlan() {
       setLoading(false);
     }
   };
+  // New function to fetch saved admin plans
+  const fetchSavedAdminPlans = async () => {
+    if (!user?.id) {
+      console.error('No user ID found. Cannot fetch saved admin plans.');
+      toast.error('User not authenticated. Please log in.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('admin_business_plans')
+        .select(`
+          id,
+          agent_id,
+          agents,
+          business_commission_percentage,
+          agent_commission_percentage,
+          franchise_fee,
+          business_expenses_percentage,
+          agent_expenses_percentage,
+          rent,
+          staff_salary,
+          internet,
+          fuel,
+          other_expenses,
+          created_at,
+          updated_at
+        `)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Supabase error fetching saved admin plans:', error.message, error.details);
+        throw error;
+      }
+      if (!data || data.length === 0) {
+        console.log('No saved admin plans found.');
+        setSavedAdminPlans([]);
+        toast.info('No saved admin plans found.');
+        return;
+      }
+      console.log('Fetched saved admin plans:', data);
+      setSavedAdminPlans(data.map(plan => ({
+        ...plan,
+        franchise_fee: plan.franchise_fee != null ? Math.round(plan.franchise_fee) : null,
+        rent: plan.rent != null ? Math.round(plan.rent) : null,
+        staff_salary: plan.staff_salary != null ? Math.round(plan.staff_salary) : null,
+        internet: plan.internet != null ? Math.round(plan.internet) : null,
+        fuel: plan.fuel != null ? Math.round(plan.fuel) : null,
+        other_expenses: plan.other_expenses != null ? Math.round(plan.other_expenses) : null,
+        agents: plan.agents.map((agent: AgentFinancials) => ({
+          ...agent,
+          commission_amount: agent.commission_amount != null ? Math.round(agent.commission_amount) : null,
+          franchise_amount: agent.franchise_amount != null ? Math.round(agent.franchise_amount) : null,
+          marketing_expenses: agent.marketing_expenses != null ? Math.round(agent.marketing_expenses) : null,
+          super_amount: agent.super_amount != null ? Math.round(agent.super_amount) : null,
+          business_commission_percentage: agent.business_commission_percentage != null ? Math.round(agent.business_commission_percentage) : null,
+          agent_commission_percentage: agent.agent_commission_percentage != null ? Math.round(agent.agent_commission_percentage) : null,
+          franchise_percentage: agent.franchise_percentage != null ? Math.round(agent.franchise_percentage) : null,
+          business_amount: agent.business_amount != null ? Math.round(agent.business_amount) : null,
+          agent_amount: agent.agent_amount != null ? Math.round(agent.agent_amount) : null,
+        })),
+      })));
+      toast.success('Saved admin plans loaded successfully!');
+    } catch (error: any) {
+      console.error('Error fetching saved admin plans:', error.message, error.details);
+      toast.error('Failed to load saved admin plans. Please check your database configuration.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   const fetchAgentBusinessPlan = async (agentId: string, agentName: string) => {
     if (!agentId || !agentName) {
@@ -370,7 +445,7 @@ export function AdminBusinessPlan() {
     try {
       const { data: planData, error: planError } = await supabase
         .from('agent_business_plans')
-        .select('id, agent_id, business_commission_percentage, agent_commission_percentage, franchise_percentage, business_amount, agent_amount, agent_name')
+        .select('id, agent_id, business_commission_percentage, agent_commission_percentage, franchise_percentage, business_amount, agent_amount, agent_name,period_type')
         .eq('agent_id', agentId)
         .eq('agent_name', agentName)
         .order('created_at', { ascending: false })
@@ -497,7 +572,6 @@ export function AdminBusinessPlan() {
       setLoading(false);
     }
   };
-
   const handleManualAgentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setNewAgentName(value);
@@ -760,7 +834,10 @@ export function AdminBusinessPlan() {
   ]);
 
   const saveBusinessPlan = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      toast.error('User not authenticated. Please log in.');
+      return;
+    }
     if (!timeFrame) {
       toast.error('Please select a time frame before saving the plan');
       return;
@@ -792,19 +869,29 @@ export function AdminBusinessPlan() {
           agent_amount: agent.agent_amount != null ? Math.round(agent.agent_amount) : null,
         })),
       };
-
+      // Save to admin_business_plans
+      // Save to admin_business_plans
+      let adminPlanId = plan.id;
       if (plan.id) {
-        const { error } = await supabase.from('admin_business_plans').update(planData).eq('id', plan.id);
-
-        if (error) throw error;
+        const { error } = await supabase
+          .from('admin_business_plans')
+          .update(planData)
+          .eq('id', plan.id);
+        if (error) {
+          console.error('Error updating admin business plan:', error.message, error.details);
+          throw error;
+        }
       } else {
         const { data, error } = await supabase
           .from('admin_business_plans')
           .insert([{ ...planData, id: uuidv4(), created_at: new Date().toISOString() }])
           .select()
           .single();
-
-        if (error) throw error;
+        if (error) {
+          console.error('Error inserting admin business plan:', error.message, error.details);
+          throw error;
+        }
+        adminPlanId = data.id;
         setPlan({
           ...data,
           agents: data.agents || [],
@@ -817,15 +904,16 @@ export function AdminBusinessPlan() {
         });
       }
 
+      // Save to agent_business_plans
       const agentData = calculateAgentData();
       console.log('Calculated agent data for saving:', agentData);
       for (const agent of plan.agents) {
-        const agentCalc = agentData.find(a => a.name === agent.name);
+        const agentCalc = agentData.find(a => a.name === agent.name && a.agent_id === agent.agent_id);
         if (!agentCalc) {
-          console.error(`No calculated data found for agent: ${agent.name}`);
+          console.error(`No calculated data found for agent: ${agent.name} (${agent.agent_id})`);
           continue;
         }
-        console.log(`Saving for agent ${agent.name}:`, {
+        console.log(`Saving for agent ${agent.name} (${agent.agent_id}):`, {
           business_amount: agentCalc.business_commission,
           agent_amount: agentCalc.agent_commission,
         });
@@ -837,18 +925,29 @@ export function AdminBusinessPlan() {
           franchise_percentage: agentCalc.franchise_percentage != null ? Math.round(agentCalc.franchise_percentage) : null,
           business_amount: agentCalc.business_commission != null ? Math.round(agentCalc.business_commission) : null,
           agent_amount: agentCalc.agent_commission != null ? Math.round(agentCalc.agent_commission) : null,
+          period_type: timeFrame,
           updated_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
         });
-
-        if (error) throw error;
+        if (error) {
+          console.error(`Error saving agent business plan for ${agent.name}:`, error.message, error.details);
+          throw error;
+        }
       }
 
+      // Fetch updated plans and show saved plans section
+      await Promise.all([fetchSavedAgentPlans(), fetchSavedAdminPlans()]);
+      setShowSavedPlans(true);
+      setTimeout(() => {
+        const savedPlansSection = document.getElementById('saved-plans-section');
+        if (savedPlansSection) {
+          savedPlansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
       toast.success('Business plan saved successfully!');
-      await fetchSavedAgentPlans();
     } catch (error: any) {
-      console.error('Error saving business plan:', error);
-      toast.error('Failed to save business plan');
+      console.error('Error saving business plan:', error.message, error.details);
+      toast.error(`Failed to save business plan: ${error.message}`);
     } finally {
       setSaving(false);
     }
@@ -1308,6 +1407,22 @@ const downloadPlan = () => {
                 View Agent Business Plan
               </button>
               <button
+                onClick={() => {
+                  setShowSavedPlans(true);
+                  // Scroll to saved plans section
+                  setTimeout(() => {
+                    const savedPlansSection = document.getElementById('saved-plans-section');
+                    if (savedPlansSection) {
+                      savedPlansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }, 100);
+                }}
+                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                View Saved Plans
+              </button>
+              <button
                 onClick={resetToDefaults}
                 className="flex items-center px-4 py-2 bg-blue-200 text-blue-700 rounded-lg hover:bg-blue-300 transition-colors w-full sm:w-auto"
               >
@@ -1503,9 +1618,11 @@ const downloadPlan = () => {
             </div>
           </motion.div>
         )}
+        
 
         {timeFrame && savedPlans.length > 0 && (
           <motion.div
+            id="saved-plans-section"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
@@ -1522,6 +1639,7 @@ const downloadPlan = () => {
               >
                 {showSavedPlans ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
               </button>
+              
             </div>
             {showSavedPlans && (
               <div className="overflow-x-auto">
@@ -1534,6 +1652,7 @@ const downloadPlan = () => {
                       <th className="p-3 border-b text-blue-700 w-[10%] text-center">Franchise %</th>
                       <th className="p-3 border-b text-blue-700 w-[15%] text-center">Business Amount</th>
                       <th className="p-3 border-b text-blue-700 w-[15%] text-center">Agent Amount</th>
+                      <th className="p-3 border-b text-blue-700 w-[10%] text-center">Period Type</th>
                       <th className="p-3 border-b text-blue-700 w-[15%] text-center">Created At</th>
                       <th className="p-3 border-b text-blue-700 w-[15%] text-center">Updated At</th>
                     </tr>
@@ -1551,6 +1670,7 @@ const downloadPlan = () => {
                         <td className="p-3 text-blue-600 text-center">
                           {plan.agent_amount != null && !isNaN(plan.agent_amount) ? `$${Math.round(plan.agent_amount).toLocaleString()}` : 'N/A'}
                         </td>
+                        <td className="p-3 text-blue-600 text-center">{plan.period_type || 'N/A'}</td>
                         <td className="p-3 text-blue-600 text-center">{plan.created_at ? new Date(plan.created_at).toLocaleDateString() : 'N/A'}</td>
                         <td className="p-3 text-blue-600 text-center">{plan.updated_at ? new Date(plan.updated_at).toLocaleDateString() : 'N/A'}</td>
                       </tr>

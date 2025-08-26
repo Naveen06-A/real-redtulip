@@ -1,8 +1,7 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash, Bell, Phone, Calendar, Clock } from 'lucide-react';
+import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash, Bell, Phone, Calendar, Clock, Flame, Snowflake, Sun } from 'lucide-react';
 import { normalizeSuburb } from '../reportsUtils';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-toastify';
@@ -33,6 +32,7 @@ interface NurturingContact {
   needs_monthly_appraisals: boolean;
   status: string | null;
   agent_id: string;
+  temperature: 'Hot' | 'Warm' | 'Cold' | null;
 }
 
 interface BasicContact {
@@ -67,6 +67,7 @@ export function NurturingList() {
     call_back_date: '',
     needs_monthly_appraisals: false,
     status: 'New',
+    temperature: 'Warm',
   });
   const [hasPhoneNumber, setHasPhoneNumber] = useState<string>('No');
   const [contactError, setContactError] = useState<string | null>(null);
@@ -80,6 +81,7 @@ export function NurturingList() {
   const [showIncompleteNotification, setShowIncompleteNotification] = useState(false);
   const [pendingTasks, setPendingTasks] = useState<NurturingContact[]>([]);
   const [showPendingNotification, setShowPendingNotification] = useState(false);
+  const [temperatureFilter, setTemperatureFilter] = useState<'All' | 'Hot' | 'Warm' | 'Cold'>('All');
 
   const houseTypeOptions = [
     { value: '', label: 'Select House Type' },
@@ -88,6 +90,12 @@ export function NurturingList() {
     { value: 'apartment', label: 'Apartment' },
     { value: 'land', label: 'Land' },
     { value: 'commercial', label: 'Commercial' }
+  ];
+
+  const temperatureOptions = [
+    { value: 'Hot', label: 'Hot', icon: <Flame className="w-4 h-4 text-red-600" /> },
+    { value: 'Warm', label: 'Warm', icon: <Sun className="w-4 h-4 text-yellow-600" /> },
+    { value: 'Cold', label: 'Cold', icon: <Snowflake className="w-4 h-4 text-blue-600" /> }
   ];
 
   useEffect(() => {
@@ -104,7 +112,7 @@ export function NurturingList() {
       try {
         let query = supabase
           .from('nurturing_list')
-          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, agent_id');
+          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, agent_id, temperature');
 
         if (profile.role === 'agent') {
           query = query.eq('agent_id', user.id);
@@ -116,7 +124,10 @@ export function NurturingList() {
           throw new Error(`Failed to fetch nurturing contacts: ${error.message}`);
         }
 
-        const fetchedContacts = data || [];
+        const fetchedContacts = (data || []).sort((a, b) => {
+          const order = { Hot: 1, Warm: 2, Cold: 3 };
+          return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
+        });
         setContacts(fetchedContacts);
         
         if (profile.role === 'agent') {
@@ -189,12 +200,11 @@ export function NurturingList() {
     fetchNurturingContacts();
     fetchAvailableContacts();
 
-    // Set up interval for periodic reminder checks
     const reminderInterval = setInterval(() => {
       if (profile?.role === 'agent') {
         fetchNurturingContacts();
       }
-    }, 1000 * 60 * 60); // Check every hour
+    }, 1000 * 60 * 60);
 
     return () => clearInterval(reminderInterval);
   }, [profile, user]);
@@ -233,12 +243,17 @@ export function NurturingList() {
           needs_monthly_appraisals: newContact.needs_monthly_appraisals,
           status: newContact.status || 'New',
           agent_id: user.id,
+          temperature: newContact.temperature || 'Warm',
         }])
         .select();
 
       if (error) throw new Error(`Failed to add contact: ${error.message}`);
 
-      setContacts([...contacts, data[0]]);
+      const updatedContacts = [...contacts, data[0]].sort((a, b) => {
+        const order = { Hot: 1, Warm: 2, Cold: 3 };
+        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
+      });
+      setContacts(updatedContacts);
       resetForm();
       setContactSuccess('Contact added successfully');
       toast.success('Contact added successfully');
@@ -285,6 +300,7 @@ export function NurturingList() {
           call_back_date: newContact.call_back_date || null,
           needs_monthly_appraisals: newContact.needs_monthly_appraisals,
           status: newContact.status || 'New',
+          temperature: newContact.temperature || 'Warm',
         })
         .eq('id', selectedContact.id)
         .eq('agent_id', user.id)
@@ -298,9 +314,13 @@ export function NurturingList() {
         throw new Error('No contact was updated. Please check if the contact exists and you have permission to update it.');
       }
 
-      setContacts(contacts.map((contact) =>
+      const updatedContacts = contacts.map((contact) =>
         contact.id === selectedContact.id ? { ...contact, ...data[0] } : contact
-      ));
+      ).sort((a, b) => {
+        const order = { Hot: 1, Warm: 2, Cold: 3 };
+        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
+      });
+      setContacts(updatedContacts);
       resetForm();
       setContactSuccess('Contact updated successfully');
       toast.success('Contact updated successfully');
@@ -329,7 +349,11 @@ export function NurturingList() {
 
       if (error) throw new Error(`Failed to delete contact: ${error.message}`);
 
-      setContacts(contacts.filter((contact) => contact.id !== id));
+      const updatedContacts = contacts.filter((contact) => contact.id !== id).sort((a, b) => {
+        const order = { Hot: 1, Warm: 2, Cold: 3 };
+        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
+      });
+      setContacts(updatedContacts);
       toast.success('Contact deleted successfully');
     } catch (err: any) {
       toast.error(`Error deleting contact: ${err.message}`);
@@ -365,7 +389,8 @@ export function NurturingList() {
         ['Notes', contact.notes || 'N/A'],
         ['Call Back Date', contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'],
         ['Needs Monthly Appraisals', contact.needs_monthly_appraisals ? 'Yes' : 'No'],
-        ['Status', contact.status || 'New']
+        ['Status', contact.status || 'New'],
+        ['Temperature', contact.temperature || 'Warm']
       ];
 
       autoTable(doc, {
@@ -406,6 +431,7 @@ export function NurturingList() {
         phone_number: c.phone_number || '',
         status: 'New',
         agent_id: user.id,
+        temperature: 'Warm',
       }));
 
       const { data, error } = await supabase
@@ -415,7 +441,11 @@ export function NurturingList() {
 
       if (error) throw new Error(`Failed to import contacts: ${error.message}`);
 
-      setContacts([...contacts, ...data]);
+      const updatedContacts = [...contacts, ...data].sort((a, b) => {
+        const order = { Hot: 1, Warm: 2, Cold: 3 };
+        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
+      });
+      setContacts(updatedContacts);
       toast.success(`${toImport.length} contacts imported successfully`);
     } catch (err: any) {
       toast.error(`Error importing contacts: ${err.message}`);
@@ -447,6 +477,7 @@ export function NurturingList() {
       last_name: basic.last_name,
       email: basic.email,
       phone_number: basic.phone_number || '',
+      temperature: 'Warm',
     });
     setHasPhoneNumber(basic.phone_number ? 'Yes' : 'No');
     setMode('manual');
@@ -470,6 +501,7 @@ export function NurturingList() {
       call_back_date: '',
       needs_monthly_appraisals: false,
       status: 'New',
+      temperature: 'Warm',
     });
     setHasPhoneNumber('No');
     setMode('manual');
@@ -499,6 +531,36 @@ export function NurturingList() {
         return 'bg-gray-100 text-gray-800';
     }
   };
+
+  const getTemperatureBadgeClass = (temperature: string | null) => {
+    switch (temperature) {
+      case 'Hot':
+        return 'bg-red-100 text-red-800';
+      case 'Warm':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'Cold':
+        return 'bg-blue-100 text-blue-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getTemperatureIcon = (temperature: string | null) => {
+    switch (temperature) {
+      case 'Hot':
+        return <Flame className="w-4 h-4 mr-1" />;
+      case 'Warm':
+        return <Sun className="w-4 h-4 mr-1" />;
+      case 'Cold':
+        return <Snowflake className="w-4 h-4 mr-1" />;
+      default:
+        return <Sun className="w-4 h-4 mr-1" />;
+    }
+  };
+
+  const filteredContacts = contacts.filter(contact =>
+    temperatureFilter === 'All' || contact.temperature === temperatureFilter
+  );
 
   if (loading) {
     return (
@@ -583,15 +645,12 @@ export function NurturingList() {
                 >
                   <p className="font-medium">{task.first_name} {task.last_name}</p>
                   <div className="flex items-center text-gray-600">
-                    {task.call_back_date ? (
+                    {getTemperatureIcon(task.temperature)}
+                    {task.temperature || 'Warm'}
+                    {task.call_back_date && (
                       <>
-                        <Calendar className="w-3 h-3 mr-1" />
+                        <Calendar className="w-3 h-3 ml-2 mr-1" />
                         {new Date(task.call_back_date) < new Date() ? 'Overdue' : 'Due'}: {new Date(task.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
-                      </>
-                    ) : (
-                      <>
-                        <Phone className="w-3 h-3 mr-1" />
-                        Status: {task.status}
                       </>
                     )}
                   </div>
@@ -611,7 +670,7 @@ export function NurturingList() {
       <AnimatePresence>
         {showIncompleteNotification && profile?.role === 'agent' && (
           <motion.div
-            className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-white text-red-600 shadow-lg rounded-xl border border-red-200 max-w-lg w-full p-4 ${
+            className={`fixed left-1/2 transform -translate-x-1/2 z-50 bg-white text-red-600 shadow-lg rounded-xl border border-red-200 max-w-lg w-full p-4 ${
               showAgentNotification || showPendingNotification ? 'top-24' : 'top-4'
             }`}
             initial={{ opacity: 0, y: -50 }}
@@ -660,9 +719,13 @@ export function NurturingList() {
                   }}
                 >
                   <p className="font-medium">{contact.first_name} {contact.last_name}</p>
-                  <p className="text-gray-600">
-                    Missing: {!contact.mobile && 'Mobile, '}{!contact.call_back_date && 'Call Back Date'}
-                  </p>
+                  <div className="flex items-center text-gray-600">
+                    {getTemperatureIcon(contact.temperature)}
+                    {contact.temperature || 'Warm'}
+                    <span className="ml-2">
+                      Missing: {!contact.mobile && 'Mobile, '}{!contact.call_back_date && 'Call Back Date'}
+                    </span>
+                  </div>
                 </motion.div>
               ))}
               {incompleteContacts.length > 3 && (
@@ -722,14 +785,16 @@ export function NurturingList() {
                 >
                   <p className="font-medium">{task.first_name} {task.last_name}</p>
                   <div className="flex items-center text-gray-600">
+                    {getTemperatureIcon(task.temperature)}
+                    {task.temperature || 'Warm'}
                     {task.call_back_date ? (
                       <>
-                        <Calendar className="w-3 h-3 mr-1" />
+                        <Calendar className="w-3 h-3 ml-2 mr-1" />
                         Call back: {new Date(task.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                       </>
                     ) : (
                       <>
-                        <Phone className="w-3 h-3 mr-1" />
+                        <Phone className="w-3 h-3 ml-2 mr-1" />
                         New contact
                       </>
                     )}
@@ -751,17 +816,32 @@ export function NurturingList() {
           <h2 className="text-3xl font-bold text-gray-800 flex items-center">
             <span className="mr-2">📋</span> Nurturing List
           </h2>
-          {(profile?.role === 'agent' || profile?.role === 'admin') && (
-            <motion.button
-              onClick={handleImportAll}
-              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              disabled={availableContacts.length === 0}
+          <div className="flex items-center space-x-4">
+            {(profile?.role === 'agent' || profile?.role === 'admin') && (
+              <motion.button
+                onClick={handleImportAll}
+                className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                disabled={availableContacts.length === 0}
+              >
+                <Download className="w-4 h-4 mr-2" /> Import All
+              </motion.button>
+            )}
+            <select
+              value={temperatureFilter}
+              onChange={(e) => setTemperatureFilter(e.target.value as 'All' | 'Hot' | 'Warm' | 'Cold')}
+              className="p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              aria-label="Filter by Temperature"
             >
-              <Download className="w-4 h-4 mr-2" /> Import All
-            </motion.button>
-          )}
+              <option value="All">All Temperatures</option>
+              {temperatureOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {error && (
@@ -988,6 +1068,20 @@ export function NurturingList() {
                   <option value="Followed Up">Followed Up</option>
                   <option value="Closed">Closed</option>
                 </select>
+                <select
+                  name="temperature"
+                  value={newContact.temperature || 'Warm'}
+                  onChange={handleInputChange}
+                  className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  aria-label="Temperature"
+                  disabled={isViewMode}
+                >
+                  {temperatureOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 <textarea
                   name="requirements"
                   value={newContact.requirements || ''}
@@ -1061,19 +1155,25 @@ export function NurturingList() {
           </motion.div>
         )}
 
-        {contacts.length === 0 && !error && (
+        {filteredContacts.length === 0 && !error && (
           <p className="text-gray-500 text-center py-4 text-sm">No tasks found. Add a task to start your list.</p>
         )}
 
-        {contacts.length > 0 && (
-          <div className="space-y-4">
-            {contacts.map((contact) => (
+        {filteredContacts.length > 0 && (
+          <motion.div
+            className="space-y-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ staggerChildren: 0.1 }}
+          >
+            {filteredContacts.map((contact) => (
               <motion.div
                 key={contact.id}
                 className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3 }}
+                layout
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
@@ -1098,6 +1198,10 @@ export function NurturingList() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
+                    <span className={`px-2 py-1 rounded text-xs font-medium flex items-center ${getTemperatureBadgeClass(contact.temperature)}`}>
+                      {getTemperatureIcon(contact.temperature)}
+                      {contact.temperature || 'Warm'}
+                    </span>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(contact.status)}`}>
                       {contact.status || 'New'}
                     </span>
@@ -1165,7 +1269,7 @@ export function NurturingList() {
                 </div>
               </motion.div>
             ))}
-          </div>
+          </motion.div>
         )}
       </div>
     </motion.div>

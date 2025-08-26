@@ -1,18 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash, Bell, Phone, Calendar, Clock, Flame, Snowflake, Sun } from 'lucide-react';
-import { normalizeSuburb } from '../reportsUtils';
+import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash,Upload } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-toastify';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
-declare module 'jspdf' {
-  interface jsPDF {
-    autoTable: (options: any) => jsPDF;
-  }
-}
+import * as XLSX from 'xlsx';
 
 interface NurturingContact {
   id: string;
@@ -32,7 +26,6 @@ interface NurturingContact {
   needs_monthly_appraisals: boolean;
   status: string | null;
   agent_id: string;
-  temperature: 'Hot' | 'Warm' | 'Cold' | null;
 }
 
 interface BasicContact {
@@ -67,21 +60,17 @@ export function NurturingList() {
     call_back_date: '',
     needs_monthly_appraisals: false,
     status: 'New',
-    temperature: 'Warm',
   });
   const [hasPhoneNumber, setHasPhoneNumber] = useState<string>('No');
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactSuccess, setContactSuccess] = useState<string | null>(null);
   const { profile, user } = useAuthStore();
-  const [mode, setMode] = useState<'manual' | 'import'>('manual');
+  const [mode, setMode] = useState<'manual' | 'import' | 'excel'>('manual');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAgentNotification, setShowAgentNotification] = useState(false);
-  const [todaysTasks, setTodaysTasks] = useState<NurturingContact[]>([]);
-  const [incompleteContacts, setIncompleteContacts] = useState<NurturingContact[]>([]);
-  const [showIncompleteNotification, setShowIncompleteNotification] = useState(false);
-  const [pendingTasks, setPendingTasks] = useState<NurturingContact[]>([]);
-  const [showPendingNotification, setShowPendingNotification] = useState(false);
-  const [temperatureFilter, setTemperatureFilter] = useState<'All' | 'Hot' | 'Warm' | 'Cold'>('All');
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
 
   const houseTypeOptions = [
     { value: '', label: 'Select House Type' },
@@ -89,13 +78,7 @@ export function NurturingList() {
     { value: 'acreage', label: 'Acreage' },
     { value: 'apartment', label: 'Apartment' },
     { value: 'land', label: 'Land' },
-    { value: 'commercial', label: 'Commercial' }
-  ];
-
-  const temperatureOptions = [
-    { value: 'Hot', label: 'Hot', icon: <Flame className="w-4 h-4 text-red-600" /> },
-    { value: 'Warm', label: 'Warm', icon: <Sun className="w-4 h-4 text-yellow-600" /> },
-    { value: 'Cold', label: 'Cold', icon: <Snowflake className="w-4 h-4 text-blue-600" /> }
+    { value: 'commercial', label: 'Commercial' },
   ];
 
   useEffect(() => {
@@ -105,67 +88,23 @@ export function NurturingList() {
         toast.error('User not authenticated');
         return;
       }
-      
       setLoading(true);
       setError(null);
-
       try {
         let query = supabase
           .from('nurturing_list')
-          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, agent_id, temperature');
-
+          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, agent_id');
         if (profile.role === 'agent') {
           query = query.eq('agent_id', user.id);
         }
-
         const { data, error } = await query;
-
         if (error) {
           throw new Error(`Failed to fetch nurturing contacts: ${error.message}`);
         }
-
-        const fetchedContacts = (data || []).sort((a, b) => {
-          const order = { Hot: 1, Warm: 2, Cold: 3 };
-          return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
-        });
+        const fetchedContacts = (data || []).sort((a, b) =>
+          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+        );
         setContacts(fetchedContacts);
-        
-        if (profile.role === 'agent') {
-          const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          const tomorrowStr = tomorrow.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-
-          const tasks = fetchedContacts.filter(contact => 
-            contact.call_back_date === today || contact.status === 'New'
-          );
-          setTodaysTasks(tasks);
-
-          const incomplete = fetchedContacts.filter(contact => 
-            !contact.mobile || !contact.call_back_date
-          );
-          setIncompleteContacts(incomplete);
-
-          const pending = fetchedContacts.filter(contact =>
-            contact.status !== 'Closed' && contact.call_back_date &&
-            (contact.call_back_date === today || contact.call_back_date === tomorrowStr || new Date(contact.call_back_date) < new Date())
-          );
-          setPendingTasks(pending);
-
-          setShowAgentNotification(tasks.length > 0);
-          setShowIncompleteNotification(incomplete.length > 0);
-          setShowPendingNotification(pending.length > 0);
-
-          if (tasks.length > 0) {
-            setTimeout(() => setShowAgentNotification(false), 15000);
-          }
-          if (incomplete.length > 0) {
-            setTimeout(() => setShowIncompleteNotification(false), 15000);
-          }
-          if (pending.length > 0) {
-            setTimeout(() => setShowPendingNotification(false), 15000);
-          }
-        }
       } catch (err: any) {
         setError(`Error fetching nurturing contacts: ${err.message}`);
         toast.error(`Error fetching contacts: ${err.message}`);
@@ -180,16 +119,12 @@ export function NurturingList() {
         toast.error('User not authenticated');
         return;
       }
-      
       try {
         let query = supabase
           .from('contacts')
           .select('id, first_name, last_name, email, phone_number');
-
         const { data, error } = await query;
-
         if (error) throw new Error(`Failed to fetch available contacts: ${error.message}`);
-
         setAvailableContacts(data || []);
       } catch (err: any) {
         setError(`Error fetching available contacts: ${err.message}`);
@@ -215,13 +150,11 @@ export function NurturingList() {
       toast.error('User not authenticated');
       return;
     }
-    
     if (!newContact.first_name || !newContact.last_name || !newContact.email) {
       setContactError('First Name, Last Name, and Email are required');
       toast.error('First Name, Last Name, and Email are required');
       return;
     }
-
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -230,29 +163,25 @@ export function NurturingList() {
           first_name: newContact.first_name,
           last_name: newContact.last_name,
           email: newContact.email,
-          phone_number: hasPhoneNumber === 'Yes' ? newContact.phone_number || '' : '',
-          mobile: newContact.mobile || null,
-          street_number: newContact.street_number || null,
-          street_name: newContact.street_name || null,
-          suburb: newContact.suburb || null,
-          postcode: newContact.postcode || null,
-          house_type: newContact.house_type || null,
-          requirements: newContact.requirements || null,
-          notes: newContact.notes || null,
-          call_back_date: newContact.call_back_date || null,
+          phone_number: hasPhoneNumber === 'Yes' ? (newContact.phone_number || '') : '',
+          mobile: newContact.mobile || '',
+          street_number: newContact.street_number || '',
+          street_name: newContact.street_name || '',
+          suburb: newContact.suburb || '',
+          postcode: newContact.postcode || '',
+          house_type: newContact.house_type || '',
+          requirements: newContact.requirements || '',
+          notes: newContact.notes || '',
+          call_back_date: newContact.call_back_date || '',
           needs_monthly_appraisals: newContact.needs_monthly_appraisals,
           status: newContact.status || 'New',
           agent_id: user.id,
-          temperature: newContact.temperature || 'Warm',
         }])
         .select();
-
       if (error) throw new Error(`Failed to add contact: ${error.message}`);
-
-      const updatedContacts = [...contacts, data[0]].sort((a, b) => {
-        const order = { Hot: 1, Warm: 2, Cold: 3 };
-        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
-      });
+      const updatedContacts = [...contacts, data[0]].sort((a, b) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
       setContacts(updatedContacts);
       resetForm();
       setContactSuccess('Contact added successfully');
@@ -273,13 +202,11 @@ export function NurturingList() {
       toast.error('First Name, Last Name, and Email are required');
       return;
     }
-
     if (!user?.id) {
       setContactError('User not authenticated');
       toast.error('User not authenticated');
       return;
     }
-
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -288,38 +215,31 @@ export function NurturingList() {
           first_name: newContact.first_name,
           last_name: newContact.last_name,
           email: newContact.email,
-          phone_number: hasPhoneNumber === 'Yes' ? newContact.phone_number || '' : '',
-          mobile: newContact.mobile || null,
-          street_number: newContact.street_number || null,
-          street_name: newContact.street_name || null,
-          suburb: newContact.suburb || null,
-          postcode: newContact.postcode || null,
-          house_type: newContact.house_type || null,
-          requirements: newContact.requirements || null,
-          notes: newContact.notes || null,
-          call_back_date: newContact.call_back_date || null,
+          phone_number: hasPhoneNumber === 'Yes' ? (newContact.phone_number || '') : '',
+          mobile: newContact.mobile || '',
+          street_number: newContact.street_number || '',
+          street_name: newContact.street_name || '',
+          suburb: newContact.suburb || '',
+          postcode: newContact.postcode || '',
+          house_type: newContact.house_type || '',
+          requirements: newContact.requirements || '',
+          notes: newContact.notes || '',
+          call_back_date: newContact.call_back_date || '',
           needs_monthly_appraisals: newContact.needs_monthly_appraisals,
           status: newContact.status || 'New',
-          temperature: newContact.temperature || 'Warm',
         })
         .eq('id', selectedContact.id)
         .eq('agent_id', user.id)
         .select();
-
       if (error) {
         throw new Error(`Failed to update contact: ${error.message}`);
       }
-
       if (!data || data.length === 0) {
         throw new Error('No contact was updated. Please check if the contact exists and you have permission to update it.');
       }
-
       const updatedContacts = contacts.map((contact) =>
         contact.id === selectedContact.id ? { ...contact, ...data[0] } : contact
-      ).sort((a, b) => {
-        const order = { Hot: 1, Warm: 2, Cold: 3 };
-        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
-      });
+      ).sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
       setContacts(updatedContacts);
       resetForm();
       setContactSuccess('Contact updated successfully');
@@ -338,7 +258,6 @@ export function NurturingList() {
 
   const handleDeleteContact = async (id: string) => {
     if (!confirm('Are you sure you want to delete this contact?')) return;
-
     setLoading(true);
     try {
       const { error } = await supabase
@@ -346,17 +265,67 @@ export function NurturingList() {
         .delete()
         .eq('id', id)
         .eq('agent_id', user?.id);
-
       if (error) throw new Error(`Failed to delete contact: ${error.message}`);
-
-      const updatedContacts = contacts.filter((contact) => contact.id !== id).sort((a, b) => {
-        const order = { Hot: 1, Warm: 2, Cold: 3 };
-        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
-      });
+      const updatedContacts = contacts.filter((contact) => contact.id !== id).sort((a, b) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
       setContacts(updatedContacts);
+      setSelectedContactIds(selectedContactIds.filter(contactId => contactId !== id));
       toast.success('Contact deleted successfully');
     } catch (err: any) {
       toast.error(`Error deleting contact: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedContactIds.length === 0) {
+      toast.info('No contacts selected for deletion');
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete ${selectedContactIds.length} selected contact(s)?`)) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('nurturing_list')
+        .delete()
+        .in('id', selectedContactIds)
+        .eq('agent_id', user?.id);
+      if (error) throw new Error(`Failed to delete contacts: ${error.message}`);
+      const updatedContacts = contacts.filter((contact) => !selectedContactIds.includes(contact.id)).sort((a, b) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
+      setContacts(updatedContacts);
+      setSelectedContactIds([]);
+      setSelectAll(false);
+      toast.success(`${selectedContactIds.length} contact(s) deleted successfully`);
+    } catch (err: any) {
+      toast.error(`Error deleting contacts: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (contacts.length === 0) {
+      toast.info('No contacts to delete');
+      return;
+    }
+    if (!confirm('Are you sure you want to delete ALL contacts in the nurturing list? This action cannot be undone.')) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('nurturing_list')
+        .delete()
+        .eq('agent_id', user?.id);
+      if (error) throw new Error(`Failed to delete all contacts: ${error.message}`);
+      setContacts([]);
+      setSelectedContactIds([]);
+      setSelectAll(false);
+      toast.success('All contacts deleted successfully');
+    } catch (err: any) {
+      toast.error(`Error deleting all contacts: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -368,43 +337,152 @@ export function NurturingList() {
     setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
   };
 
+  const getStatusBadgeColor = (status: string | null) => {
+    switch (status) {
+      case 'New':
+        return [219, 234, 254, 0.8];
+      case 'Contacted':
+        return [254, 243, 199, 0.8];
+      case 'Followed Up':
+        return [233, 213, 255, 0.8];
+      case 'Closed':
+        return [209, 250, 229, 0.8];
+      default:
+        return [243, 244, 246, 0.8];
+    }
+  };
+
   const handleDownloadPDF = (contact: NurturingContact) => {
     try {
       const doc = new jsPDF();
+      const pageWidth = 210;
+      const margin = 10;
+      const columnWidth = (pageWidth - 3 * margin) / 2;
+      let y = 20;
       doc.setFontSize(12);
-      doc.text('Contact Details', 20, 20);
-      
-      const tableData = [
-        ['First Name', contact.first_name],
-        ['Last Name', contact.last_name],
-        ['Email', contact.email],
-        ['Phone Number', contact.phone_number || 'N/A'],
-        ['Mobile', contact.mobile || 'N/A'],
-        ['Street Number', contact.street_number || 'N/A'],
-        ['Street Name', contact.street_name || 'N/A'],
-        ['Suburb', contact.suburb || 'N/A'],
-        ['Postcode', contact.postcode || 'N/A'],
-        ['House Type', contact.house_type || 'N/A'],
-        ['Requirements', contact.requirements || 'N/A'],
-        ['Notes', contact.notes || 'N/A'],
-        ['Call Back Date', contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'],
-        ['Needs Monthly Appraisals', contact.needs_monthly_appraisals ? 'Yes' : 'No'],
-        ['Status', contact.status || 'New'],
-        ['Temperature', contact.temperature || 'Warm']
+      doc.text(`${contact.first_name} ${contact.last_name} - Contact Details`, margin, y);
+      y += 10;
+
+      const leftColumn = [
+        `Email: ${contact.email || 'N/A'}`,
+        ...(contact.phone_number ? [`Phone: ${contact.phone_number}`] : []),
+        `Mobile: ${contact.mobile || 'N/A'}`,
+        `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}` : 'N/A'}`,
+        `Suburb: ${contact.suburb || 'N/A'}`,
+        `Postcode: ${contact.postcode || 'N/A'}`,
+        `House Type: ${contact.house_type || 'N/A'}`,
+        `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
       ];
-
+      const rightColumn = [
+        `Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`,
+        `Notes: ${contact.notes?.substring(0, 200) || 'N/A'}`,
+      ];
       autoTable(doc, {
-        startY: 30,
-        head: [['Field', 'Value']],
-        body: tableData,
+        startY: y,
+        head: [],
+        body: leftColumn.map((text, i) => [text, rightColumn[i] || '']),
         theme: 'grid',
-        styles: { fontSize: 10, cellPadding: 2 },
-        headStyles: { fillColor: [99, 102, 241], textColor: [255, 255, 255] },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', lineColor: [209, 213, 219] },
+        columnStyles: {
+          0: { cellWidth: columnWidth },
+          1: { cellWidth: columnWidth },
+        },
+        didParseCell: (data) => {
+          if (data.cell.text && data.cell.text.length > 0) {
+            data.cell.text = data.cell.text.map(text => text.length > 200 ? text.substring(0, 200) + '...' : text);
+          }
+        },
       });
-
       doc.save(`${contact.first_name}_${contact.last_name}_contact.pdf`);
-    } catch (error) {
-      toast.error('Failed to generate PDF. Please try again.');
+    } catch (error: any) {
+      console.error('Error generating individual PDF:', error);
+      toast.error('Failed to generate PDF for this task. Please try again.');
+    }
+  };
+
+  const handleDownloadAllTasks = () => {
+    try {
+      if (contacts.length === 0) {
+        toast.info('No tasks available to download.');
+        return;
+      }
+      const doc = new jsPDF();
+      const pageWidth = 210;
+      const margin = 10;
+      const columnWidth = (pageWidth - 3 * margin) / 2;
+      let y = 20;
+      doc.setFontSize(14);
+      doc.text('All Nurturing Tasks', margin, y);
+      y += 7;
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, y);
+      doc.text(`Total Tasks: ${contacts.length}`, pageWidth - margin - 40, y);
+      y += 10;
+      contacts.forEach((contact, index) => {
+        if (y > 267) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.setDrawColor(209, 213, 219);
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(margin, y, pageWidth - 2 * margin, 80, 3, 3, 'FD');
+        y += 8;
+        doc.setFontSize(12);
+        doc.setTextColor(31, 41, 55);
+        doc.text(`${contact.first_name} ${contact.last_name}`, margin + 5, y);
+        const statusColor = getStatusBadgeColor(contact.status);
+        doc.setFillColor(...statusColor);
+        doc.roundedRect(pageWidth - margin - 30, y - 4, 25, 6, 2, 2, 'F');
+        doc.setFontSize(8);
+        doc.setTextColor(0, 0, 0);
+        doc.text(contact.status || 'New', pageWidth - margin - 28, y);
+        y += 8;
+        doc.setFontSize(10);
+        doc.text(`Closed: ${contact.status === 'Closed' ? '[X]' : '[ ]'}`, margin + 5, y);
+        y += 8;
+        const leftColumn = [
+          `Email: ${contact.email || 'N/A'}`,
+          ...(contact.phone_number ? [`Phone: ${contact.phone_number}`] : []),
+          `Mobile: ${contact.mobile || 'N/A'}`,
+          `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}` : 'N/A'}`,
+          `Suburb: ${contact.suburb || 'N/A'}`,
+          `Postcode: ${contact.postcode || 'N/A'}`,
+          `House Type: ${contact.house_type || 'N/A'}`,
+          `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
+        ];
+        const rightColumn = [
+          `Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`,
+          `Notes: ${contact.notes?.substring(0, 200) || 'N/A'}`,
+        ];
+        autoTable(doc, {
+          startY: y,
+          head: [],
+          body: leftColumn.map((text, i) => [text, rightColumn[i] || '']),
+          theme: 'grid',
+          margin: { left: margin + 5, right: margin + 5 },
+          styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', lineColor: [209, 213, 219] },
+          columnStyles: {
+            0: { cellWidth: columnWidth - 5 },
+            1: { cellWidth: columnWidth - 5 },
+          },
+          didParseCell: (data) => {
+            if (data.cell.text && data.cell.text.length > 0) {
+              data.cell.text = data.cell.text.map(text => text.length > 200 ? text.substring(0, 200) + '...' : text);
+            }
+          },
+        });
+        y = (doc as any).lastAutoTable.finalY + 10;
+        if (index < contacts.length - 1) {
+          doc.setDrawColor(209, 213, 219);
+          doc.line(margin, y, pageWidth - margin, y);
+          y += 5;
+        }
+      });
+      doc.save('all_nurturing_tasks.pdf');
+    } catch (error: any) {
+      console.error('Error generating PDF for all tasks:', error);
+      toast.error('Failed to generate PDF for all tasks. Please try again or contact support.');
     }
   };
 
@@ -413,17 +491,14 @@ export function NurturingList() {
       toast.error('User not authenticated');
       return;
     }
-    
     setLoading(true);
     try {
       const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
       const toImport = availableContacts.filter(c => !existingEmails.has(c.email.toLowerCase()));
-
       if (toImport.length === 0) {
         toast.info('No new contacts to import');
         return;
       }
-
       const importData = toImport.map(c => ({
         first_name: c.first_name,
         last_name: c.last_name,
@@ -431,20 +506,15 @@ export function NurturingList() {
         phone_number: c.phone_number || '',
         status: 'New',
         agent_id: user.id,
-        temperature: 'Warm',
       }));
-
       const { data, error } = await supabase
         .from('nurturing_list')
         .insert(importData)
         .select();
-
       if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-
-      const updatedContacts = [...contacts, ...data].sort((a, b) => {
-        const order = { Hot: 1, Warm: 2, Cold: 3 };
-        return (order[a.temperature || 'Warm'] || 2) - (order[b.temperature || 'Warm'] || 2);
-      });
+      const updatedContacts = [...contacts, ...data].sort((a, b) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
       setContacts(updatedContacts);
       toast.success(`${toImport.length} contacts imported successfully`);
     } catch (err: any) {
@@ -454,6 +524,176 @@ export function NurturingList() {
     }
   };
 
+  const handleExcelImport = async () => {
+  if (!user) {
+    toast.error('User not authenticated');
+    return;
+  }
+  if (!excelFile) {
+    toast.error('Please select an Excel file to import');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const fileData = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(fileData, { type: 'array', dateNF: 'dd-mm-yyyy' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
+
+        const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
+        const validContacts: Partial<NurturingContact>[] = [];
+        const errors: string[] = [];
+
+        // Define allowed status values (update based on check constraint)
+        const allowedStatuses = ['New', 'Contacted', 'Followed Up', 'Closed'];
+
+        // Function to convert Excel serial date to YYYY-MM-DD
+        const serialToDate = (serial: number): string | null => {
+          const excelEpoch = new Date(1899, 11, 31); // 1899-12-31
+          const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
+          if (serial < 60) {
+            date.setDate(date.getDate() - 1); // Adjust for Excel's 1900 leap year bug
+          }
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const isoDate = `${year}-${month}-${day}`;
+          const checkDate = new Date(isoDate);
+          if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) {
+            return null;
+          }
+          return isoDate;
+        };
+
+        jsonData.forEach((row: any, index: number) => {
+          const email = row.email?.toString().trim();
+          if (!email || !row.first_name || !row.last_name) {
+            errors.push(`Row ${index + 2}: Missing required fields (first_name, last_name, or email)`);
+            return;
+          }
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            errors.push(`Row ${index + 2}: Invalid email format (${email})`);
+            return;
+          }
+          if (existingEmails.has(email.toLowerCase())) {
+            errors.push(`Row ${index + 2}: Duplicate email (${email})`);
+            return;
+          }
+
+          // Validate and convert call_back_date
+          let callBackDate = row.call_back_date?.toString().trim();
+          let formattedDate: string | null = null;
+          if (callBackDate) {
+            const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
+            if (dateRegex.test(callBackDate)) {
+              const [day, month, year] = callBackDate.split('-');
+              const isoDate = `${year}-${month}-${day}`;
+              const date = new Date(isoDate);
+              if (isNaN(date.getTime()) || date.getFullYear() !== parseInt(year) || date.getMonth() + 1 !== parseInt(month) || date.getDate() !== parseInt(day)) {
+                errors.push(`Row ${index + 2}: Invalid date value (${callBackDate})`);
+                return;
+              }
+              formattedDate = isoDate;
+            } else if (!isNaN(parseFloat(callBackDate)) && parseFloat(callBackDate) > 0) {
+              const serial = parseFloat(callBackDate);
+              const isoDate = serialToDate(serial);
+              if (isoDate) {
+                formattedDate = isoDate;
+              } else {
+                errors.push(`Row ${index + 2}: Invalid Excel serial date (${callBackDate})`);
+                return;
+              }
+            } else {
+              errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${callBackDate}). Use DD-MM-YYYY (e.g., 01-09-2025).`);
+              return;
+            }
+          }
+
+          // Validate status
+          let status = row.status?.toString().trim();
+          if (!status) {
+            status = 'New'; // Default to 'New' if empty
+          } else {
+            // Normalize status case (e.g., 'new' → 'New')
+            const normalizedStatus = allowedStatuses.find(s => s.toLowerCase() === status.toLowerCase());
+            if (!normalizedStatus) {
+              errors.push(`Row ${index + 2}: Invalid status value (${status}). Must be one of: ${allowedStatuses.join(', ')}`);
+              return;
+            }
+            status = normalizedStatus; // Use normalized case
+          }
+
+          const needsMonthlyAppraisals = row.needs_monthly_appraisals?.toString().toLowerCase() === 'yes' ||
+                                        row.needs_monthly_appraisals === true ||
+                                        row.needs_monthly_appraisals === 1;
+
+          validContacts.push({
+            first_name: row.first_name?.toString().trim() || '',
+            last_name: row.last_name?.toString().trim() || '',
+            email: email,
+            phone_number: row.phone_number?.toString().trim() || '',
+            mobile: row.mobile?.toString().trim() || '',
+            street_number: row.street_number?.toString().trim() || '',
+            street_name: row.street_name?.toString().trim() || '',
+            suburb: row.suburb?.toString().trim() || '',
+            postcode: row.postcode?.toString().trim() || '',
+            house_type: row.house_type?.toString().trim() || '',
+            requirements: row.requirements?.toString().trim() || '',
+            notes: row.notes?.toString().trim() || '',
+            call_back_date: formattedDate,
+            needs_monthly_appraisals: needsMonthlyAppraisals,
+            status: status,
+            agent_id: user.id,
+          });
+        });
+
+        if (errors.length > 0) {
+          toast.error(`Some rows could not be imported:\n${errors.join('\n')}`, {
+            autoClose: 10000,
+          });
+        }
+
+        if (validContacts.length === 0) {
+          toast.info('No valid contacts to import');
+          setLoading(false);
+          return;
+        }
+
+        const { data: importedData, error } = await supabase
+          .from('nurturing_list')
+          .insert(validContacts)
+          .select<unknown, NurturingContact>();
+
+        if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
+
+        const updatedContacts = [...contacts, ...importedData].sort((a, b) =>
+          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+        );
+        setContacts(updatedContacts);
+        setExcelFile(null);
+        resetForm();
+        toast.success(`${validContacts.length} contacts imported successfully from Excel`);
+      } catch (err: any) {
+        toast.error(`Error processing Excel file: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.onerror = () => {
+      toast.error('Error reading Excel file');
+      setLoading(false);
+    };
+    reader.readAsArrayBuffer(excelFile);
+  } catch (err: any) {
+    toast.error(`Error importing Excel contacts: ${err.message}`);
+    setLoading(false);
+  }
+};
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
@@ -477,7 +717,6 @@ export function NurturingList() {
       last_name: basic.last_name,
       email: basic.email,
       phone_number: basic.phone_number || '',
-      temperature: 'Warm',
     });
     setHasPhoneNumber(basic.phone_number ? 'Yes' : 'No');
     setMode('manual');
@@ -501,14 +740,30 @@ export function NurturingList() {
       call_back_date: '',
       needs_monthly_appraisals: false,
       status: 'New',
-      temperature: 'Warm',
     });
     setHasPhoneNumber('No');
     setMode('manual');
     setSearchQuery('');
+    setExcelFile(null);
     setIsEditMode(false);
     setIsViewMode(false);
     setSelectedContact(null);
+  };
+
+  const handleSelectContact = (id: string) => {
+    setSelectedContactIds(prev =>
+      prev.includes(id) ? prev.filter(contactId => contactId !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedContactIds([]);
+      setSelectAll(false);
+    } else {
+      setSelectedContactIds(contacts.map(contact => contact.id));
+      setSelectAll(true);
+    }
   };
 
   const filteredAvailableContacts = availableContacts.filter(c =>
@@ -532,35 +787,9 @@ export function NurturingList() {
     }
   };
 
-  const getTemperatureBadgeClass = (temperature: string | null) => {
-    switch (temperature) {
-      case 'Hot':
-        return 'bg-red-100 text-red-800';
-      case 'Warm':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Cold':
-        return 'bg-blue-100 text-blue-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+  const handleViewSavedTasks = () => {
+    setShowTasks(!showTasks);
   };
-
-  const getTemperatureIcon = (temperature: string | null) => {
-    switch (temperature) {
-      case 'Hot':
-        return <Flame className="w-4 h-4 mr-1" />;
-      case 'Warm':
-        return <Sun className="w-4 h-4 mr-1" />;
-      case 'Cold':
-        return <Snowflake className="w-4 h-4 mr-1" />;
-      default:
-        return <Sun className="w-4 h-4 mr-1" />;
-    }
-  };
-
-  const filteredContacts = contacts.filter(contact =>
-    temperatureFilter === 'All' || contact.temperature === temperatureFilter
-  );
 
   if (loading) {
     return (
@@ -590,233 +819,20 @@ export function NurturingList() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Pending Tasks Reminder Notification */}
-      <AnimatePresence>
-        {showPendingNotification && profile?.role === 'agent' && (
-          <motion.div
-            className={`fixed left-1/2 transform -translate-x-1/2 z-50 bg-white text-yellow-600 shadow-lg rounded-xl border border-yellow-200 max-w-lg w-full p-4 ${
-              showIncompleteNotification && showAgentNotification ? 'top-44' :
-              showIncompleteNotification || showAgentNotification ? 'top-24' : 'top-4'
-            }`}
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            transition={{ duration: 0.3 }}
-            role="alert"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <motion.span
-                  className="p-2 bg-yellow-100 rounded-full"
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ repeat: Infinity, duration: 1.5 }}
-                >
-                  <Clock className="h-5 w-5 text-yellow-600" />
-                </motion.span>
-                <p className="text-sm font-medium">
-                  Reminder: {pendingTasks.length} pending task{pendingTasks.length !== 1 ? 's' : ''} need completion
-                </p>
-              </div>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 rounded-full hover:bg-yellow-100"
-                onClick={() => setShowPendingNotification(false)}
-              >
-                <X className="h-4 w-4" />
-              </motion.button>
-            </div>
-            <div className="mt-3 space-y-2">
-              {pendingTasks.slice(0, 3).map((task, index) => (
-                <motion.div
-                  key={index}
-                  className="p-2 bg-yellow-50 rounded-lg text-xs cursor-pointer hover:bg-yellow-100"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  onClick={() => {
-                    setIsEditMode(true);
-                    setSelectedContact(task);
-                    setNewContact(task);
-                    setHasPhoneNumber(task.phone_number ? 'Yes' : 'No');
-                    setMode('manual');
-                    document.querySelector('.add-contact-form')?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                >
-                  <p className="font-medium">{task.first_name} {task.last_name}</p>
-                  <div className="flex items-center text-gray-600">
-                    {getTemperatureIcon(task.temperature)}
-                    {task.temperature || 'Warm'}
-                    {task.call_back_date && (
-                      <>
-                        <Calendar className="w-3 h-3 ml-2 mr-1" />
-                        {new Date(task.call_back_date) < new Date() ? 'Overdue' : 'Due'}: {new Date(task.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
-                      </>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-              {pendingTasks.length > 3 && (
-                <p className="text-xs text-center text-gray-600">
-                  and {pendingTasks.length - 3} more...
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Incomplete Contacts Notification */}
-      <AnimatePresence>
-        {showIncompleteNotification && profile?.role === 'agent' && (
-          <motion.div
-            className={`fixed left-1/2 transform -translate-x-1/2 z-50 bg-white text-red-600 shadow-lg rounded-xl border border-red-200 max-w-lg w-full p-4 ${
-              showAgentNotification || showPendingNotification ? 'top-24' : 'top-4'
-            }`}
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            transition={{ duration: 0.3 }}
-            role="alert"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <motion.span
-                  className="p-2 bg-red-100 rounded-full"
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ repeat: Infinity, duration: 1.5 }}
-                >
-                  <Edit className="h-5 w-5 text-red-600" />
-                </motion.span>
-                <p className="text-sm font-medium">
-                  {incompleteContacts.length} incomplete contact{incompleteContacts.length !== 1 ? 's' : ''} need attention
-                </p>
-              </div>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 rounded-full hover:bg-red-100"
-                onClick={() => setShowIncompleteNotification(false)}
-              >
-                <X className="h-4 w-4" />
-              </motion.button>
-            </div>
-            <div className="mt-3 space-y-2">
-              {incompleteContacts.slice(0, 3).map((contact, index) => (
-                <motion.div
-                  key={index}
-                  className="p-2 bg-red-50 rounded-lg text-xs cursor-pointer hover:bg-red-100"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  onClick={() => {
-                    setIsEditMode(true);
-                    setSelectedContact(contact);
-                    setNewContact(contact);
-                    setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
-                    setMode('manual');
-                    document.querySelector('.add-contact-form')?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                >
-                  <p className="font-medium">{contact.first_name} {contact.last_name}</p>
-                  <div className="flex items-center text-gray-600">
-                    {getTemperatureIcon(contact.temperature)}
-                    {contact.temperature || 'Warm'}
-                    <span className="ml-2">
-                      Missing: {!contact.mobile && 'Mobile, '}{!contact.call_back_date && 'Call Back Date'}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-              {incompleteContacts.length > 3 && (
-                <p className="text-xs text-center text-gray-600">
-                  and {incompleteContacts.length - 3} more...
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Today's Tasks Notification */}
-      <AnimatePresence>
-        {showAgentNotification && profile?.role === 'agent' && (
-          <motion.div
-            className={`fixed left-1/2 transform -translate-x-1/2 z-40 bg-white text-blue-600 shadow-lg rounded-xl border border-blue-200 max-w-lg w-full p-4 ${
-              showIncompleteNotification && showPendingNotification ? 'top-44' :
-              showIncompleteNotification || showPendingNotification ? 'top-24' : 'top-4'
-            }`}
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            transition={{ duration: 0.3 }}
-            role="alert"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <motion.span
-                  className="p-2 bg-blue-100 rounded-full"
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ repeat: Infinity, duration: 1.5 }}
-                >
-                  <Bell className="h-5 w-5 text-blue-600" />
-                </motion.span>
-                <p className="text-sm font-medium">
-                  Today's Tasks: {todaysTasks.length} task{todaysTasks.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 rounded-full hover:bg-blue-100"
-                onClick={() => setShowAgentNotification(false)}
-              >
-                <X className="h-4 w-4" />
-              </motion.button>
-            </div>
-            <div className="mt-3 space-y-2">
-              {todaysTasks.slice(0, 3).map((task, index) => (
-                <motion.div
-                  key={index}
-                  className="p-2 bg-blue-50 rounded-lg text-xs"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                >
-                  <p className="font-medium">{task.first_name} {task.last_name}</p>
-                  <div className="flex items-center text-gray-600">
-                    {getTemperatureIcon(task.temperature)}
-                    {task.temperature || 'Warm'}
-                    {task.call_back_date ? (
-                      <>
-                        <Calendar className="w-3 h-3 ml-2 mr-1" />
-                        Call back: {new Date(task.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
-                      </>
-                    ) : (
-                      <>
-                        <Phone className="w-3 h-3 ml-2 mr-1" />
-                        New contact
-                      </>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-              {todaysTasks.length > 3 && (
-                <p className="text-xs text-center text-gray-600">
-                  and {todaysTasks.length - 3} more...
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-3xl font-bold text-gray-800 flex items-center">
             <span className="mr-2">📋</span> Nurturing List
           </h2>
           <div className="flex items-center space-x-4">
+            <motion.button
+              onClick={handleViewSavedTasks}
+              className="py-2 px-4 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              Saved Tasks
+            </motion.button>
             {(profile?.role === 'agent' || profile?.role === 'admin') && (
               <motion.button
                 onClick={handleImportAll}
@@ -828,22 +844,8 @@ export function NurturingList() {
                 <Download className="w-4 h-4 mr-2" /> Import All
               </motion.button>
             )}
-            <select
-              value={temperatureFilter}
-              onChange={(e) => setTemperatureFilter(e.target.value as 'All' | 'Hot' | 'Warm' | 'Cold')}
-              className="p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              aria-label="Filter by Temperature"
-            >
-              <option value="All">All Temperatures</option>
-              {temperatureOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
-
         {error && (
           <motion.div
             className="bg-red-50 text-red-600 p-3 rounded-lg mb-6 text-sm text-center"
@@ -853,7 +855,6 @@ export function NurturingList() {
             {error}
           </motion.div>
         )}
-
         {(profile?.role === 'agent' || profile?.role === 'admin') && (
           <motion.div
             className="mb-8 bg-white p-6 rounded-xl shadow-md border border-gray-100 add-contact-form"
@@ -878,8 +879,15 @@ export function NurturingList() {
               >
                 Import Contacts
               </motion.button>
+              <motion.button
+                onClick={() => setMode('excel')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium ${mode === 'excel' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'} hover:bg-indigo-500 hover:text-white transition-all`}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                Import Excel
+              </motion.button>
             </div>
-
             {contactError && (
               <motion.div
                 className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm flex items-center"
@@ -898,7 +906,6 @@ export function NurturingList() {
                 <Check className="w-4 h-4 mr-2" /> {contactSuccess}
               </motion.div>
             )}
-
             {mode === 'import' && (
               <div className="mb-4">
                 <div className="relative">
@@ -935,7 +942,29 @@ export function NurturingList() {
                 </div>
               </div>
             )}
-
+            {mode === 'excel' && (
+              <div className="mb-4">
+                <input
+                  type="file"
+                  accept=".xlsx, .xls"
+                  onChange={(e) => setExcelFile(e.target.files?.[0] || null)}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  aria-label="Upload Excel File"
+                />
+                <motion.button
+                  onClick={handleExcelImport}
+                  className={`mt-4 w-full py-3 px-4 rounded-lg text-white text-sm font-medium ${
+                    loading || !excelFile ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
+                  } transition-all flex items-center justify-center`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  disabled={loading || !excelFile}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Excel File
+                </motion.button>
+              </div>
+            )}
             {(mode === 'manual' || isEditMode || isViewMode) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
@@ -1068,20 +1097,6 @@ export function NurturingList() {
                   <option value="Followed Up">Followed Up</option>
                   <option value="Closed">Closed</option>
                 </select>
-                <select
-                  name="temperature"
-                  value={newContact.temperature || 'Warm'}
-                  onChange={handleInputChange}
-                  className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  aria-label="Temperature"
-                  disabled={isViewMode}
-                >
-                  {temperatureOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
                 <textarea
                   name="requirements"
                   value={newContact.requirements || ''}
@@ -1092,16 +1107,24 @@ export function NurturingList() {
                   aria-label="Requirements"
                   disabled={isViewMode}
                 />
-                <textarea
-                  name="notes"
-                  value={newContact.notes || ''}
-                  onChange={handleInputChange}
-                  placeholder="Notes"
-                  className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent md:col-span-2"
-                  rows={3}
-                  aria-label="Notes"
-                  disabled={isViewMode}
-                />
+                <div className="md:col-span-2">
+                  <textarea
+                    name="notes"
+                    value={newContact.notes || ''}
+                    onChange={handleInputChange}
+                    placeholder="Notes"
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-full"
+                    rows={4}
+                    aria-label="Notes"
+                    disabled={isViewMode}
+                  />
+                  {isEditMode && selectedContact?.notes && (
+                    <div className="mt-2 p-3 bg-gray-100 rounded-lg text-sm">
+                      <p className="font-medium text-gray-700">Previous Notes:</p>
+                      <p className="text-gray-600">{selectedContact.notes}</p>
+                    </div>
+                  )}
+                </div>
                 <div className="md:col-span-2">
                   <input
                     type="date"
@@ -1135,7 +1158,7 @@ export function NurturingList() {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    <UserPlus className="w-4 h-4 mr-2" /> 
+                    <UserPlus className="w-4 h-4 mr-2" />
                     {isEditMode ? 'Update Task' : 'Add Task'}
                   </motion.button>
                 )}
@@ -1146,7 +1169,7 @@ export function NurturingList() {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    <X className="w-4 h-4 mr-2" /> 
+                    <X className="w-4 h-4 mr-2" />
                     {isViewMode ? 'Close View' : 'Cancel Edit'}
                   </motion.button>
                 )}
@@ -1154,123 +1177,223 @@ export function NurturingList() {
             )}
           </motion.div>
         )}
-
-        {filteredContacts.length === 0 && !error && (
-          <p className="text-gray-500 text-center py-4 text-sm">No tasks found. Add a task to start your list.</p>
-        )}
-
-        {filteredContacts.length > 0 && (
-          <motion.div
-            className="space-y-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ staggerChildren: 0.1 }}
-          >
-            {filteredContacts.map((contact) => (
+        <AnimatePresence>
+          {showTasks && (
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTasks(false)}
+            >
               <motion.div
-                key={contact.id}
-                className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                className="contact-list bg-white p-6 rounded-xl shadow-md border border-gray-200 w-[794px] max-h-[80vh] overflow-y-auto"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ duration: 0.3 }}
-                layout
+                onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      checked={contact.status === 'Closed'}
-                      onChange={() => {
-                        setIsEditMode(true);
-                        setSelectedContact(contact);
-                        setNewContact({
-                          ...contact,
-                          status: contact.status === 'Closed' ? 'New' : 'Closed'
-                        });
-                        setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
-                        setMode('manual');
-                      }}
-                      className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                    />
-                    <div>
-                      <p className="font-semibold text-gray-800">{contact.first_name} {contact.last_name}</p>
-                      <p className="text-sm text-gray-600">{contact.email}</p>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xl font-semibold text-gray-800">Saved Tasks</h3>
+                  <motion.button
+                    onClick={() => setShowTasks(false)}
+                    className="py-2 px-4 bg-gray-500 text-white rounded-lg text-sm font-medium hover:bg-gray-600"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    Close
+                  </motion.button>
+                </div>
+                {contacts.length === 0 && !error && (
+                  <p className="text-gray-500 text-center py-4 text-sm">No tasks found. Add a task to start your list.</p>
+                )}
+                {contacts.length > 0 && (
+                  <>
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center space-x-4">
+                        {(profile?.role === 'agent' || profile?.role === 'admin') && (
+                          <>
+                            <label className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                checked={selectAll}
+                                onChange={handleSelectAll}
+                                className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                              />
+                              <span className="text-sm text-gray-600">Select All</span>
+                            </label>
+                            <motion.button
+                              onClick={handleBulkDelete}
+                              className="py-2 px-4 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              disabled={selectedContactIds.length === 0}
+                            >
+                              Delete Selected
+                            </motion.button>
+                            <motion.button
+                              onClick={handleDeleteAll}
+                              className="py-2 px-4 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                            >
+                              Delete All Tasks
+                            </motion.button>
+                            <motion.button
+                              onClick={handleDownloadAllTasks}
+                              className="py-2 px-4 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                            >
+                              Download All Tasks
+                            </motion.button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 rounded text-xs font-medium flex items-center ${getTemperatureBadgeClass(contact.temperature)}`}>
-                      {getTemperatureIcon(contact.temperature)}
-                      {contact.temperature || 'Warm'}
-                    </span>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(contact.status)}`}>
-                      {contact.status || 'New'}
-                    </span>
-                    <motion.button
-                      onClick={() => handleViewContact(contact)}
-                      className="p-1 text-gray-500 hover:text-blue-600"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      title="View Task"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </motion.button>
-                    {(profile?.role === 'agent' || profile?.role === 'admin') && (
-                      <>
-                        <motion.button
-                          onClick={() => {
-                            setIsEditMode(true);
-                            setSelectedContact(contact);
-                            setNewContact(contact);
-                            setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
-                            setMode('manual');
-                          }}
-                          className="p-1 text-gray-500 hover:text-indigo-600"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          title="Edit Task"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </motion.button>
-                        <motion.button
-                          onClick={() => handleDeleteContact(contact.id)}
-                          className="p-1 text-gray-500 hover:text-red-600"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          title="Delete Task"
-                        >
-                          <Trash className="w-4 h-4" />
-                        </motion.button>
-                        <motion.button
-                          onClick={() => handleDownloadPDF(contact)}
-                          className="p-1 text-gray-500 hover:text-green-600"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          title="Download PDF"
-                        >
-                          <Download className="w-4 h-4" />
-                        </motion.button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
-                  <div>
-                    <p><span className="font-medium">Phone:</span> {contact.phone_number || 'N/A'}</p>
-                    <p><span className="font-medium">Mobile:</span> {contact.mobile || 'N/A'}</p>
-                    <p><span className="font-medium">Address:</span> {contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}` : 'N/A'}</p>
-                    <p><span className="font-medium">Postcode:</span> {contact.postcode || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p><span className="font-medium">House Type:</span> {contact.house_type || 'N/A'}</p>
-                    <p><span className="font-medium">Call Back:</span> {contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}</p>
-                    <p><span className="font-medium">Appraisals:</span> {contact.needs_monthly_appraisals ? 'Yes' : 'No'}</p>
-                    <p><span className="font-medium">Notes:</span> {contact.notes ? contact.notes.substring(0, 50) + (contact.notes.length > 50 ? '...' : '') : 'N/A'}</p>
-                  </div>
-                </div>
+                    {contacts.map((contact) => (
+                      <motion.div
+                        key={contact.id}
+                        className="bg-white p-4 rounded-lg border border-gray-100 mb-4"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                        layout
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            {(profile?.role === 'agent' || profile?.role === 'admin') && (
+                              <input
+                                type="checkbox"
+                                checked={selectedContactIds.includes(contact.id)}
+                                onChange={() => handleSelectContact(contact.id)}
+                                className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                              />
+                            )}
+                            <input
+                              type="checkbox"
+                              checked={contact.status === 'Closed'}
+                              onChange={() => {
+                                setIsEditMode(true);
+                                setSelectedContact(contact);
+                                setNewContact({
+                                  ...contact,
+                                  status: contact.status === 'Closed' ? 'New' : 'Closed',
+                                });
+                                setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
+                                setMode('manual');
+                              }}
+                              className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                            />
+                            <div>
+                              <p className="font-semibold text-gray-800">{contact.first_name} {contact.last_name}</p>
+                              <p className="text-sm text-gray-600">{contact.email}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(contact.status)}`}>
+                              {contact.status || 'New'}
+                            </span>
+                            <motion.button
+                              onClick={() => handleViewContact(contact)}
+                              className="p-1 text-gray-500 hover:text-blue-600"
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              title="View Task"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </motion.button>
+                            {(profile?.role === 'agent' || profile?.role === 'admin') && (
+                              <>
+                                <motion.button
+                                  onClick={() => {
+                                    setIsEditMode(true);
+                                    setSelectedContact(contact);
+                                    setNewContact(contact);
+                                    setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
+                                    setMode('manual');
+                                  }}
+                                  className="p-1 text-gray-500 hover:text-indigo-600"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  title="Edit Task"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </motion.button>
+                                <motion.button
+                                  onClick={() => handleDeleteContact(contact.id)}
+                                  className="p-1 text-gray-500 hover:text-red-600"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  title="Delete Task"
+                                >
+                                  <Trash className="w-4 h-4" />
+                                </motion.button>
+                                <motion.button
+                                  onClick={() => handleDownloadPDF(contact)}
+                                  className="p-1 text-gray-500 hover:text-green-600"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  title="Download Task PDF"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </motion.button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-600">
+                          <div>
+                            <p><span className="font-medium">Email:</span> {contact.email}</p>
+                            {contact.phone_number && (
+                              <p><span className="font-medium">Phone:</span> {contact.phone_number}</p>
+                            )}
+                            <p><span className="font-medium">Mobile:</span> {contact.mobile || 'N/A'}</p>
+                            <p>
+                              <span className="font-medium">Address:</span>{' '}
+                              {contact.street_number && contact.street_name
+                                ? `${contact.street_number} ${contact.street_name}`
+                                : 'N/A'}
+                            </p>
+                            <p><span className="font-medium">Suburb:</span> {contact.suburb || 'N/A'}</p>
+                            <p><span className="font-medium">Postcode:</span> {contact.postcode || 'N/A'}</p>
+                            <p><span className="font-medium">House Type:</span> {contact.house_type || 'N/A'}</p>
+                            <p>
+                              <span className="font-medium">Call Back:</span>{' '}
+                              {contact.call_back_date
+                                ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+                                : 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <p><span className="font-medium">Appraisals:</span> {contact.needs_monthly_appraisals ? 'Yes' : 'No'}</p>
+                            <div
+                              className="cursor-pointer hover:bg-gray-100 p-2 rounded"
+                              onClick={() => {
+                                if (profile?.role === 'agent' || profile?.role === 'admin') {
+                                  setIsEditMode(true);
+                                  setSelectedContact(contact);
+                                  setNewContact(contact);
+                                  setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
+                                  setMode('manual');
+                                  setShowTasks(false);
+                                }
+                              }}
+                            >
+                              <p className="font-medium">Notes:</p>
+                              <p className="text-gray-600 whitespace-pre-wrap">{contact.notes || 'N/A'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </>
+                )}
               </motion.div>
-            ))}
-          </motion.div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

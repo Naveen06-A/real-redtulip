@@ -37,9 +37,16 @@ interface BasicContact {
   phone_number: string | null;
 }
 
+interface Agent {
+  id: string;
+  username: string;
+}
+
 export function NurturingList() {
   const [contacts, setContacts] = useState<NurturingContact[]>([]);
   const [availableContacts, setAvailableContacts] = useState<BasicContact[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -73,6 +80,12 @@ export function NurturingList() {
   const [selectAll, setSelectAll] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
   const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  const [taskFilter, setTaskFilter] = useState<'all' | 'completed' | 'ongoing' | 'progress'>('all');
+  const [sortBy, setSortBy] = useState<'newToOld' | 'oldToNew' | 'dueSoon'>('newToOld');
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [selectedNotes, setSelectedNotes] = useState('');
+  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
 
   const houseTypeOptions = [
     { value: '', label: 'Select House Type' },
@@ -90,52 +103,15 @@ export function NurturingList() {
   ];
 
   useEffect(() => {
-    const fetchNurturingContacts = async () => {
-      if (!user || !profile) {
-        setError('User not authenticated');
-        toast.error('User not authenticated');
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        let query = supabase
-          .from('nurturing_list')
-          .select('id, first_name, last_name, email, phone_number, mobile, street_number, street_name, suburb, postcode, house_type, requirements, notes, call_back_date, needs_monthly_appraisals, status, priority, agent_id');
-        if (profile.role === 'agent') {
-          query = query.eq('agent_id', user.id);
-        }
-        const { data, error } = await query;
-        if (error) {
-          throw new Error(`Failed to fetch nurturing contacts: ${error.message}`);
-        }
-        const fetchedContacts = (data || []).sort((a, b) => {
-          const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-          const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-          const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-          if (priorityA !== priorityB) return priorityA - priorityB;
-          return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-        });
-        setContacts(fetchedContacts);
-      } catch (err: any) {
-        setError(`Error fetching nurturing contacts: ${err.message}`);
-        toast.error(`Error fetching contacts: ${err.message}`);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!user || !profile) {
+      setError('User not authenticated');
+      toast.error('User not authenticated');
+      return;
+    }
 
     const fetchAvailableContacts = async () => {
-      if (!user || !profile) {
-        setError('User not authenticated');
-        toast.error('User not authenticated');
-        return;
-      }
       try {
-        let query = supabase
-          .from('contacts')
-          .select('id, first_name, last_name, email, phone_number');
-        const { data, error } = await query;
+        const { data, error } = await supabase.from('contacts').select('id, first_name, last_name, email, phone_number');
         if (error) throw new Error(`Failed to fetch available contacts: ${error.message}`);
         setAvailableContacts(data || []);
       } catch (err: any) {
@@ -144,17 +120,58 @@ export function NurturingList() {
       }
     };
 
-    fetchNurturingContacts();
+    const fetchAgents = async () => {
+      if (profile.role === 'admin') {
+        const { data, error } = await supabase.from('profiles').select('id, username').eq('role', 'agent');
+        if (error) throw error;
+        setAgents(data || []);
+      }
+    };
+
+    const fetchNurturingContacts = async () => {
+      setLoading(true);
+      try {
+        let query = supabase.from('nurturing_list').select('*');
+        if (profile.role !== 'admin') {
+          query = query.eq('agent_id', user.id);
+        } else if (selectedAgent && selectedAgent !== 'all') {
+          query = query.eq('agent_id', selectedAgent);
+        }
+        const { data, error } = await query; // Removed sorting by created_at
+        if (error) throw new Error(`Failed to fetch nurturing contacts: ${error.message}`);
+        setContacts(data || []);
+      } catch (err: any) {
+        setError(`Error fetching nurturing contacts: ${err.message}`);
+        toast.error(`Error fetching nurturing contacts: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchAvailableContacts();
+    fetchAgents();
+    setSelectedAgent(profile.role === 'admin' ? 'all' : user.id);
+    fetchNurturingContacts();
 
     const reminderInterval = setInterval(() => {
-      if (profile?.role === 'agent') {
-        fetchNurturingContacts();
-      }
+      // Reminders are handled in UI
     }, 1000 * 60 * 60);
 
     return () => clearInterval(reminderInterval);
-  }, [profile, user]);
+  }, [profile, user, selectedAgent]);
+
+  const getReminder = (contact: NurturingContact) => {
+    if (contact.status === 'Closed') return 'Completed';
+    if (!contact.call_back_date) return '';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(contact.call_back_date);
+    due.setHours(0, 0, 0, 0);
+    const diff = Math.floor((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff === 0) return 'Today is your task';
+    if (diff > 0) return `${diff} days to go`;
+    return `Overdue by ${-diff} days`;
+  };
 
   const handleAddContact = async () => {
     if (!user) {
@@ -172,34 +189,13 @@ export function NurturingList() {
       const { data, error } = await supabase
         .from('nurturing_list')
         .insert([{
-          first_name: newContact.first_name,
-          last_name: newContact.last_name,
-          email: newContact.email,
+          ...newContact,
           phone_number: hasPhoneNumber === 'Yes' ? (newContact.phone_number || '') : '',
-          mobile: newContact.mobile || '',
-          street_number: newContact.street_number || '',
-          street_name: newContact.street_name || '',
-          suburb: newContact.suburb || '',
-          postcode: newContact.postcode || '',
-          house_type: newContact.house_type || '',
-          requirements: newContact.requirements || '',
-          notes: newContact.notes || '',
-          call_back_date: newContact.call_back_date || '',
-          needs_monthly_appraisals: newContact.needs_monthly_appraisals,
-          status: newContact.status || 'New',
-          priority: newContact.priority || 'warm',
-          agent_id: user.id,
+          agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
         }])
         .select();
       if (error) throw new Error(`Failed to add contact: ${error.message}`);
-      const updatedContacts = [...contacts, data[0]].sort((a, b) => {
-        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-        if (priorityA !== priorityB) return priorityA - priorityB;
-        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-      });
-      setContacts(updatedContacts);
+      setContacts([...contacts, data[0]]);
       resetForm();
       setContactSuccess('Contact added successfully');
       toast.success('Contact added successfully');
@@ -229,42 +225,15 @@ export function NurturingList() {
       const { data, error } = await supabase
         .from('nurturing_list')
         .update({
-          first_name: newContact.first_name,
-          last_name: newContact.last_name,
-          email: newContact.email,
+          ...newContact,
           phone_number: hasPhoneNumber === 'Yes' ? (newContact.phone_number || '') : '',
-          mobile: newContact.mobile || '',
-          street_number: newContact.street_number || '',
-          street_name: newContact.street_name || '',
-          suburb: newContact.suburb || '',
-          postcode: newContact.postcode || '',
-          house_type: newContact.house_type || '',
-          requirements: newContact.requirements || '',
-          notes: newContact.notes || '',
-          call_back_date: newContact.call_back_date || '',
-          needs_monthly_appraisals: newContact.needs_monthly_appraisals,
-          status: newContact.status || 'New',
-          priority: newContact.priority || 'warm',
         })
         .eq('id', selectedContact.id)
-        .eq('agent_id', user.id)
+        .eq('agent_id', profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id)
         .select();
-      if (error) {
-        throw new Error(`Failed to update contact: ${error.message}`);
-      }
-      if (!data || data.length === 0) {
-        throw new Error('No contact was updated. Please check if the contact exists and you have permission to update it.');
-      }
-      const updatedContacts = contacts.map((contact) =>
-        contact.id === selectedContact.id ? { ...contact, ...data[0] } : contact
-      ).sort((a, b) => {
-        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-        if (priorityA !== priorityB) return priorityA - priorityB;
-        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-      });
-      setContacts(updatedContacts);
+      if (error) throw new Error(`Failed to update contact: ${error.message}`);
+      if (!data || data.length === 0) throw new Error('No contact was updated.');
+      setContacts(contacts.map(c => c.id === selectedContact.id ? data[0] : c));
       resetForm();
       setContactSuccess('Contact updated successfully');
       toast.success('Contact updated successfully');
@@ -288,17 +257,10 @@ export function NurturingList() {
         .from('nurturing_list')
         .delete()
         .eq('id', id)
-        .eq('agent_id', user?.id);
+        .eq('agent_id', profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user?.id);
       if (error) throw new Error(`Failed to delete contact: ${error.message}`);
-      const updatedContacts = contacts.filter((contact) => contact.id !== id).sort((a, b) => {
-        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-        if (priorityA !== priorityB) return priorityA - priorityB;
-        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-      });
-      setContacts(updatedContacts);
-      setSelectedContactIds(selectedContactIds.filter(contactId => contactId !== id));
+      setContacts(contacts.filter(c => c.id !== id));
+      setSelectedContactIds(selectedContactIds.filter(cid => cid !== id));
       toast.success('Contact deleted successfully');
     } catch (err: any) {
       toast.error(`Error deleting contact: ${err.message}`);
@@ -319,16 +281,9 @@ export function NurturingList() {
         .from('nurturing_list')
         .delete()
         .in('id', selectedContactIds)
-        .eq('agent_id', user?.id);
+        .eq('agent_id', profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user?.id);
       if (error) throw new Error(`Failed to delete contacts: ${error.message}`);
-      const updatedContacts = contacts.filter((contact) => !selectedContactIds.includes(contact.id)).sort((a, b) => {
-        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-        if (priorityA !== priorityB) return priorityA - priorityB;
-        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-      });
-      setContacts(updatedContacts);
+      setContacts(contacts.filter(c => !selectedContactIds.includes(c.id)));
       setSelectedContactIds([]);
       setSelectAll(false);
       toast.success(`${selectedContactIds.length} contact(s) deleted successfully`);
@@ -350,7 +305,7 @@ export function NurturingList() {
       const { error } = await supabase
         .from('nurturing_list')
         .delete()
-        .eq('agent_id', user?.id);
+        .eq('agent_id', profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user?.id);
       if (error) throw new Error(`Failed to delete all contacts: ${error.message}`);
       setContacts([]);
       setSelectedContactIds([]);
@@ -420,14 +375,11 @@ export function NurturingList() {
       doc.setFontSize(12);
       doc.text(`${contact.first_name} ${contact.last_name} - Contact Details`, margin, y);
       y += 10;
-
       const leftColumn = [
         `Email: ${contact.email || 'N/A'}`,
         ...(contact.phone_number ? [`Phone: ${contact.phone_number}`] : []),
         `Mobile: ${contact.mobile || 'N/A'}`,
-        `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}` : 'N/A'}`,
-        `Suburb: ${contact.suburb || 'N/A'}`,
-        `Postcode: ${contact.postcode || 'N/A'}`,
+        `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}, ${contact.suburb || ''} ${contact.postcode || ''}` : 'N/A'}`,
         `House Type: ${contact.house_type || 'N/A'}`,
         `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
         `Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`,
@@ -438,7 +390,6 @@ export function NurturingList() {
       ];
       autoTable(doc, {
         startY: y,
-        head: [],
         body: leftColumn.map((text, i) => [text, rightColumn[i] || '']),
         theme: 'grid',
         margin: { left: margin, right: margin },
@@ -504,9 +455,7 @@ export function NurturingList() {
           `Email: ${contact.email || 'N/A'}`,
           ...(contact.phone_number ? [`Phone: ${contact.phone_number}`] : []),
           `Mobile: ${contact.mobile || 'N/A'}`,
-          `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}` : 'N/A'}`,
-          `Suburb: ${contact.suburb || 'N/A'}`,
-          `Postcode: ${contact.postcode || 'N/A'}`,
+          `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}, ${contact.suburb || ''} ${contact.postcode || ''}` : 'N/A'}`,
           `House Type: ${contact.house_type || 'N/A'}`,
           `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
           `Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`,
@@ -517,7 +466,6 @@ export function NurturingList() {
         ];
         autoTable(doc, {
           startY: y,
-          head: [],
           body: leftColumn.map((text, i) => [text, rightColumn[i] || '']),
           theme: 'grid',
           margin: { left: margin + 5, right: margin + 5 },
@@ -566,21 +514,11 @@ export function NurturingList() {
         phone_number: c.phone_number || '',
         status: 'New',
         priority: 'warm',
-        agent_id: user.id,
+        agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
       }));
-      const { data, error } = await supabase
-        .from('nurturing_list')
-        .insert(importData)
-        .select();
+      const { data, error } = await supabase.from('nurturing_list').insert(importData).select();
       if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-      const updatedContacts = [...contacts, ...data].sort((a, b) => {
-        const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-        const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-        const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-        if (priorityA !== priorityB) return priorityA - priorityB;
-        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-      });
-      setContacts(updatedContacts);
+      setContacts([...contacts, ...data]);
       toast.success(`${toImport.length} contacts imported successfully`);
     } catch (err: any) {
       toast.error(`Error importing contacts: ${err.message}`);
@@ -598,7 +536,6 @@ export function NurturingList() {
       toast.error('Please select an Excel file to import');
       return;
     }
-
     setLoading(true);
     try {
       const reader = new FileReader();
@@ -609,14 +546,11 @@ export function NurturingList() {
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
-
           const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
           const validContacts: Partial<NurturingContact>[] = [];
           const errors: string[] = [];
-
           const allowedStatuses = ['New', 'Contacted', 'Followed Up', 'Closed'];
           const allowedPriorities = ['hot', 'warm', 'cold'];
-
           const serialToDate = (serial: number): string | null => {
             const excelEpoch = new Date(1899, 11, 31);
             const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
@@ -633,7 +567,6 @@ export function NurturingList() {
             }
             return isoDate;
           };
-
           jsonData.forEach((row: any, index: number) => {
             const email = row.email?.toString().trim();
             if (!email || !row.first_name || !row.last_name) {
@@ -648,7 +581,6 @@ export function NurturingList() {
               errors.push(`Row ${index + 2}: Duplicate email (${email})`);
               return;
             }
-
             let callBackDate = row.call_back_date?.toString().trim();
             let formattedDate: string | null = null;
             if (callBackDate) {
@@ -676,7 +608,6 @@ export function NurturingList() {
                 return;
               }
             }
-
             let status = row.status?.toString().trim();
             if (!status) {
               status = 'New';
@@ -688,7 +619,6 @@ export function NurturingList() {
               }
               status = normalizedStatus;
             }
-
             let priority = row.priority?.toString().trim().toLowerCase();
             if (!priority) {
               priority = 'warm';
@@ -700,11 +630,9 @@ export function NurturingList() {
               }
               priority = normalizedPriority;
             }
-
             const needsMonthlyAppraisals = row.needs_monthly_appraisals?.toString().toLowerCase() === 'yes' ||
                                           row.needs_monthly_appraisals === true ||
                                           row.needs_monthly_appraisals === 1;
-
             validContacts.push({
               first_name: row.first_name?.toString().trim() || '',
               last_name: row.last_name?.toString().trim() || '',
@@ -722,37 +650,25 @@ export function NurturingList() {
               needs_monthly_appraisals: needsMonthlyAppraisals,
               status: status,
               priority: priority as 'hot' | 'warm' | 'cold',
-              agent_id: user.id,
+              agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
             });
           });
-
           if (errors.length > 0) {
             toast.error(`Some rows could not be imported:\n${errors.join('\n')}`, {
               autoClose: 10000,
             });
           }
-
           if (validContacts.length === 0) {
             toast.info('No valid contacts to import');
             setLoading(false);
             return;
           }
-
           const { data: importedData, error } = await supabase
             .from('nurturing_list')
             .insert(validContacts)
             .select<unknown, NurturingContact>();
-
           if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
-
-          const updatedContacts = [...contacts, ...importedData].sort((a, b) => {
-            const priorityOrder = { hot: 1, warm: 2, cold: 3 };
-            const priorityA = a.priority ? priorityOrder[a.priority] : 2;
-            const priorityB = b.priority ? priorityOrder[b.priority] : 2;
-            if (priorityA !== priorityB) return priorityA - priorityB;
-            return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-          });
-          setContacts(updatedContacts);
+          setContacts([...contacts, ...importedData]);
           setExcelFile(null);
           resetForm();
           toast.success(`${validContacts.length} contacts imported successfully from Excel`);
@@ -804,7 +720,6 @@ export function NurturingList() {
 
   const resetForm = () => {
     setNewContact({
-      id: '',
       first_name: '',
       last_name: '',
       email: '',
@@ -842,7 +757,7 @@ export function NurturingList() {
       setSelectedContactIds([]);
       setSelectAll(false);
     } else {
-      setSelectedContactIds(contacts.map(contact => contact.id));
+      setSelectedContactIds(filteredContacts.map(contact => contact.id));
       setSelectAll(true);
     }
   };
@@ -870,7 +785,44 @@ export function NurturingList() {
 
   const handleViewSavedTasks = () => {
     setShowTasks(!showTasks);
+    setTaskSearchQuery('');
+    setTaskFilter('all');
+    setShowCompletedTasks(false);
   };
+
+  let filteredContacts = contacts.filter(c =>
+    (`${c.first_name} ${c.last_name}`.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
+     c.email.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
+     c.notes?.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
+     c.requirements?.toLowerCase().includes(taskSearchQuery.toLowerCase()))
+  );
+
+  if (taskFilter !== 'all') {
+    if (taskFilter === 'completed') {
+      filteredContacts = filteredContacts.filter(c => c.status === 'Closed');
+    } else if (taskFilter === 'ongoing') {
+      filteredContacts = filteredContacts.filter(c => c.status === 'Contacted' || c.status === 'Followed Up');
+    } else if (taskFilter === 'progress') {
+      filteredContacts = filteredContacts.filter(c => c.status === 'New');
+    }
+  }
+
+  if (showCompletedTasks) {
+    filteredContacts = filteredContacts.filter(c => c.status === 'Closed');
+  }
+
+  let sortedContacts = [...filteredContacts];
+  if (sortBy === 'newToOld') {
+    sortedContacts.sort((a, b) => b.id.localeCompare(a.id)); // Fallback to id sorting
+  } else if (sortBy === 'oldToNew') {
+    sortedContacts.sort((a, b) => a.id.localeCompare(b.id)); // Fallback to id sorting
+  } else if (sortBy === 'dueSoon') {
+    sortedContacts.sort((a, b) => {
+      const dateA = a.call_back_date ? new Date(a.call_back_date).getTime() : Infinity;
+      const dateB = b.call_back_date ? new Date(b.call_back_date).getTime() : Infinity;
+      return dateA - dateB;
+    });
+  }
 
   if (loading) {
     return (
@@ -1048,6 +1000,19 @@ export function NurturingList() {
             )}
             {(mode === 'manual' || isEditMode || isViewMode) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {profile?.role === 'admin' && (
+                  <select
+                    value={selectedAgent}
+                    onChange={(e) => setSelectedAgent(e.target.value)}
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm md:col-span-2"
+                    disabled={isViewMode}
+                  >
+                    <option value="all">All Agents</option>
+                    {agents.map(agent => (
+                      <option key={agent.id} value={agent.id}>{agent.username}</option>
+                    ))}
+                  </select>
+                )}
                 <input
                   type="text"
                   name="first_name"
@@ -1300,10 +1265,65 @@ export function NurturingList() {
                     Close
                   </motion.button>
                 </div>
-                {contacts.length === 0 && !error && (
-                  <p className="text-gray-500 text-center py-4 text-sm">No tasks found. Add a task to start your list.</p>
+                <div className="mb-4 flex space-x-4 items-center">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={taskSearchQuery}
+                      onChange={(e) => setTaskSearchQuery(e.target.value)}
+                      placeholder="Search tasks by name, email, notes, or requirements..."
+                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent pl-10"
+                    />
+                    <Search className="absolute left-3 top-3 w-4 h-4 text-gray-500" />
+                  </div>
+                  <select
+                    value={taskFilter}
+                    onChange={(e) => {
+                      setTaskFilter(e.target.value as typeof taskFilter);
+                      setShowCompletedTasks(e.target.value === 'completed');
+                    }}
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                  >
+                    <option value="all">All Tasks</option>
+                    <option value="progress">In Progress</option>
+                    <option value="ongoing">Ongoing</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                  >
+                    <option value="newToOld">New to Old</option>
+                    <option value="oldToNew">Old to New</option>
+                    <option value="dueSoon">Due Soon</option>
+                  </select>
+                  {profile?.role === 'admin' && (
+                    <select
+                      value={selectedAgent}
+                      onChange={(e) => setSelectedAgent(e.target.value)}
+                      className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                    >
+                      <option value="all">All Agents</option>
+                      {agents.map(agent => (
+                        <option key={agent.id} value={agent.id}>{agent.username}</option>
+                      ))}
+                    </select>
+                  )}
+                  <motion.button
+                    onClick={() => setShowCompletedTasks(!showCompletedTasks)}
+                    className={`p-2 ${showCompletedTasks ? 'bg-green-600 text-white' : 'bg-green-100 text-green-800'} rounded-lg hover:bg-green-200`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    title="Toggle Completed Tasks"
+                  >
+                    <Check className="w-4 h-4" />
+                  </motion.button>
+                </div>
+                {sortedContacts.length === 0 && !error && (
+                  <p className="text-gray-500 text-center py-4 text-sm">No tasks found.</p>
                 )}
-                {contacts.length > 0 && (
+                {sortedContacts.length > 0 && (
                   <>
                     <div className="flex justify-between items-center mb-4">
                       <div className="flex items-center space-x-4">
@@ -1347,7 +1367,7 @@ export function NurturingList() {
                         )}
                       </div>
                     </div>
-                    {contacts.map((contact) => (
+                    {sortedContacts.map((contact) => (
                       <motion.div
                         key={contact.id}
                         className="bg-white p-4 rounded-lg border border-gray-100 mb-4"
@@ -1378,12 +1398,14 @@ export function NurturingList() {
                                 });
                                 setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
                                 setMode('manual');
+                                setShowTasks(false);
                               }}
                               className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                             />
                             <div>
                               <p className="font-semibold text-gray-800">{contact.first_name} {contact.last_name}</p>
                               <p className="text-sm text-gray-600">{contact.email}</p>
+                              <p className="text-sm text-red-500 font-medium">{getReminder(contact)}</p>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
@@ -1418,6 +1440,7 @@ export function NurturingList() {
                                     setNewContact(contact);
                                     setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
                                     setMode('manual');
+                                    setShowTasks(false);
                                   }}
                                   className="p-1 text-gray-500 hover:text-indigo-600"
                                   whileHover={{ scale: 1.1 }}
@@ -1458,11 +1481,9 @@ export function NurturingList() {
                             <p>
                               <span className="font-medium">Address:</span>{' '}
                               {contact.street_number && contact.street_name
-                                ? `${contact.street_number} ${contact.street_name}`
+                                ? `${contact.street_number} ${contact.street_name}, ${contact.suburb || ''} ${contact.postcode || ''}`
                                 : 'N/A'}
                             </p>
-                            <p><span className="font-medium">Suburb:</span> {contact.suburb || 'N/A'}</p>
-                            <p><span className="font-medium">Postcode:</span> {contact.postcode || 'N/A'}</p>
                             <p><span className="font-medium">House Type:</span> {contact.house_type || 'N/A'}</p>
                             <p>
                               <span className="font-medium">Call Back:</span>{' '}
@@ -1474,31 +1495,63 @@ export function NurturingList() {
                               <span className="font-medium">Priority:</span>{' '}
                               {contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} {getPriorityEmoji(contact.priority)}
                             </p>
+                            {profile?.role === 'admin' && (
+                              <p><span className="font-medium">Agent:</span> {agents.find(a => a.id === contact.agent_id)?.username || 'N/A'}</p>
+                            )}
                           </div>
                           <div>
                             <p><span className="font-medium">Appraisals:</span> {contact.needs_monthly_appraisals ? 'Yes' : 'No'}</p>
-                            <div
-                              className="cursor-pointer hover:bg-gray-100 p-2 rounded"
-                              onClick={() => {
-                                if (profile?.role === 'agent' || profile?.role === 'admin') {
-                                  setIsEditMode(true);
-                                  setSelectedContact(contact);
-                                  setNewContact(contact);
-                                  setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
-                                  setMode('manual');
-                                  setShowTasks(false);
-                                }
-                              }}
-                            >
+                            <p><span className="font-medium">Requirements:</span> {(contact.requirements || 'N/A').substring(0, 100) + (contact.requirements && contact.requirements.length > 100 ? '...' : '')}</p>
+                            <div className="flex items-center space-x-2">
                               <p className="font-medium">Notes:</p>
-                              <p className="text-gray-600 whitespace-pre-wrap">{contact.notes || 'N/A'}</p>
+                              <motion.button
+                                onClick={() => {
+                                  setSelectedNotes(contact.notes || 'N/A');
+                                  setShowNotesModal(true);
+                                }}
+                                className="p-1 text-gray-500 hover:text-blue-600"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                title="View Notes"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </motion.button>
                             </div>
+                            <p className="text-gray-600 whitespace-pre-wrap">{(contact.notes || 'N/A').substring(0, 100) + (contact.notes && contact.notes.length > 100 ? '...' : '')}</p>
                           </div>
                         </div>
                       </motion.div>
                     ))}
                   </>
                 )}
+              </motion.div>
+            </motion.div>
+          )}
+          {showNotesModal && (
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowNotesModal(false)}
+            >
+              <motion.div
+                className="bg-white p-6 rounded-xl shadow-md border border-gray-200 max-w-md w-full"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-lg font-semibold mb-4">Notes</h3>
+                <p className="text-gray-600 whitespace-pre-wrap">{selectedNotes}</p>
+                <motion.button
+                  onClick={() => setShowNotesModal(false)}
+                  className="mt-4 py-2 px-4 bg-gray-500 text-white rounded-lg text-sm font-medium hover:bg-gray-600 w-full"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Close
+                </motion.button>
               </motion.div>
             </motion.div>
           )}

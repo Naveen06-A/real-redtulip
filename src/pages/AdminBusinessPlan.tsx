@@ -224,9 +224,9 @@ export function AdminBusinessPlan() {
   const [savedPlans, setSavedPlans] = useState<AgentBusinessPlan[]>([]);
   const [showSavedPlans, setShowSavedPlans] = useState(false);
   const [showViewSavedButton, setShowViewSavedButton] = useState(false);
-  
   const agentInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const [selectedAgentPlan, setSelectedAgentPlan] = useState<AgentBusinessPlan | null>(null);
   // Add new state for admin plans
   const [savedAdminPlans, setSavedAdminPlans] = useState<AdminBusinessPlan[]>([]);
 
@@ -655,114 +655,125 @@ export function AdminBusinessPlan() {
     setSelectedAgent(name);
     setShowAgentSuggestions(false);
     setShowInputs(true);
-    await fetchAgentBusinessPlan(agentId, name);
-  };
+    // / Find the agent plan from savedPlans
+  const agentPlan = savedPlans.find(
+    plan => plan.agent_name === name && plan.agent_id === agentId
+  );
+  if (agentPlan) {
+    setSelectedAgentPlan(agentPlan);
+  } else {
+    setSelectedAgentPlan(null);
+  }
+  
+  await fetchAgentBusinessPlan(agentId, name);
+};
 
-  const calculateAgentData = () => {
+  // Find the calculateAgentData function and update the earnings calculations
+
+const calculateAgentData = () => {
+  const {
+    agents,
+    business_commission_percentage,
+    agent_commission_percentage,
+    franchise_fee,
+    business_expenses_percentage,
+    agent_expenses_percentage,
+  } = plan;
+
+  const additionalExpenses = calculateAdditionalExpensesTotal();
+
+  // Use a Map to ensure we only process unique agents by agent_id
+  const uniqueAgentsMap = new Map();
+  
+  agents.forEach((agent) => {
+    // If we already have this agent, keep the one with more complete data
+    if (!uniqueAgentsMap.has(agent.agent_id) || 
+        (agent.commission_amount !== null && uniqueAgentsMap.get(agent.agent_id).commission_amount === null)) {
+      uniqueAgentsMap.set(agent.agent_id, agent);
+    }
+  });
+  
+  const uniqueAgents = Array.from(uniqueAgentsMap.values());
+
+  return uniqueAgents.map((agent) => {
     const {
-      agents,
-      business_commission_percentage,
-      agent_commission_percentage,
-      franchise_fee,
-      business_expenses_percentage,
-      agent_expenses_percentage,
-    } = plan;
+      name,
+      commission_amount,
+      franchise_amount,
+      marketing_expenses,
+      super_amount,
+      business_commission_percentage: agentBusinessPercentage,
+      agent_commission_percentage: agentAgentPercentage,
+      franchise_percentage,
+      business_amount,
+      agent_amount,
+    } = agent;
 
-    const additionalExpenses = calculateAdditionalExpensesTotal();
+    const scaleFactor = timeFrame === 'monthly' ? 12 : timeFrame === 'weekly' ? 52 : 1;
+    const scaledCommission = commission_amount != null ? commission_amount * scaleFactor : null;
+    const scaledFranchise = franchise_amount != null ? franchise_amount * scaleFactor : null;
+    const scaledMarketing = marketing_expenses != null ? marketing_expenses * scaleFactor : null;
+    const scaledSuper = super_amount != null ? super_amount * scaleFactor : null;
 
-    // Use a Map to ensure we only process unique agents by agent_id
-    const uniqueAgentsMap = new Map();
-    
-    agents.forEach((agent) => {
-      // If we already have this agent, keep the one with more complete data
-      if (!uniqueAgentsMap.has(agent.agent_id) || 
-          (agent.commission_amount !== null && uniqueAgentsMap.get(agent.agent_id).commission_amount === null)) {
-        uniqueAgentsMap.set(agent.agent_id, agent);
-      }
-    });
-    
-    const uniqueAgents = Array.from(uniqueAgentsMap.values());
+    const calculatedFranchiseAmount =
+      scaledCommission && franchise_percentage != null
+        ? Math.round(scaledCommission * (franchise_percentage / 100))
+        : scaledFranchise;
 
-    return uniqueAgents.map((agent) => {
-      const {
-        name,
-        commission_amount,
-        franchise_amount,
-        marketing_expenses,
-        super_amount,
-        business_commission_percentage: agentBusinessPercentage,
-        agent_commission_percentage: agentAgentPercentage,
-        franchise_percentage,
-        business_amount,
-        agent_amount,
-      } = agent;
+    const netCommission =
+      scaledCommission != null && calculatedFranchiseAmount != null ? scaledCommission - calculatedFranchiseAmount : null;
 
-      const scaleFactor = timeFrame === 'monthly' ? 12 : timeFrame === 'weekly' ? 52 : 1;
-      const scaledCommission = commission_amount != null ? commission_amount * scaleFactor : null;
-      const scaledFranchise = franchise_amount != null ? franchise_amount * scaleFactor : null;
-      const scaledMarketing = marketing_expenses != null ? marketing_expenses * scaleFactor : null;
-      const scaledSuper = super_amount != null ? super_amount * scaleFactor : null;
-
-      const calculatedFranchiseAmount =
-        scaledCommission && franchise_percentage != null
-          ? Math.round(scaledCommission * (franchise_percentage / 100))
-          : scaledFranchise;
-
-      const netCommission =
-        scaledCommission != null && calculatedFranchiseAmount != null ? scaledCommission - calculatedFranchiseAmount : null;
-
-      const businessCommission =
-        netCommission != null && agentBusinessPercentage != null
-          ? Math.round((netCommission * agentBusinessPercentage) / 100)
-          : business_amount != null
-            ? Math.round(business_amount * scaleFactor)
-            : null;
-
-      const agentCommission =
-        netCommission != null && agentAgentPercentage != null
-          ? Math.round((netCommission * agentAgentPercentage) / 100)
-          : agent_amount != null
-            ? Math.round(agent_amount * scaleFactor)
-            : null;
-
-      const businessExpenses =
-        scaledMarketing != null && business_expenses_percentage != null
-          ? Math.round((scaledMarketing * business_expenses_percentage) / 100)
+    const businessCommission =
+      netCommission != null && agentBusinessPercentage != null
+        ? Math.round((netCommission * agentBusinessPercentage) / 100)
+        : business_amount != null
+          ? Math.round(business_amount * scaleFactor)
           : null;
 
-      const agentExpenses =
-        scaledMarketing != null && agent_expenses_percentage != null
-          ? Math.round((scaledMarketing * agent_expenses_percentage) / 100)
+    const agentCommission =
+      netCommission != null && agentAgentPercentage != null
+        ? Math.round((netCommission * agentAgentPercentage) / 100)
+        : agent_amount != null
+          ? Math.round(agent_amount * scaleFactor)
           : null;
 
-      const businessEarnings =
-        businessCommission != null && businessExpenses != null && scaledSuper != null && additionalExpenses != null
-          ? Math.round(businessCommission - businessExpenses - scaledSuper - additionalExpenses)
-          : null;
+    const businessExpenses =
+      scaledMarketing != null && business_expenses_percentage != null
+        ? Math.round((scaledMarketing * business_expenses_percentage) / 100)
+        : null;
 
-      const agentEarnings =
-        agentCommission != null && scaledMarketing != null && scaledSuper != null
-          ? scaledMarketing > 0
-            ? Math.round(agentCommission - (agentExpenses || 0) + scaledSuper)
-            : 0
-          : null;
+    const agentExpenses =
+      scaledMarketing != null && agent_expenses_percentage != null
+        ? Math.round((scaledMarketing * agent_expenses_percentage) / 100)
+        : null;
 
-      return {
-        name,
-        business_commission: businessCommission,
-        agent_commission: agentCommission,
-        business_expenses: businessExpenses,
-        agent_expenses: agentExpenses,
-        business_earnings: businessEarnings,
-        agent_earnings: agentEarnings,
-        franchise_fee: calculatedFranchiseAmount,
-        business_commission_percentage: agentBusinessPercentage,
-        agent_commission_percentage: agentAgentPercentage,
-        franchise_percentage,
-      };
-    });
-  };
+    // CHANGED: Business earnings = business commission - market expenses - super
+    const businessEarnings =
+      businessCommission != null && businessExpenses != null && additionalExpenses != null && scaledSuper != null
+        ? Math.round(businessCommission - businessExpenses - (additionalExpenses / uniqueAgents.length) - scaledSuper)
+        : null;
 
+    // CHANGED: Agent earnings = agent commission - market expenses + super
+    const agentEarnings =
+      agentCommission != null && agentExpenses != null && scaledSuper != null
+        ? Math.round(agentCommission - agentExpenses + scaledSuper)
+        : null;
+
+    return {
+      name,
+      business_commission: businessCommission,
+      agent_commission: agentCommission,
+      business_expenses: businessExpenses,
+      agent_expenses: agentExpenses,
+      business_earnings: businessEarnings,
+      agent_earnings: agentEarnings,
+      franchise_fee: calculatedFranchiseAmount,
+      business_commission_percentage: agentBusinessPercentage,
+      agent_commission_percentage: agentAgentPercentage,
+      franchise_percentage,
+    };
+  });
+};
   const calculateTotals = () => {
     return agentsData.reduce(
       (totals, agent) => ({
@@ -869,7 +880,7 @@ export function AdminBusinessPlan() {
           agent_amount: agent.agent_amount != null ? Math.round(agent.agent_amount) : null,
         })),
       };
-      // Save to admin_business_plans
+ 
       // Save to admin_business_plans
       let adminPlanId = plan.id;
       if (plan.id) {

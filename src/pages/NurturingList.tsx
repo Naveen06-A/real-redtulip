@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -39,7 +40,7 @@ interface BasicContact {
 
 interface Agent {
   id: string;
-  username: string;
+  name: string; // Changed from username to name
 }
 
 export function NurturingList() {
@@ -122,7 +123,7 @@ export function NurturingList() {
 
     const fetchAgents = async () => {
       if (profile.role === 'admin') {
-        const { data, error } = await supabase.from('profiles').select('id, username').eq('role', 'agent');
+        const { data, error } = await supabase.from('profiles').select('id, name').in('role', ['admin', 'agent']);
         if (error) throw error;
         setAgents(data || []);
       }
@@ -137,7 +138,7 @@ export function NurturingList() {
         } else if (selectedAgent && selectedAgent !== 'all') {
           query = query.eq('agent_id', selectedAgent);
         }
-        const { data, error } = await query; // Removed sorting by created_at
+        const { data, error } = await query;
         if (error) throw new Error(`Failed to fetch nurturing contacts: ${error.message}`);
         setContacts(data || []);
       } catch (err: any) {
@@ -365,45 +366,167 @@ export function NurturingList() {
     }
   };
 
-  const handleDownloadPDF = (contact: NurturingContact) => {
+    const handleDownloadPDF = (contact: NurturingContact) => {
     try {
       const doc = new jsPDF();
-      const pageWidth = 210;
-      const margin = 10;
-      const columnWidth = (pageWidth - 3 * margin) / 2;
-      let y = 20;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 15;
+      const contentWidth = pageWidth - 2 * margin;
+      
+      // Set blue theme colors
+      const primaryColor = [14, 105, 203]; // Deep blue
+      const secondaryColor = [227, 239, 255]; // Light blue background
+      const accentColor = [66, 153, 225]; // Medium blue
+      
+      // Add header with blue background
+      doc.setFillColor(...primaryColor);
+      doc.rect(0, 0, pageWidth, 40, 'F');
+      
+      // Header text
+      doc.setFontSize(20);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont(undefined, 'bold');
+      doc.text('Contact Details', margin, 25);
+      
+      // Contact name
+      doc.setFontSize(16);
+      doc.text(`${contact.first_name} ${contact.last_name}`, pageWidth - margin, 25, { align: 'right' });
+      
+      let y = 50;
+      
+      // Add decorative element
+      doc.setDrawColor(...accentColor);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y - 5, pageWidth - margin, y - 5);
+      
+      // Create two-column layout with blue accents
+      const leftColumnX = margin;
+      const rightColumnX = pageWidth / 2 + 5;
+      const rowHeight = 8;
+      
+      // Set background for content area
+      doc.setFillColor(...secondaryColor);
+      doc.rect(margin, y, contentWidth, 120, 'F');
+      
+      // Contact information
       doc.setFontSize(12);
-      doc.text(`${contact.first_name} ${contact.last_name} - Contact Details`, margin, y);
+      doc.setTextColor(...primaryColor);
+      doc.setFont(undefined, 'bold');
+      doc.text('CONTACT INFORMATION', margin + 5, y + 10);
+      
+      doc.setDrawColor(...accentColor);
+      doc.line(margin + 5, y + 12, margin + 60, y + 12);
+      
+      y += 20;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont(undefined, 'normal');
+      
+      // Left column details
+      doc.text(`Email: ${contact.email || 'N/A'}`, leftColumnX + 5, y);
+      doc.text(`Phone: ${contact.phone_number || 'N/A'}`, leftColumnX + 5, y + rowHeight);
+      doc.text(`Mobile: ${contact.mobile || 'N/A'}`, leftColumnX + 5, y + rowHeight * 2);
+      
+      // Right column details
+      doc.text(`Status: ${contact.status || 'N/A'}`, rightColumnX, y);
+      doc.text(`Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`, rightColumnX, y + rowHeight);
+      doc.text(`Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`, rightColumnX, y + rowHeight * 2);
+      
+      y += 30;
+      
+      // Address section
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(...primaryColor);
+      doc.text('ADDRESS DETAILS', margin + 5, y);
+      
+      doc.setDrawColor(...accentColor);
+      doc.line(margin + 5, y + 2, margin + 70, y + 2);
+      
       y += 10;
-      const leftColumn = [
-        `Email: ${contact.email || 'N/A'}`,
-        ...(contact.phone_number ? [`Phone: ${contact.phone_number}`] : []),
-        `Mobile: ${contact.mobile || 'N/A'}`,
-        `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}, ${contact.suburb || ''} ${contact.postcode || ''}` : 'N/A'}`,
-        `House Type: ${contact.house_type || 'N/A'}`,
-        `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
-        `Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`,
-      ];
-      const rightColumn = [
-        `Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`,
-        `Notes: ${contact.notes?.substring(0, 200) || 'N/A'}`,
-      ];
-      autoTable(doc, {
-        startY: y,
-        body: leftColumn.map((text, i) => [text, rightColumn[i] || '']),
-        theme: 'grid',
-        margin: { left: margin, right: margin },
-        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', lineColor: [209, 213, 219] },
-        columnStyles: {
-          0: { cellWidth: columnWidth },
-          1: { cellWidth: columnWidth },
-        },
-        didParseCell: (data) => {
-          if (data.cell.text && data.cell.text.length > 0) {
-            data.cell.text = data.cell.text.map(text => text.length > 200 ? text.substring(0, 200) + '...' : text);
-          }
-        },
-      });
+      
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Street: ${contact.street_number || ''} ${contact.street_name || ''}`, margin + 5, y);
+      doc.text(`Suburb: ${contact.suburb || 'N/A'}`, margin + 5, y + rowHeight);
+      doc.text(`Postcode: ${contact.postcode || 'N/A'}`, margin + 5, y + rowHeight * 2);
+      doc.text(`House Type: ${contact.house_type || 'N/A'}`, margin + 5, y + rowHeight * 3);
+      
+      y += 25;
+      
+      // Additional information
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(...primaryColor);
+      doc.text('ADDITIONAL INFORMATION', margin + 5, y);
+      
+      doc.setDrawColor(...accentColor);
+      doc.line(margin + 5, y + 2, margin + 110, y + 2);
+      
+      y += 10;
+      
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(0, 0, 0);
+      
+      // Requirements with proper text wrapping
+      const requirements = contact.requirements || 'N/A';
+      const splitRequirements = doc.splitTextToSize(`Requirements: ${requirements}`, contentWidth - 10);
+      doc.text(splitRequirements, margin + 5, y);
+      y += rowHeight * splitRequirements.length;
+      
+      // Monthly appraisals
+      doc.text(`Monthly Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`, margin + 5, y);
+      
+      y += 15;
+      
+      // Notes section with blue background
+      if (contact.notes) {
+        doc.setFillColor(...secondaryColor);
+        const notesHeight = 40;
+        doc.rect(margin, y, contentWidth, notesHeight, 'F');
+        
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(...primaryColor);
+        doc.text('NOTES', margin + 5, y + 8);
+        
+        doc.setDrawColor(...accentColor);
+        doc.line(margin + 5, y + 10, margin + 30, y + 10);
+        
+        const notes = contact.notes;
+        const splitNotes = doc.splitTextToSize(notes, contentWidth - 10);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(0, 0, 0);
+        doc.text(splitNotes, margin + 5, y + 15);
+        
+        y += notesHeight + 5;
+      } else {
+        // Add empty notes section
+        doc.setFillColor(...secondaryColor);
+        doc.rect(margin, y, contentWidth, 20, 'F');
+        
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(...primaryColor);
+        doc.text('NOTES', margin + 5, y + 8);
+        
+        doc.setDrawColor(...accentColor);
+        doc.line(margin + 5, y + 10, margin + 30, y + 10);
+        
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(100, 100, 100);
+        doc.text('No notes available', margin + 5, y + 15);
+        
+        y += 25;
+      }
+      
+      // Footer
+      const footerY = doc.internal.pageSize.getHeight() - 15;
+      doc.setFillColor(...primaryColor);
+      doc.rect(0, footerY, pageWidth, 15, 'F');
+      
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, footerY + 10);
+      doc.text('Nurturing List Management System', pageWidth - margin, footerY + 10, { align: 'right' });
+      
       doc.save(`${contact.first_name}_${contact.last_name}_contact.pdf`);
     } catch (error: any) {
       console.error('Error generating individual PDF:', error);
@@ -417,76 +540,124 @@ export function NurturingList() {
         toast.info('No tasks available to download.');
         return;
       }
+      
       const doc = new jsPDF();
-      const pageWidth = 210;
-      const margin = 10;
-      const columnWidth = (pageWidth - 3 * margin) / 2;
-      let y = 20;
-      doc.setFontSize(14);
-      doc.text('All Nurturing Tasks', margin, y);
-      y += 7;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 15;
+      const contentWidth = pageWidth - 2 * margin;
+      
+      // Set blue theme colors
+      const primaryColor = [14, 105, 203];
+      const secondaryColor = [227, 239, 255];
+      const accentColor = [66, 153, 225];
+      
+      // Add header
+      doc.setFillColor(...primaryColor);
+      doc.rect(0, 0, pageWidth, 40, 'F');
+      
+      doc.setFontSize(20);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont(undefined, 'bold');
+      doc.text('All Nurturing Tasks', margin, 25);
+      
       doc.setFontSize(10);
-      doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, y);
-      doc.text(`Total Tasks: ${contacts.length}`, pageWidth - margin - 40, y);
-      y += 10;
+      doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, pageWidth - margin, 25, { align: 'right' });
+      doc.text(`Total Tasks: ${contacts.length}`, pageWidth - margin, 35, { align: 'right' });
+      
+      let y = 50;
+      
       contacts.forEach((contact, index) => {
-        if (y > 267) {
+        if (y > 250) {
           doc.addPage();
           y = 20;
+          
+          // Add header to new page
+          doc.setFillColor(...primaryColor);
+          doc.rect(0, 0, pageWidth, 40, 'F');
+          doc.setFontSize(20);
+          doc.setTextColor(255, 255, 255);
+          doc.setFont(undefined, 'bold');
+          doc.text('All Nurturing Tasks (Continued)', margin, 25);
+          y = 50;
         }
-        doc.setDrawColor(209, 213, 219);
-        doc.setFillColor(255, 255, 255);
-        doc.roundedRect(margin, y, pageWidth - 2 * margin, 80, 3, 3, 'FD');
-        y += 8;
+        
+        // Calculate height needed for this contact card
+        const notes = contact.notes || '';
+        const splitNotes = notes ? doc.splitTextToSize(notes, contentWidth - 10) : [];
+        const notesHeight = splitNotes.length * 5;
+        const cardHeight = 70 + (notes ? Math.max(notesHeight - 15, 0) : 0);
+        
+        // Contact card with blue background
+        doc.setFillColor(...secondaryColor);
+        doc.roundedRect(margin, y, contentWidth, cardHeight, 3, 3, 'F');
+        
+        doc.setDrawColor(...accentColor);
+        doc.roundedRect(margin, y, contentWidth, cardHeight, 3, 3, 'S');
+        
+        // Contact name and status
         doc.setFontSize(12);
-        doc.setTextColor(31, 41, 55);
-        doc.text(`${contact.first_name} ${contact.last_name}`, margin + 5, y);
-        const statusColor = getStatusBadgeColor(contact.status);
-        doc.setFillColor(...statusColor);
-        doc.roundedRect(pageWidth - margin - 30, y - 4, 25, 6, 2, 2, 'F');
+        doc.setTextColor(...primaryColor);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${contact.first_name} ${contact.last_name}`, margin + 5, y + 10);
+        
+        // Status badge
+        const status = contact.status || 'New';
+        const statusWidth = doc.getTextWidth(status) + 8;
+        doc.setFillColor(...primaryColor);
+        doc.roundedRect(margin + contentWidth - statusWidth - 5, y + 5, statusWidth, 8, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
         doc.setFontSize(8);
+        doc.text(status, margin + contentWidth - statusWidth/2 - 5, y + 9, { align: 'center' });
+        
+        y += 15;
+        
+        // Contact details
+        doc.setFontSize(9);
         doc.setTextColor(0, 0, 0);
-        doc.text(`${contact.status || 'New'} ${getPriorityEmoji(contact.priority)}`, pageWidth - margin - 28, y);
-        y += 8;
-        doc.setFontSize(10);
-        doc.text(`Closed: ${contact.status === 'Closed' ? '[X]' : '[ ]'}`, margin + 5, y);
-        y += 8;
-        const leftColumn = [
-          `Email: ${contact.email || 'N/A'}`,
-          ...(contact.phone_number ? [`Phone: ${contact.phone_number}`] : []),
-          `Mobile: ${contact.mobile || 'N/A'}`,
-          `Address: ${contact.street_number && contact.street_name ? `${contact.street_number} ${contact.street_name}, ${contact.suburb || ''} ${contact.postcode || ''}` : 'N/A'}`,
-          `House Type: ${contact.house_type || 'N/A'}`,
-          `Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`,
-          `Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`,
-        ];
-        const rightColumn = [
-          `Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`,
-          `Notes: ${contact.notes?.substring(0, 200) || 'N/A'}`,
-        ];
-        autoTable(doc, {
-          startY: y,
-          body: leftColumn.map((text, i) => [text, rightColumn[i] || '']),
-          theme: 'grid',
-          margin: { left: margin + 5, right: margin + 5 },
-          styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', lineColor: [209, 213, 219] },
-          columnStyles: {
-            0: { cellWidth: columnWidth - 5 },
-            1: { cellWidth: columnWidth - 5 },
-          },
-          didParseCell: (data) => {
-            if (data.cell.text && data.cell.text.length > 0) {
-              data.cell.text = data.cell.text.map(text => text.length > 200 ? text.substring(0, 200) + '...' : text);
-            }
-          },
-        });
-        y = (doc as any).lastAutoTable.finalY + 10;
+        doc.setFont(undefined, 'normal');
+        
+        doc.text(`Email: ${contact.email || 'N/A'}`, margin + 5, y + 10);
+        doc.text(`Phone: ${contact.phone_number || 'N/A'}`, margin + 5, y + 20);
+        doc.text(`Priority: ${contact.priority || 'N/A'} ${getPriorityEmoji(contact.priority)}`, margin + 5, y + 30);
+        
+        doc.text(`Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`, margin + contentWidth/2, y + 10);
+        doc.text(`Status: ${contact.status || 'N/A'}`, margin + contentWidth/2, y + 20);
+        doc.text(`Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`, margin + contentWidth/2, y + 30);
+        
+        y += 40;
+        
+        // Add notes section if available
+        if (notes) {
+          doc.setFont(undefined, 'bold');
+          doc.setTextColor(...primaryColor);
+          doc.text('Notes:', margin + 5, y);
+          
+          doc.setFont(undefined, 'normal');
+          doc.setTextColor(0, 0, 0);
+          doc.text(splitNotes, margin + 5, y + 5);
+          
+          y += splitNotes.length * 5 + 10;
+        }
+        
+        // Add separator if not last contact
         if (index < contacts.length - 1) {
-          doc.setDrawColor(209, 213, 219);
+          doc.setDrawColor(...accentColor);
+          doc.setLineWidth(0.3);
           doc.line(margin, y, pageWidth - margin, y);
-          y += 5;
+          y += 10;
         }
       });
+      
+      // Add footer to last page
+      const footerY = doc.internal.pageSize.getHeight() - 15;
+      doc.setFillColor(...primaryColor);
+      doc.rect(0, footerY, pageWidth, 15, 'F');
+      
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, footerY + 10);
+      doc.text('Nurturing List Management System', pageWidth - margin, footerY + 10, { align: 'right' });
+      
       doc.save('all_nurturing_tasks.pdf');
     } catch (error: any) {
       console.error('Error generating PDF for all tasks:', error);
@@ -813,9 +984,9 @@ export function NurturingList() {
 
   let sortedContacts = [...filteredContacts];
   if (sortBy === 'newToOld') {
-    sortedContacts.sort((a, b) => b.id.localeCompare(a.id)); // Fallback to id sorting
+    sortedContacts.sort((a, b) => b.id.localeCompare(a.id));
   } else if (sortBy === 'oldToNew') {
-    sortedContacts.sort((a, b) => a.id.localeCompare(b.id)); // Fallback to id sorting
+    sortedContacts.sort((a, b) => a.id.localeCompare(b.id));
   } else if (sortBy === 'dueSoon') {
     sortedContacts.sort((a, b) => {
       const dateA = a.call_back_date ? new Date(a.call_back_date).getTime() : Infinity;
@@ -1009,7 +1180,7 @@ export function NurturingList() {
                   >
                     <option value="all">All Agents</option>
                     {agents.map(agent => (
-                      <option key={agent.id} value={agent.id}>{agent.username}</option>
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
                     ))}
                   </select>
                 )}
@@ -1247,7 +1418,7 @@ export function NurturingList() {
               onClick={() => setShowTasks(false)}
             >
               <motion.div
-                className="contact-list bg-white p-6 rounded-xl shadow-md border border-gray-200 w-[794px] max-h-[80vh] overflow-y-auto"
+                className="contact-list bg-white p-6 rounded-xl shadow-md border border-gray-200 w-full max-w-6xl max-h-[90vh] overflow-y-auto overflow-x-auto"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
@@ -1306,7 +1477,7 @@ export function NurturingList() {
                     >
                       <option value="all">All Agents</option>
                       {agents.map(agent => (
-                        <option key={agent.id} value={agent.id}>{agent.username}</option>
+                        <option key={agent.id} value={agent.id}>{agent.name}</option>
                       ))}
                     </select>
                   )}
@@ -1367,161 +1538,183 @@ export function NurturingList() {
                         )}
                       </div>
                     </div>
-                    {sortedContacts.map((contact) => (
-                      <motion.div
-                        key={contact.id}
-                        className="bg-white p-4 rounded-lg border border-gray-100 mb-4"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3 }}
-                        layout
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            {(profile?.role === 'agent' || profile?.role === 'admin') && (
+                    <table className="min-w-full divide-y divide-gray-200 bg-white">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Select</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mobile</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">House Type</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Call Back</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reminder</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Appraisals</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Requirements</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                          {profile?.role === 'admin' && (
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
+                          )}
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {sortedContacts.map((contact) => (
+                          <motion.tr
+                            key={contact.id}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.3 }}
+                          >
+                            <td className="px-6 py-4 whitespace-nowrap">
                               <input
                                 type="checkbox"
                                 checked={selectedContactIds.includes(contact.id)}
                                 onChange={() => handleSelectContact(contact.id)}
-                                className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                               />
-                            )}
-                            <input
-                              type="checkbox"
-                              checked={contact.status === 'Closed'}
-                              onChange={() => {
-                                setIsEditMode(true);
-                                setSelectedContact(contact);
-                                setNewContact({
-                                  ...contact,
-                                  status: contact.status === 'Closed' ? 'New' : 'Closed',
-                                });
-                                setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
-                                setMode('manual');
-                                setShowTasks(false);
-                              }}
-                              className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                            />
-                            <div>
-                              <p className="font-semibold text-gray-800">{contact.first_name} {contact.last_name}</p>
-                              <p className="text-sm text-gray-600">{contact.email}</p>
-                              <p className="text-sm text-red-500 font-medium">{getReminder(contact)}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <motion.span
-                              className={`px-2 py-1 rounded text-xs font-medium border ${getPriorityBadgeClass(contact.priority)} flex items-center`}
-                              animate={{
-                                scale: contact.priority === 'hot' ? [1, 1.1, 1] : 1,
-                                transition: contact.priority === 'hot' ? { repeat: Infinity, duration: 1.5 } : {}
-                              }}
-                            >
-                              {getPriorityEmoji(contact.priority)}
-                              <span className="ml-1">{contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'}</span>
-                            </motion.span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(contact.status)}`}>
-                              {contact.status || 'New'}
-                            </span>
-                            <motion.button
-                              onClick={() => handleViewContact(contact)}
-                              className="p-1 text-gray-500 hover:text-blue-600"
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              title="View Task"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </motion.button>
-                            {(profile?.role === 'agent' || profile?.role === 'admin') && (
-                              <>
-                                <motion.button
-                                  onClick={() => {
-                                    setIsEditMode(true);
-                                    setSelectedContact(contact);
-                                    setNewContact(contact);
-                                    setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
-                                    setMode('manual');
-                                    setShowTasks(false);
-                                  }}
-                                  className="p-1 text-gray-500 hover:text-indigo-600"
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  title="Edit Task"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </motion.button>
-                                <motion.button
-                                  onClick={() => handleDeleteContact(contact.id)}
-                                  className="p-1 text-gray-500 hover:text-red-600"
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  title="Delete Task"
-                                >
-                                  <Trash className="w-4 h-4" />
-                                </motion.button>
-                                <motion.button
-                                  onClick={() => handleDownloadPDF(contact)}
-                                  className="p-1 text-gray-500 hover:text-green-600"
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  title="Download Task PDF"
-                                >
-                                  <Download className="w-4 h-4" />
-                                </motion.button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-600">
-                          <div>
-                            <p><span className="font-medium">Email:</span> {contact.email}</p>
-                            {contact.phone_number && (
-                              <p><span className="font-medium">Phone:</span> {contact.phone_number}</p>
-                            )}
-                            <p><span className="font-medium">Mobile:</span> {contact.mobile || 'N/A'}</p>
-                            <p>
-                              <span className="font-medium">Address:</span>{' '}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={contact.status === 'Closed'}
+                                onChange={() => {
+                                  setIsEditMode(true);
+                                  setSelectedContact(contact);
+                                  setNewContact({
+                                    ...contact,
+                                    status: contact.status === 'Closed' ? 'New' : 'Closed',
+                                  });
+                                  setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
+                                  setMode('manual');
+                                  setShowTasks(false);
+                                }}
+                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                              />
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {contact.first_name} {contact.last_name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{contact.email}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{contact.phone_number || 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{contact.mobile || 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {contact.street_number && contact.street_name
                                 ? `${contact.street_number} ${contact.street_name}, ${contact.suburb || ''} ${contact.postcode || ''}`
                                 : 'N/A'}
-                            </p>
-                            <p><span className="font-medium">House Type:</span> {contact.house_type || 'N/A'}</p>
-                            <p>
-                              <span className="font-medium">Call Back:</span>{' '}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{contact.house_type || 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {contact.call_back_date
                                 ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
                                 : 'N/A'}
-                            </p>
-                            <p>
-                              <span className="font-medium">Priority:</span>{' '}
-                              {contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} {getPriorityEmoji(contact.priority)}
-                            </p>
-                            {profile?.role === 'admin' && (
-                              <p><span className="font-medium">Agent:</span> {agents.find(a => a.id === contact.agent_id)?.username || 'N/A'}</p>
-                            )}
-                          </div>
-                          <div>
-                            <p><span className="font-medium">Appraisals:</span> {contact.needs_monthly_appraisals ? 'Yes' : 'No'}</p>
-                            <p><span className="font-medium">Requirements:</span> {(contact.requirements || 'N/A').substring(0, 100) + (contact.requirements && contact.requirements.length > 100 ? '...' : '')}</p>
-                            <div className="flex items-center space-x-2">
-                              <p className="font-medium">Notes:</p>
-                              <motion.button
-                                onClick={() => {
-                                  setSelectedNotes(contact.notes || 'N/A');
-                                  setShowNotesModal(true);
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500">{getReminder(contact)}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <motion.span
+                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getPriorityBadgeClass(contact.priority)}`}
+                                animate={{
+                                  scale: contact.priority === 'hot' ? [1, 1.1, 1] : 1,
+                                  transition: contact.priority === 'hot' ? { repeat: Infinity, duration: 1.5 } : {}
                                 }}
-                                className="p-1 text-gray-500 hover:text-blue-600"
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                title="View Notes"
                               >
-                                <Eye className="w-4 h-4" />
-                              </motion.button>
-                            </div>
-                            <p className="text-gray-600 whitespace-pre-wrap">{(contact.notes || 'N/A').substring(0, 100) + (contact.notes && contact.notes.length > 100 ? '...' : '')}</p>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                                {getPriorityEmoji(contact.priority)} {contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'}
+                              </motion.span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(contact.status)}`}>
+                                {contact.status || 'New'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {contact.needs_monthly_appraisals ? 'Yes' : 'No'}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500">
+                              {(contact.requirements || 'N/A').substring(0, 50) + (contact.requirements && contact.requirements.length > 50 ? '...' : '')}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500">
+                              <div className="flex items-center space-x-2">
+                                <span>{(contact.notes || 'N/A').substring(0, 50) + (contact.notes && contact.notes.length > 50 ? '...' : '')}</span>
+                                {contact.notes && contact.notes.length > 50 && (
+                                  <motion.button
+                                    onClick={() => {
+                                      setSelectedNotes(contact.notes || 'N/A');
+                                      setShowNotesModal(true);
+                                    }}
+                                    className="p-1 text-gray-500 hover:text-blue-600"
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    title="View Notes"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </motion.button>
+                                )}
+                              </div>
+                            </td>
+                            {profile?.role === 'admin' && (
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {agents.find(a => a.id === contact.agent_id)?.name || 'N/A'}
+                              </td>
+                            )}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex space-x-2">
+                                <motion.button
+                                  onClick={() => handleViewContact(contact)}
+                                  className="text-gray-500 hover:text-blue-600"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  title="View Task"
+                                >
+                                  <Eye className="w-5 h-5" />
+                                </motion.button>
+                                {(profile?.role === 'agent' || profile?.role === 'admin') && (
+                                  <>
+                                    <motion.button
+                                      onClick={() => {
+                                        setIsEditMode(true);
+                                        setSelectedContact(contact);
+                                        setNewContact(contact);
+                                        setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
+                                        setMode('manual');
+                                        setShowTasks(false);
+                                      }}
+                                      className="text-gray-500 hover:text-indigo-600"
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                      title="Edit Task"
+                                    >
+                                      <Edit className="w-5 h-5" />
+                                    </motion.button>
+                                    <motion.button
+                                      onClick={() => handleDeleteContact(contact.id)}
+                                      className="text-gray-500 hover:text-red-600"
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                      title="Delete Task"
+                                    >
+                                      <Trash className="w-5 h-5" />
+                                    </motion.button>
+                                    <motion.button
+                                      onClick={() => handleDownloadPDF(contact)}
+                                      className="text-gray-500 hover:text-green-600"
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                      title="Download Task PDF"
+                                    >
+                                      <Download className="w-5 h-5" />
+                                    </motion.button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </>
                 )}
               </motion.div>

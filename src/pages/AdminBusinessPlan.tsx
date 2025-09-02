@@ -1,30 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Target, 
-  DollarSign, 
-  FileText, 
-  Save,
-  RotateCcw,
+import jsPDF from 'jspdf';
+import {
+  ArrowRight,
   BarChart3,
+  ChevronDown,
+  ChevronUp,
+  DollarSign,
   Download,
   Eye,
-  X,
-  Users,
-  PieChart,
-  ArrowRight,
-  Settings,
+  FileText,
   Plus,
+  RotateCcw,
+  Save,
+  Settings,
+  Target,
   Trash2,
-  ChevronDown,
-  ChevronUp
+  Users,
+  X
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { useAuthStore } from '../store/authStore';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
-import jsPDF from 'jspdf';
+import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/authStore';
 // import 'jspdf-autotable';
 import autoTable from 'jspdf-autotable';
 import { v4 as uuidv4 } from 'uuid';
@@ -87,6 +86,7 @@ interface AgentData {
   business_commission_percentage: number | null;
   agent_commission_percentage: number | null;
   franchise_percentage: number | null;
+  super_amount: number | null;
 }
 
 interface RatioSliderProps {
@@ -269,101 +269,127 @@ export function AdminBusinessPlan() {
       toast.error('Failed to load available agents');
     }
   };
-  const fetchSavedAgentPlans = async () => {
-    if (!user?.id) {
-      console.error('No user ID found. Cannot fetch saved plans.');
-      toast.error('User not authenticated. Please log in.');
+// In the fetchSavedAgentPlans function, update the query to get agent names from profiles
+const fetchSavedAgentPlans = async () => {
+  if (!user?.id) {
+    console.error('No user ID found. Cannot fetch saved plans.');
+    toast.error('User not authenticated. Please log in.');
+    return;
+  }
+  
+  setLoading(true);
+  try {
+    // First get agent business plans
+    const { data: plansData, error: plansError } = await supabase
+      .from('agent_business_plans')
+      .select(`
+        id,
+        agent_id,
+        business_commission_percentage,
+        agent_commission_percentage,
+        franchise_percentage,
+        business_amount,
+        agent_amount,
+        period_type,
+        created_at,
+        updated_at
+      `)
+      .order('created_at', { ascending: false });
+
+    if (plansError) {
+      console.error('Supabase error fetching saved agent plans:', plansError);
+      throw plansError;
+    }
+
+    if (!plansData || plansData.length === 0) {
+      console.log('No saved agent plans found.');
+      toast.info('No saved agent plans found.');
+      setSavedPlans([]);
+      setPlan(prev => ({ ...prev, agents: [] }));
       return;
     }
 
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('agent_business_plans')
-        .select(`
-          id,
-          agent_id,
-          agent_name,
-          business_commission_percentage,
-          agent_commission_percentage,
-          franchise_percentage,
-          business_amount,
-          agent_amount,
-          created_at,
-          updated_at
-        `)
-        .order('created_at', { ascending: false });
+    // Get unique agent IDs
+    const agentIds = [...new Set(plansData.map(plan => plan.agent_id))];
+    
+    // Fetch agent names from profiles table
+    const { data: agentsData, error: agentsError } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .in('id', agentIds);
 
-      if (error) {
-        console.error('Supabase error fetching saved agent plans:', error);
-        throw error;
-      }
-
-      if (!data || data.length === 0) {
-        console.log('No saved agent plans found.');
-        toast.info('No saved agent plans found.');
-        setSavedPlans([]);
-        setPlan(prev => ({ ...prev, agents: [] }));
-        return;
-      }
-
-      console.log('Fetched saved agent plans:', data);
-      // Remove duplicates by agent_id - keep only the latest entry for each agent
-      const uniquePlansMap = new Map();
-      data.forEach(plan => {
-        if (!uniquePlansMap.has(plan.agent_id) || 
-            new Date(plan.created_at) > new Date(uniquePlansMap.get(plan.agent_id).created_at)) {
-          uniquePlansMap.set(plan.agent_id, plan);
-        }
-      });
-      
-      const uniquePlans = Array.from(uniquePlansMap.values());
-      
-      console.log('Unique saved agent plans after deduplication:', uniquePlans);
-
-
-      // Clean and validate data
-      const cleanedPlans = uniquePlans.map(plan => ({
-        id: plan.id,
-        agent_id: plan.agent_id,
-        agent_name: plan.agent_name || 'Unknown',
-        business_commission_percentage: plan.business_commission_percentage != null ? Math.round(plan.business_commission_percentage) : null,
-        agent_commission_percentage: plan.agent_commission_percentage != null ? Math.round(plan.agent_commission_percentage) : null,
-        franchise_percentage: plan.franchise_percentage != null ? Math.round(plan.franchise_percentage) : null,
-        business_amount: plan.business_amount != null && !isNaN(plan.business_amount) ? Math.round(plan.business_amount) : null,
-        agent_amount: plan.agent_amount != null && !isNaN(plan.agent_amount) ? Math.round(plan.agent_amount) : null,
-        created_at: plan.created_at,
-        updated_at: plan.updated_at,
-      }));
-
-      // Update plan.agents with data from agent_business_plans
-      const updatedAgents: AgentFinancials[] = cleanedPlans.map(plan => ({
-        name: plan.agent_name,
-        agent_id: plan.agent_id,
-        commission_amount: plan.business_amount != null && plan.agent_amount != null ? plan.business_amount + plan.agent_amount : null,
-        franchise_amount: plan.franchise_percentage != null && plan.business_amount != null ? Math.round(plan.business_amount * (plan.franchise_percentage / 100)) : null,
-        marketing_expenses: null,
-        super_amount: null,
-        business_commission_percentage: plan.business_commission_percentage,
-        agent_commission_percentage: plan.agent_commission_percentage,
-        franchise_percentage: plan.franchise_percentage,
-        business_amount: plan.business_amount,
-        agent_amount: plan.agent_amount,
-      }));
-
-      setSavedPlans(cleanedPlans);
-      setPlan(prev => ({
-        ...prev,
-        agents: updatedAgents,
-      }));
-      toast.success('Saved agent plans loaded successfully!');
-    } catch (error: any) {
-      console.error('Error fetching saved agent plans:', error.message, error.details, error.hint);
-      toast.error('Failed to load saved agent plans. Please check your database configuration.');
-    } finally {
-      setLoading(false);
+    if (agentsError) {
+      console.error('Error fetching agent names:', agentsError);
+      throw agentsError;
     }
-  };
+
+    // Create a map of agent IDs to names
+    const agentNameMap = new Map();
+    agentsData?.forEach(agent => {
+      agentNameMap.set(agent.id, agent.name);
+    });
+
+    // Combine the data
+    const plansWithAgentNames = plansData.map(plan => ({
+      ...plan,
+      agent_name: agentNameMap.get(plan.agent_id) || 'Unknown Agent'
+    }));
+
+    // Remove duplicates by agent_id - keep only the latest entry for each agent
+    const uniquePlansMap = new Map();
+    plansWithAgentNames.forEach(plan => {
+      if (!uniquePlansMap.has(plan.agent_id) || 
+          new Date(plan.created_at) > new Date(uniquePlansMap.get(plan.agent_id).created_at)) {
+        uniquePlansMap.set(plan.agent_id, plan);
+      }
+    });
+
+    const uniquePlans = Array.from(uniquePlansMap.values());
+    
+    // Clean and validate data
+    const cleanedPlans = uniquePlans.map(plan => ({
+      id: plan.id,
+      agent_id: plan.agent_id,
+      agent_name: plan.agent_name,
+      business_commission_percentage: plan.business_commission_percentage != null ? Math.round(plan.business_commission_percentage) : null,
+      agent_commission_percentage: plan.agent_commission_percentage != null ? Math.round(plan.agent_commission_percentage) : null,
+      franchise_percentage: plan.franchise_percentage != null ? Math.round(plan.franchise_percentage) : null,
+      business_amount: plan.business_amount != null && !isNaN(plan.business_amount) ? Math.round(plan.business_amount) : null,
+      agent_amount: plan.agent_amount != null && !isNaN(plan.agent_amount) ? Math.round(plan.agent_amount) : null,
+      period_type: plan.period_type,
+      created_at: plan.created_at,
+      updated_at: plan.updated_at,
+    }));
+
+    // Update plan.agents with data from agent_business_plans
+    const updatedAgents: AgentFinancials[] = cleanedPlans.map(plan => ({
+      name: plan.agent_name,
+      agent_id: plan.agent_id,
+      commission_amount: plan.business_amount != null && plan.agent_amount != null ? plan.business_amount + plan.agent_amount : null,
+      franchise_amount: plan.franchise_percentage != null && plan.business_amount != null ? Math.round(plan.business_amount * (plan.franchise_percentage / 100)) : null,
+      marketing_expenses: null,
+      super_amount: null,
+      business_commission_percentage: plan.business_commission_percentage,
+      agent_commission_percentage: plan.agent_commission_percentage,
+      franchise_percentage: plan.franchise_percentage,
+      business_amount: plan.business_amount,
+      agent_amount: plan.agent_amount,
+    }));
+
+    setSavedPlans(cleanedPlans);
+    setPlan(prev => ({
+      ...prev,
+      agents: updatedAgents,
+    }));
+
+    toast.success('Saved agent plans loaded successfully!');
+  } catch (error: any) {
+    console.error('Error fetching saved agent plans:', error.message, error.details, error.hint);
+    toast.error('Failed to load saved agent plans. Please check your database configuration.');
+  } finally {
+    setLoading(false);
+  }
+};
   // New function to fetch saved admin plans
   const fetchSavedAdminPlans = async () => {
     if (!user?.id) {
@@ -701,7 +727,6 @@ const calculateAgentData = () => {
       commission_amount,
       franchise_amount,
       marketing_expenses,
-      super_amount,
       business_commission_percentage: agentBusinessPercentage,
       agent_commission_percentage: agentAgentPercentage,
       franchise_percentage,
@@ -710,10 +735,11 @@ const calculateAgentData = () => {
     } = agent;
 
     const scaleFactor = timeFrame === 'monthly' ? 12 : timeFrame === 'weekly' ? 52 : 1;
-    const scaledCommission = commission_amount != null ? commission_amount * scaleFactor : null;
-    const scaledFranchise = franchise_amount != null ? franchise_amount * scaleFactor : null;
-    const scaledMarketing = marketing_expenses != null ? marketing_expenses * scaleFactor : null;
-    const scaledSuper = super_amount != null ? super_amount * scaleFactor : null;
+    const scaledCommission = commission_amount != null ? commission_amount * scaleFactor : 0;
+    const scaledFranchise = franchise_amount != null ? franchise_amount * scaleFactor : 0;
+    const scaledMarketing = marketing_expenses != null ? marketing_expenses * scaleFactor : 0;
+     // Calculate super amount as 10% of commission
+    const superAmount = scaledCommission != null ? Math.round(scaledCommission * 0.1) : 0;
 
     const calculatedFranchiseAmount =
       scaledCommission && franchise_percentage != null
@@ -739,24 +765,22 @@ const calculateAgentData = () => {
 
     const businessExpenses =
       scaledMarketing != null && business_expenses_percentage != null
-        ? Math.round((scaledMarketing * business_expenses_percentage) / 100)
+        ? Math.round((scaledMarketing* business_expenses_percentage) / 100)
         : null;
 
     const agentExpenses =
       scaledMarketing != null && agent_expenses_percentage != null
         ? Math.round((scaledMarketing * agent_expenses_percentage) / 100)
         : null;
-
-    // CHANGED: Business earnings = business commission - market expenses - super
+// ✅ New Logic
     const businessEarnings =
-      businessCommission != null && businessExpenses != null && additionalExpenses != null && scaledSuper != null
-        ? Math.round(businessCommission - businessExpenses - (additionalExpenses / uniqueAgents.length) - scaledSuper)
+      businessCommission != null
+        ? Math.round(businessCommission - scaledMarketing-additionalExpensesTotal - superAmount)
         : null;
 
-    // CHANGED: Agent earnings = agent commission - market expenses + super
     const agentEarnings =
-      agentCommission != null && agentExpenses != null && scaledSuper != null
-        ? Math.round(agentCommission - agentExpenses + scaledSuper)
+      agentCommission != null
+        ? Math.round(agentCommission - scaledMarketing + superAmount)
         : null;
 
     return {
@@ -771,6 +795,7 @@ const calculateAgentData = () => {
       business_commission_percentage: agentBusinessPercentage,
       agent_commission_percentage: agentAgentPercentage,
       franchise_percentage,
+      super_amount: superAmount, // Add super amount to the returned data
     };
   });
 };
@@ -1417,21 +1442,23 @@ const downloadPlan = () => {
                 <ArrowRight className="w-4 h-4 mr-2" />
                 View Agent Business Plan
               </button>
+            
               <button
                 onClick={() => {
-                  setShowSavedPlans(true);
-                  // Scroll to saved plans section
+                  fetchSavedAdminPlans(); // Fetch admin plans specifically
+                  setShowViewSavedButton(true);
+                  // Scroll to saved admin plans section
                   setTimeout(() => {
-                    const savedPlansSection = document.getElementById('saved-plans-section');
+                    const savedPlansSection = document.getElementById('saved-admin-plans-section');
                     if (savedPlansSection) {
                       savedPlansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                   }, 100);
                 }}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 <Eye className="w-4 h-4 mr-2" />
-                View Saved Plans
+                View Saved Admin Plans
               </button>
               <button
                 onClick={resetToDefaults}
@@ -1495,6 +1522,8 @@ const downloadPlan = () => {
             <p className="text-red-600 mt-2 text-sm">Please select a time frame to proceed with entering the plan.</p>
           )}
         </motion.div>
+       
+        
 
         {showPlan && (
           <motion.div
@@ -1823,8 +1852,7 @@ const downloadPlan = () => {
                     <th className="p-3 border-b text-blue-700 w-[12%] text-center">Business Commission</th>
                     <th className="p-3 border-b text-blue-700 w-[12%] text-center">Agent Commission</th>
                     <th className="p-3 border-b text-blue-700 w-[12%] text-center">Franchise Fee</th>
-                    <th className="p-3 border-b text-blue-700 w-[12%] text-center">Business Expenses</th>
-                    <th className="p-3 border-b text-blue-700 w-[12%] text-center">Agent Expenses</th>
+                    
                     <th className="p-3 border-b text-blue-700 w-[12%] text-center">Business Earnings</th>
                     <th className="p-3 border-b text-blue-700 w-[15%] text-center">Agent Earnings</th>
                   </tr>
@@ -1836,8 +1864,6 @@ const downloadPlan = () => {
                       <td className="p-3 text-blue-600 text-center">{agent.business_commission != null ? `$${Math.round(agent.business_commission).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.agent_commission != null ? `$${Math.round(agent.agent_commission).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.franchise_fee != null ? `$${Math.round(agent.franchise_fee).toLocaleString()}` : 'N/A'}</td>
-                      <td className="p-3 text-blue-600 text-center">{agent.business_expenses != null ? `$${Math.round(agent.business_expenses).toLocaleString()}` : 'N/A'}</td>
-                      <td className="p-3 text-blue-600 text-center">{agent.agent_expenses != null ? `$${Math.round(agent.agent_expenses).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.business_earnings != null ? `$${Math.round(agent.business_earnings).toLocaleString()}` : 'N/A'}</td>
                       <td className="p-3 text-blue-600 text-center">{agent.agent_earnings != null ? `$${Math.round(agent.agent_earnings).toLocaleString()}` : 'N/A'}</td>
                     </tr>
@@ -1847,8 +1873,6 @@ const downloadPlan = () => {
                     <td className="p-3 text-blue-600 text-center">{totals.business_commission ? `$${Math.round(totals.business_commission).toLocaleString()}` : 'N/A'}</td>
                     <td className="p-3 text-blue-600 text-center">{totals.agent_commission ? `$${Math.round(totals.agent_commission).toLocaleString()}` : 'N/A'}</td>
                     <td className="p-3 text-blue-600 text-center">{totals.franchise_fee ? `$${Math.round(totals.franchise_fee).toLocaleString()}` : 'N/A'}</td>
-                    <td className="p-3 text-blue-600 text-center">{totals.business_expenses ? `$${Math.round(totals.business_expenses).toLocaleString()}` : 'N/A'}</td>
-                    <td className="p-3 text-blue-600 text-center">{totals.agent_expenses ? `$${Math.round(totals.agent_expenses).toLocaleString()}` : 'N/A'}</td>
                     <td className="p-3 text-blue-600 text-center">{totals.business_earnings ? `$${Math.round(totals.business_earnings).toLocaleString()}` : 'N/A'}</td>
                     <td className="p-3 text-blue-600 text-center">{totals.agent_earnings ? `$${Math.round(totals.agent_earnings).toLocaleString()}` : 'N/A'}</td>
                   </tr>
@@ -1960,6 +1984,169 @@ const downloadPlan = () => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </motion.div>
+        )}
+        {showViewSavedButton && savedAdminPlans.length > 0 && (
+          <motion.div
+            id="saved-admin-plans-section"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white rounded-lg p-6 shadow-sm border border-blue-200 mb-8"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center">
+                <FileText className="w-5 h-5 mr-2 text-blue-600" />
+                Saved Admin Business Plans
+              </h2>
+              <button
+                onClick={() => setShowViewSavedButton(!showViewSavedButton)}
+                className="p-2 rounded-full hover:bg-gray-100"
+              >
+                {showViewSavedButton ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
+              </button>
+            </div>
+            
+            {showViewSavedButton && (
+              <div className="overflow-x-auto">
+                {savedAdminPlans.map((adminPlan, index) => (
+                  <div key={adminPlan.id || index} className="mb-6 border-b border-gray-200 pb-6">
+                    <h3 className="text-md font-semibold text-blue-800 mb-3">
+                      Plan Created: {adminPlan.created_at ? new Date(adminPlan.created_at).toLocaleDateString() : 'N/A'}
+                    </h3>
+                    
+                    {/* Agent Financials */}
+                    <h4 className="text-sm font-medium text-blue-700 mb-2">Agent Financials:</h4>
+                    <table className="w-full text-left border-collapse table-fixed mb-4">
+                      <thead>
+                        <tr className="bg-blue-100">
+                          <th className="p-2 border-b text-blue-700 text-center">Agent</th>
+                          <th className="p-2 border-b text-blue-700 text-center">Commission</th>
+                          <th className="p-2 border-b text-blue-700 text-center">Franchise Fee</th>
+                          <th className="p-2 border-b text-blue-700 text-center">Business %</th>
+                          <th className="p-2 border-b text-blue-700 text-center">Agent %</th>
+                          <th className="p-2 border-b text-blue-700 text-center">Business Amount</th>
+                          <th className="p-2 border-b text-blue-700 text-center">Agent Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminPlan.agents && adminPlan.agents.map((agent, agentIndex) => (
+                          <tr key={agentIndex} className="border-b hover:bg-blue-50">
+                            <td className="p-2 text-blue-700 text-center">{agent.name || 'N/A'}</td>
+                            <td className="p-2 text-blue-600 text-center">
+                              {agent.commission_amount ? `$${Math.round(agent.commission_amount).toLocaleString()}` : 'N/A'}
+                            </td>
+                            <td className="p-2 text-blue-600 text-center">
+                              {agent.franchise_amount ? `$${Math.round(agent.franchise_amount).toLocaleString()}` : 'N/A'}
+                            </td>
+                            <td className="p-2 text-blue-600 text-center">
+                              {agent.business_commission_percentage ? `${Math.round(agent.business_commission_percentage)}%` : 'N/A'}
+                            </td>
+                            <td className="p-2 text-blue-600 text-center">
+                              {agent.agent_commission_percentage ? `${Math.round(agent.agent_commission_percentage)}%` : 'N/A'}
+                            </td>
+                            <td className="p-2 text-blue-600 text-center">
+                              {agent.business_amount ? `$${Math.round(agent.business_amount).toLocaleString()}` : 'N/A'}
+                            </td>
+                            <td className="p-2 text-blue-600 text-center">
+                              {agent.agent_amount ? `$${Math.round(agent.agent_amount).toLocaleString()}` : 'N/A'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {/* Additional Expenses */}
+                    <h4 className="text-sm font-medium text-blue-700 mb-2">Additional Expenses:</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Rent: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.rent ? `$${Math.round(adminPlan.rent).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Staff Salary: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.staff_salary ? `$${Math.round(adminPlan.staff_salary).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Internet: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.internet ? `$${Math.round(adminPlan.internet).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Fuel: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.fuel ? `$${Math.round(adminPlan.fuel).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Other Expenses: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.other_expenses ? `$${Math.round(adminPlan.other_expenses).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Total Expenses: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.rent && adminPlan.staff_salary && adminPlan.internet && adminPlan.fuel && adminPlan.other_expenses ? 
+                            `$${Math.round(
+                              adminPlan.rent + adminPlan.staff_salary + adminPlan.internet + 
+                              adminPlan.fuel + adminPlan.other_expenses
+                            ).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Profit/Loss Summary */}
+                    <h4 className="text-sm font-medium text-blue-700 mb-2">Profit/Loss Summary:</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Total Business Commission: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.agents ? 
+                            `$${Math.round(adminPlan.agents.reduce((sum, agent) => sum + (agent.business_amount || 0), 0)).toLocaleString()}` : 
+                            'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Total Agent Commission: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.agents ? 
+                            `$${Math.round(adminPlan.agents.reduce((sum, agent) => sum + (agent.agent_amount || 0), 0)).toLocaleString()}` : 
+                            'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Total Expenses: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.rent && adminPlan.staff_salary && adminPlan.internet && adminPlan.fuel && adminPlan.other_expenses ? 
+                            `$${Math.round(
+                              adminPlan.rent + adminPlan.staff_salary + adminPlan.internet + 
+                              adminPlan.fuel + adminPlan.other_expenses
+                            ).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-blue-800">Net Profit/Loss: </span>
+                        <span className="text-sm text-blue-600">
+                          {adminPlan.agents && adminPlan.rent && adminPlan.staff_salary && adminPlan.internet && 
+                          adminPlan.fuel && adminPlan.other_expenses ? 
+                            `$${Math.round(
+                              adminPlan.agents.reduce((sum, agent) => sum + (agent.business_amount || 0), 0) -
+                              (adminPlan.rent + adminPlan.staff_salary + adminPlan.internet + 
+                              adminPlan.fuel + adminPlan.other_expenses)
+                            ).toLocaleString()}` : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </div>

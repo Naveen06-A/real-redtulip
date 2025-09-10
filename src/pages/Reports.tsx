@@ -26,9 +26,6 @@ import { AgentPropertyMap } from './AgentPropertyMap';
 import { EditModal } from './EditModal';
 import type { CommissionEarner, Agent, Agency } from '../types/types';
 import { TopLister } from '../types/types';
-// import { PropertyDetails, PropertyMetrics, Filters } from './Reports';
-import { PropertyReportPage } from './PropertyReportPage';
-import CommissionByAgency from './CommissionByAgency';
 import {
   formatCurrency,
   normalizeSuburb,
@@ -56,8 +53,6 @@ interface User {
   email?: string;
 }
 
-const ITEMS_PER_PAGE = 10;
-
 const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) => (
   <div className="text-red-600 p-4" role="alert">
     <p>Error: {error.message}</p>
@@ -78,6 +73,7 @@ export interface Filters {
   agents: string[];
   agency_names: string[];
 }
+
 export interface PropertyDetails {
   id: string;
   street_name: string | null;
@@ -108,6 +104,7 @@ export interface PropertyDetails {
   same_street_sales: any[] | null;
   past_records: any[] | null;
 }
+
 export interface PropertyMetrics {
   listingsBySuburb: Record<string, { listed: number; sold: number }>;
   listingsByStreetName: Record<string, { listed: number; sold: number }>;
@@ -135,9 +132,9 @@ export interface PropertyMetrics {
   ourAgentStats: Agent[];
   topAgencies: Agency[];
   ourAgencyStats: Agency[];
-  [key: string]: any;
-
+  [key: string]: unknown;
 }
+
 export function Reports() {
   const [properties, setProperties] = useState<PropertyDetails[]>([]);
   const [filteredProperties, setFilteredProperties] = useState<PropertyDetails[]>([]);
@@ -169,6 +166,7 @@ export function Reports() {
   }));
   const propertiesTableRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   useEffect(() => {
     console.log('Clearing localStorage reportFilters and resetting filters on mount');
@@ -196,32 +194,155 @@ export function Reports() {
     updateFilterSuggestions(properties);
   }, [properties, updateFilterSuggestions]);
 
-  useEffect(() => {
-    if (user) {
-      console.log('User authenticated, fetching data:', user);
-      fetchData();
-      const subscription = supabase
-        .channel('properties')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'properties' },
-          () => {
-            console.log('Properties table changed, refetching data');
-            fetchData();
-          }
-        )
-        .subscribe();
+  const debouncedGenerateMetrics = useCallback(
+    debounce((props: PropertyDetails[]) => {
+      try {
+        console.log('Generating metrics for properties:', props.length);
+        const metrics = generatePropertyMetrics(props, predictFutureAvgPriceBySuburb);
+        setPropertyMetrics(metrics);
+      } catch (err) {
+        console.error('Error generating metrics:', err);
+        setError('Failed to generate property metrics');
+      }
+    }, 300),
+    []
+  );
 
-      return () => {
-        console.log('Cleaning up Supabase subscription');
-        supabase.removeChannel(subscription);
-      };
-    } else {
-      console.warn('No user authenticated, skipping data fetch');
-      setError('Please log in to view reports');
+  // Fetch basic property data first, then enrich in background
+  const fetchBasicProperties = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      if (!navigator.onLine) {
+        throw new Error('No internet connection. Please check your network.');
+      }
+
+      console.log('Fetching basic properties...');
+
+      // Only select columns that actually exist in the database
+      const { data: propData, error: propError } = await supabase
+        .from('properties')
+        .select('id, street_name, street_number, agent_name, suburb, postcode, price, sold_price, category, property_type, agency_name, commission, expected_price, sale_type, bedrooms, bathrooms, car_garage, sqm, landsize, listed_date, sold_date, flood_risk, bushfire_risk, contract_status, features')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (propError) {
+        console.error('Supabase error:', propError);
+        throw new Error(`Property fetch error: ${propError.message}`);
+      }
+
+      if (!propData || propData.length === 0) {
+        setProperties([]);
+        setFilteredProperties([]);
+        setPropertyMetrics(null);
+        setLoading(false);
+        return;
+      }
+
+      const normalizedPropData = propData.map((prop) => ({
+        ...prop,
+        suburb: normalizeSuburb(prop.suburb || ''),
+        commission_earned: prop.commission_earned || null, // Handle missing column
+        same_street_sales: [],
+        past_records: []
+      }));
+
+      const propertiesWithUserData = userProperty && location.state
+        ? [...normalizedPropData, { 
+            ...userProperty, 
+            suburb: normalizeSuburb(userProperty.suburb || ''),
+            commission_earned: userProperty.commission_earned || null
+          }]
+        : normalizedPropData;
+
+      console.log('Basic properties loaded:', propertiesWithUserData.length);
+      setProperties(propertiesWithUserData);
+      setFilteredProperties(propertiesWithUserData);
+      debouncedGenerateMetrics(propertiesWithUserData);
+      
+      // Start background enrichment process
+      enrichPropertiesInBackground(propertiesWithUserData);
+      
+    } catch (err: unknown) {
+      console.error('Fetch error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
+      
+      // Handle specific column errors
+      if (errorMessage.includes('commission_earned')) {
+        setError('Database schema mismatch. Please check your table columns.');
+      } else {
+        setError(errorMessage);
+      }
+      
+      toast.error(errorMessage);
+    } finally {
       setLoading(false);
+      setIsInitialLoad(false);
     }
-  }, [user]);
+  };
+
+  // Enrich properties in background without blocking UI
+  const enrichPropertiesInBackground = async (props: PropertyDetails[]) => {
+    if (props.length === 0) return;
+    
+    console.log('Starting background property enrichment...');
+    
+    const MAX_PROPERTIES = 30; // Process even fewer properties for enrichment
+    
+    for (let i = 0; i < Math.min(props.length, MAX_PROPERTIES); i++) {
+      const prop = props[i];
+      
+      try {
+        // Process enrichment in small batches with delay
+        if (i % 3 === 0 && i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+
+        // Fetch same street sales and past records in parallel
+        const [sameStreetSalesResult, pastRecordsResult] = await Promise.allSettled([
+          supabase
+            .from('properties')
+            .select('address, sale_price, property_type, sale_date, suburb')
+            .eq('street_name', prop.street_name || '')
+            .neq('id', prop.id)
+            .limit(3),
+          supabase
+            .from('past_records')
+            .select('suburb, postcode, property_type, price, listing_date, sale_date, status')
+            .eq('property_id', prop.id)
+            .limit(5)
+        ]);
+
+        const sameStreetSales = sameStreetSalesResult.status === 'fulfilled' && sameStreetSalesResult.value.data
+          ? sameStreetSalesResult.value.data.map((sale: any) => ({
+              ...sale,
+              suburb: normalizeSuburb(sale.suburb || ''),
+            }))
+          : [];
+
+        const pastRecords = pastRecordsResult.status === 'fulfilled' && pastRecordsResult.value.data
+          ? pastRecordsResult.value.data.map((record: any) => ({
+              ...record,
+              suburb: normalizeSuburb(record.suburb || ''),
+            }))
+          : [];
+
+        // Update the specific property with enriched data
+        setProperties(prev => prev.map(p => 
+          p.id === prop.id 
+            ? { ...p, same_street_sales: sameStreetSales, past_records: pastRecords }
+            : p
+        ));
+
+      } catch (err) {
+        console.warn('Background enrichment failed for property:', prop.id, err);
+        // Continue with next property
+      }
+    }
+    
+    console.log('Background enrichment completed');
+  };
 
   const updateFilterPreview = useCallback(() => {
     try {
@@ -244,246 +365,104 @@ export function Reports() {
 
         return suburbMatch && streetNameMatch && streetNumberMatch && agentMatch && agencyMatch;
       });
-      console.log('Filter preview count updated:', previewFiltered.length, 'with filters:', filters);
+      setFilteredProperties(previewFiltered);
+      debouncedGenerateMetrics(previewFiltered);
     } catch (err) {
       console.error('Error in updateFilterPreview:', err);
       setError('Failed to apply filters');
     }
-  }, [filters, properties]);
+  }, [filters, properties, debouncedGenerateMetrics]);
 
   useEffect(() => {
     updateFilterPreview();
   }, [filters, properties, updateFilterPreview]);
 
-  const debouncedGenerateMetrics = useCallback(
-    debounce((props: PropertyDetails[]) => {
-      try {
-        console.log('Generating metrics for properties:', props.length);
-        const metrics = generatePropertyMetrics(props, predictFutureAvgPriceBySuburb);
-        setPropertyMetrics(metrics);
-      } catch (err) {
-        console.error('Error generating metrics:', err);
-        setError('Failed to generate property metrics');
-      }
-    }, 300),
-    []
-  );
+  useEffect(() => {
+    if (user) {
+      console.log('User authenticated, fetching data');
+      fetchBasicProperties();
+      
+      const subscription = supabase
+        .channel('properties')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'properties' },
+          debounce(() => {
+            console.log('Properties table changed, refetching data');
+            fetchBasicProperties();
+          }, 1000)
+        )
+        .subscribe();
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('Starting data fetch...');
-
-      let query = supabase
-        .from('properties')
-        .select('*, commission')
-        .order('created_at', { ascending: false });
-
-      const { data: propData, error: propError } = await query;
-      if (propError) {
-        console.error('Property fetch error:', propError);
-        throw new Error(`Property fetch error: ${propError.message}`);
-      }
-      console.log('Raw properties fetched from Supabase:', propData?.length || 0);
-
-      if (!propData || propData.length === 0) {
-        console.warn('No properties returned from Supabase');
-        setProperties([]);
-        setFilteredProperties([]);
-        setPropertyMetrics(null);
-        setLoading(false);
-        return;
-      }
-
-      const normalizedPropData = propData.map((prop) => ({
-        ...prop,
-        suburb: normalizeSuburb(prop.suburb || ''),
-      }));
-      console.log('Normalized properties:', normalizedPropData.length);
-
-      const propertiesWithUserData = userProperty && location.state
-        ? [...normalizedPropData, { ...userProperty, suburb: normalizeSuburb(userProperty.suburb || '') }]
-        : normalizedPropData;
-      console.log('Properties with user data:', propertiesWithUserData.length);
-
-      const enrichedProperties = await Promise.all(
-        propertiesWithUserData.map(async (prop) => {
-          try {
-            const { data: sameStreetSales, error: salesError } = await supabase
-              .from('properties')
-              .select('address, sale_price, property_type, sale_date, suburb')
-              .eq('street_name', prop.street_name || '')
-              .neq('id', prop.id)
-              .limit(5);
-
-            if (salesError) {
-              console.error('Supabase same street sales error:', salesError);
-              throw salesError;
-            }
-
-            const normalizedSales = sameStreetSales?.map((sale) => ({
-              ...sale,
-              suburb: normalizeSuburb(sale.suburb || ''),
-            })) || [];
-
-            const { data: pastRecords, error: recordsError } = await supabase
-              .from('past_records')
-              .select('suburb, postcode, property_type, price, bedrooms, bathrooms, car_garage, sqm, landsize, listing_date, sale_date, status, notes')
-              .eq('property_id', prop.id);
-
-            if (recordsError) {
-              console.error('Supabase past records error:', recordsError);
-              throw recordsError;
-            }
-
-            const normalizedRecords = pastRecords?.map((record) => ({
-              ...record,
-              suburb: normalizeSuburb(record.suburb || ''),
-            })) || [];
-
-            return {
-              ...prop,
-              same_street_sales: normalizedSales,
-              past_records: normalizedRecords,
-            };
-          } catch (err) {
-            console.error('Error enriching property:', prop.id, err);
-            return prop;
-          }
-        })
-      );
-
-      console.log('Enriched properties:', enrichedProperties.length);
-      setProperties(enrichedProperties);
-      setFilteredProperties(enrichedProperties);
-      debouncedGenerateMetrics(enrichedProperties);
-    } catch (err: any) {
-      console.error('Fetch error:', err);
-      setError(err.message || 'Failed to fetch data');
-      toast.error(err.message || 'Failed to fetch data');
-    } finally {
+      return () => {
+        supabase.removeChannel(subscription);
+      };
+    } else {
+      setError('Please log in to view reports');
       setLoading(false);
-      console.log('Fetch completed, loading:', false);
     }
-  };
-
-  const applyFilters = (filters: Filters) => {
-    try {
-      console.log('Applying filters:', filters);
-      const filtered = properties.filter((prop) => {
-        const suburbMatch =
-          filters.suburbs.length === 0 ||
-          filters.suburbs.some((suburb) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb));
-        const streetNameMatch =
-          filters.streetNames.length === 0 ||
-          filters.streetNames.some((name) => (prop.street_name || '').toLowerCase() === name.toLowerCase());
-        const streetNumberMatch =
-          filters.streetNumbers.length === 0 ||
-          filters.streetNumbers.some((num) => (prop.street_number || '').toLowerCase() === num.toLowerCase());
-        const agentMatch =
-          filters.agents.length === 0 ||
-          filters.agents.some((agent) => (prop.agent_name || '').toLowerCase() === agent.toLowerCase());
-        const agencyMatch =
-          filters.agency_names.length === 0 ||
-          filters.agency_names.some((agency) => (prop.agency_name || 'Unknown').toLowerCase() === agency.toLowerCase());
-
-        return suburbMatch && streetNameMatch && streetNumberMatch && agentMatch && agencyMatch;
-      });
-      console.log('Filtered properties:', filtered.length);
-      setFilteredProperties(filtered);
-      debouncedGenerateMetrics(filtered);
-      setCurrentPage(1);
-    } catch (err) {
-      console.error('Error applying filters:', err);
-      setError('Failed to apply filters');
-    }
-  };
-
-  const handleDeleteProperty = async (propertyId: string) => {
-    try {
-      if (!confirm('Are you sure you want to delete this property?')) return;
-
-      const { error } = await supabase
-        .from('properties')
-        .delete()
-        .eq('id', propertyId);
-
-      if (error) {
-        console.error('Error deleting property:', error);
-        throw new Error(`Failed to delete property: ${error.message}`);
-      }
-
-      setProperties((prev) => {
-        const updated = prev.filter((prop) => prop.id !== propertyId);
-        return updated;
-      });
-      setFilteredProperties((prev) => {
-        const updated = prev.filter((prop) => prop.id !== propertyId);
-        debouncedGenerateMetrics(updated);
-        return updated;
-      });
-
-      toast.success('Property deleted successfully');
-    } catch (err: any) {
-      console.error('Delete error:', err);
-      toast.error(err.message || 'Failed to delete property');
-    }
-  };
+  }, [user]);
 
   const renderGeneralCharts = () => {
-    if (!propertyMetrics) {
-      console.warn('No property metrics for general charts');
-      return <p className="text-gray-500 text-center">No chart data available</p>;
+    if (!propertyMetrics || Object.keys(propertyMetrics.avgSalePriceBySuburb).length === 0) {
+      return (
+        <div className="bg-white p-6 rounded-lg shadow-md border border-blue-100">
+          <p className="text-gray-500 text-center">No chart data available yet. Data is still loading...</p>
+        </div>
+      );
     }
 
     try {
+      const suburbKeys = Object.keys(propertyMetrics.avgSalePriceBySuburb).slice(0, 8);
+      
       const avgPriceBySuburbData = {
-        labels: Object.keys(propertyMetrics.avgSalePriceBySuburb) || [],
+        labels: suburbKeys,
         datasets: [
           {
             label: 'Average Sale Price',
-            data: Object.values(propertyMetrics.avgSalePriceBySuburb) || [],
+            data: suburbKeys.map(key => propertyMetrics.avgSalePriceBySuburb[key] || 0),
             backgroundColor: '#60A5FA',
           },
           {
             label: 'Predicted Average Price',
-            data: Object.values(propertyMetrics.predictedAvgPriceBySuburb) || [],
+            data: suburbKeys.map(key => propertyMetrics.predictedAvgPriceBySuburb[key] || 0),
             backgroundColor: '#93C5FD',
           },
         ],
       };
 
       const avgPriceBySuburbOptions: ChartOptions<'bar'> = {
+        responsive: true,
+        maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'top', labels: { font: { size: 14 } } },
+          legend: { position: 'top', labels: { font: { size: 12 } } },
           datalabels: { display: false },
-          title: { display: true, text: 'Average Sale Price by Suburb', font: { size: 18, weight: 'bold' } },
+          title: { display: true, text: 'Average Sale Price by Suburb', font: { size: 16, weight: 'bold' } },
         },
         scales: {
           y: {
             beginAtZero: true,
-            ticks: { callback: (value) => formatCurrency(value as number), font: { size: 12 } },
+            ticks: { callback: (value) => formatCurrency(value as number), font: { size: 10 } },
           },
-          x: { ticks: { font: { size: 12 } } },
+          x: { ticks: { font: { size: 10 }, maxRotation: 45 } },
         },
       };
 
       return (
-        <div className="space-y-8">
+        <div className="space-y-6">
           <motion.div
-            className="bg-white p-6 rounded-xl shadow-lg border border-blue-100 hover:shadow-xl transition-all duration-300"
+            className="bg-white p-4 rounded-lg shadow-md border border-blue-100"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.3 }}
           >
-            <h2 className="text-2xl font-semibold text-blue-800 mb-4 flex items-center">
-              <svg className="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
+            <h2 className="text-xl font-semibold text-blue-800 mb-3 flex items-center">
+              <BarChart className="w-5 h-5 mr-2 text-blue-600" />
               Average Sale Price by Suburb
             </h2>
-            <Bar data={avgPriceBySuburbData} options={avgPriceBySuburbOptions} />
+            <div className="h-64">
+              <Bar data={avgPriceBySuburbData} options={avgPriceBySuburbOptions} />
+            </div>
           </motion.div>
         </div>
       );
@@ -493,50 +472,41 @@ export function Reports() {
     }
   };
 
-  console.log('Current state:', {
-    loading,
-    error,
-    properties: properties.length,
-    filteredProperties: filteredProperties.length,
-    propertyMetrics: !!propertyMetrics,
-    user,
-    filters,
-    filterSuggestions,
-    selectedMapProperty,
-    currentPage,
-  });
-
   return (
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
       onReset={() => {
         setError(null);
-        fetchData();
+        fetchBasicProperties();
       }}
     >
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 py-8 px-4 sm:px-6 lg:px-8">
-        {loading ? (
-          <div className="flex justify-center items-center h-screen">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 py-6 px-4 sm:px-6 lg:px-8">
+        {loading && isInitialLoad ? (
+          <div className="flex justify-center items-center h-64">
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+              className="flex flex-col items-center"
             >
-              <Loader2 className="w-12 h-12 text-blue-600" />
+              <Loader2 className="w-8 h-8 text-blue-600 mb-2" />
+              <p className="text-blue-700 text-sm">Loading properties...</p>
             </motion.div>
           </div>
         ) : error ? (
-          <div className="flex justify-center items-center h-screen text-red-600">
-            <div className="text-center">
-              <svg className="w-16 h-16 mx-auto mb-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-xl font-semibold">Error: {error}</p>
+          <div className="flex justify-center items-center h-64">
+            <div className="text-center max-w-md">
+              <div className="w-12 h-12 mx-auto mb-3 text-red-600">
+                <svg fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <p className="text-lg font-semibold text-red-700 mb-2">Error Loading Data</p>
+              <p className="text-gray-600 mb-4 text-sm">{error}</p>
               <motion.button
-                onClick={() => fetchData()}
-                className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
+                onClick={fetchBasicProperties}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                aria-label="Try again"
               >
                 Try Again
               </motion.button>
@@ -545,125 +515,101 @@ export function Reports() {
         ) : (
           <div className="max-w-7xl mx-auto">
             <motion.div
-              className="flex justify-between items-center mb-8"
-              initial={{ opacity: 0, y: -20 }}
+              className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6"
+              initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
+              transition={{ duration: 0.3 }}
             >
-              <h1 className="text-4xl font-extrabold text-blue-800 flex items-center">
-                <BarChart className="w-8 h-8 mr-3 text-blue-600" />
-                Property Reports Dashboard
+              <h1 className="text-2xl sm:text-3xl font-bold text-blue-800 flex items-center">
+                <BarChart className="w-6 h-6 mr-2 text-blue-600" />
+                Property Reports
               </h1>
-              <div className="flex space-x-4">
+              <div className="flex flex-wrap gap-2">
                 <motion.button
-                  onClick={() => {
-                    console.log('Navigating to property report with state:', {
-                      propertyMetrics,
-                      filteredProperties,
-                      filters,
-                      filterSuggestions,
-                      currentPage,
-                    });
-                    navigate('/property-report-page', {
-                      state: {
-                        propertyMetrics,
-                        filteredProperties,
-                        filters,
-                        filterSuggestions,
-                        currentPage,
-                      },
-                    });
-                  }}
-                  className="px-5 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full hover:from-blue-600 hover:to-blue-700 transition-all"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  aria-label="View property report"
-                  title="View detailed property report"
+                  onClick={() => navigate('/property-report-page', { 
+                    state: { propertyMetrics, filteredProperties, filters, filterSuggestions, currentPage } 
+                  })}
+                  className="px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm flex items-center"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <FileText className="w-5 h-5 mr-2" />
+                  <FileText className="w-4 h-4 mr-1" />
                   Property Report
                 </motion.button>
                 <motion.button
-                  onClick={() => {
-                    console.log('Navigating to commissions with propertyMetrics:', propertyMetrics);
-                    navigate('/commission-by-agency', { state: { propertyMetrics } });
-                  }}
-                  className="px-5 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full hover:from-blue-600 hover:to-blue-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  aria-label="View commissions"
-                  title="View detailed commission reports"
-                  disabled={!propertyMetrics}
+                  onClick={() => navigate('/comparisons', { 
+                    state: { propertyMetrics, filteredProperties, filters, filterSuggestions, currentPage } 
+                  })}
+                  className="px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm flex items-center"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <PieChart className="w-5 h-5 mr-2" />
-                  Commissions
+                  <FileText className="w-4 h-4 mr-1" />
+                  comaparsions
                 </motion.button>
                 <motion.button
-                  onClick={() => {
-                    console.log('Navigating to comparisons with propertyMetrics:', propertyMetrics);
-                    navigate('/comparisons', { state: { propertyMetrics } });
-                  }}
-                  className="px-5 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full hover:from-blue-600 hover:to-blue-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  aria-label="View performance comparisons"
-                  title="View performance comparisons"
+                  onClick={() => navigate('/commission-by-agency', { state: { propertyMetrics } })}
+                  className="px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm flex items-center disabled:opacity-50"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   disabled={!propertyMetrics}
                 >
-                  <Users className="w-5 h-5 mr-2" />
-                  Comparisons
+                  <PieChart className="w-4 h-4 mr-1" />
+                  Commissions
                 </motion.button>
               </div>
             </motion.div>
 
             <motion.section
-              className="mb-12"
+              className="mb-8"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
             >
-              <h2 className="text-2xl font-semibold text-blue-800 mb-6 flex items-center">
-                <BarChart className="w-6 h-6 mr-2 text-blue-600" />
+              <h2 className="text-xl font-semibold text-blue-800 mb-4 flex items-center">
+                <BarChart className="w-5 h-5 mr-2 text-blue-600" />
                 Overview
               </h2>
               {renderGeneralCharts()}
             </motion.section>
 
             <motion.section
-              className="mb-12"
+              className="mb-8"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
+              transition={{ duration: 0.3, delay: 0.2 }}
             >
-              <h2 className="text-2xl font-semibold text-blue-800 mb-6 flex items-center">
-                <Map className="w-6 h-6 mr-2 text-blue-600" />
-                Property Map View
+              <h2 className="text-xl font-semibold text-blue-800 mb-4 flex items-center">
+                <Map className="w-5 h-5 mr-2 text-blue-600" />
+                Property Map
               </h2>
               {filteredProperties.length > 0 ? (
-                <AgentPropertyMap
-                  properties={filteredProperties}
-                  selectedProperty={selectedMapProperty}
-                  onPropertySelect={setSelectedMapProperty}
-                />
+                <div className="h-96">
+                  <AgentPropertyMap
+                    properties={filteredProperties}
+                    selectedProperty={selectedMapProperty}
+                    onPropertySelect={setSelectedMapProperty}
+                  />
+                </div>
               ) : (
-                <p className="text-gray-500 text-center">No properties available for map view</p>
+                <p className="text-gray-500 text-center py-8">No properties available for map view</p>
               )}
             </motion.section>
 
             <EditModal
-            showEditModal={showEditModal}
-            setShowEditModal={setShowEditModal}
-            selectedProperty={selectedProperty}
-            setSelectedProperty={setSelectedProperty}
-            properties={properties}
-            setProperties={setProperties}
-            filteredProperties={filteredProperties}
-            setFilteredProperties={setFilteredProperties}
-            debouncedGenerateMetrics={() => debouncedGenerateMetrics(properties)}
-            propertiesTableRef={propertiesTableRef}
-            pauseSubscription={() => {/* implementation */}}
-            resumeSubscription={() => {/* implementation */}}
-          />
+              showEditModal={showEditModal}
+              setShowEditModal={setShowEditModal}
+              selectedProperty={selectedProperty}
+              setSelectedProperty={setSelectedProperty}
+              properties={properties}
+              setProperties={setProperties}
+              filteredProperties={filteredProperties}
+              setFilteredProperties={setFilteredProperties}
+              debouncedGenerateMetrics={() => debouncedGenerateMetrics(properties)}
+              propertiesTableRef={propertiesTableRef}
+              pauseSubscription={() => {}}
+              resumeSubscription={() => {}}
+            />
           </div>
         )}
       </div>

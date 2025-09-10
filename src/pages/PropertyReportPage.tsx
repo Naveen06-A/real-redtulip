@@ -1,3 +1,4 @@
+
 import {
   ArcElement,
   BarElement,
@@ -13,8 +14,9 @@ import {
 } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { motion, AnimatePresence } from 'framer-motion';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+
+// import { jsPDF } from 'jspdf';
+// import autoTable from 'jspdf-autotable';
 import {
   ChevronDown,
   Download,
@@ -73,7 +75,7 @@ ChartJS.register(
 
 const ITEMS_PER_PAGE = 10;
 
-interface PropertyReportPageProps {}
+// interface PropertyReportPageProps {}
 
 interface PropertyFormData {
   id: string;
@@ -102,6 +104,7 @@ interface PropertyFormData {
   contract_status: string;
   features: string[];
 }
+
 const ALLOWED_SUBURBS = [
   'Moggill QLD 4070',
   'Bellbowrie QLD 4070',
@@ -117,7 +120,7 @@ const ALLOWED_SUBURBS = [
   'Spring Mountain QLD 4300',
 ].map(suburb => normalizeSuburb(suburb));
 
-export function PropertyReportPage(props: PropertyReportPageProps) {
+export function PropertyReportPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -125,7 +128,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     filteredProperties: initialFilteredProperties = [],
     filters,
     filterSuggestions,
-    manualInputs,
     filterPreviewCount,
     currentPage,
   } = location.state || {};
@@ -326,7 +328,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     setIsEditModalOpen(true);
   };
 
-  const handleEditSubmit = async (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingProperty || isUpdating) return;
 
@@ -406,9 +408,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       setIsEditModalOpen(false);
       setEditingProperty(null);
       setFormErrors({});
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Update error:', err);
-      toast.error(err.message || 'Failed to update property');
+      toast.error((err as Error).message || 'Failed to update property');
     } finally {
       setIsUpdating(false);
     }
@@ -450,11 +452,11 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           newFilters.agency_names.length === 0 ||
           newFilters.agency_names.some((agency: string) => (prop.agency_name || 'Unknown').toLowerCase() === agency.toLowerCase());
         const propertyTypeMatch =
-          newFilters.propertyTypes.length === 0 ||
-          newFilters.propertyTypes.some((type: string) => (prop.property_type || '').toLowerCase() === type.toLowerCase());
+          (newFilters.propertyTypes || []).length === 0 ||
+          (newFilters.propertyTypes || []).some((type: string) => (prop.property_type || '').toLowerCase() === type.toLowerCase());
         const categoryMatch =
-          newFilters.categories.length === 0 ||
-          newFilters.categories.some((category: string) => {
+          (newFilters.categories || []).length === 0 ||
+          (newFilters.categories || []).some((category: string) => {
             const propCategory = (prop.category || '').toLowerCase().trim();
             const filterCategory = category.toLowerCase().trim();
             if (!propCategory) {
@@ -498,7 +500,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         if (filterType === 'suburbs') {
           updateFilterSuggestions(newValues);
         }
-        applyFilters(newFilters, filteredProperties);
+        applyFilters(newFilters, initialFilteredProperties);
         localStorage.setItem('reportFilters', JSON.stringify(newFilters));
         return newFilters;
       });
@@ -560,23 +562,12 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         propertyTypes: '',
         categories: '',
       });
-      setLocalFilters(emptyFilters);
-      const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
+      // setLocalFilters(emptyFilters);
+      setFilteredProperties(initialFilteredProperties.filter((prop: PropertyDetails) =>{
       prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
-     );
+      }));
       setFilteredProperties(initialFilteredProperties);
       setLocalFilterPreviewCount(initialFilteredProperties.length);
-      setDynamicFilterSuggestions({
-        // suburbs: filterSuggestions?.suburbs || [],
-        suburbs: ALLOWED_SUBURBS,
-        streetNames: filterSuggestions?.streetNames || [],
-        streetNumbers: filterSuggestions?.streetNumbers || [],
-        agents: filterSuggestions?.agents || [],
-        agency_names: filterSuggestions?.agency_names || [],
-        propertyTypes: [...new Set(initialFilteredProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))] || [],
-        categories: ['Listed', 'Sold'],
-        
-      });
       localStorage.removeItem('reportFilters');
       toast.success('Filters reset successfully');
       setLocalCurrentPage(1);
@@ -606,9 +597,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
 
       setFilteredProperties((prev) => prev.filter((prop) => prop.id !== propertyId));
       toast.success('Property deleted successfully');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Delete error:', err);
-      toast.error(err.message || 'Failed to delete property');
+      toast.error((err as Error).message  || 'Failed to delete property');
     }
   };
 
@@ -668,14 +659,15 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         String(prop.car_garage ?? 'N/A'),
         String(prop.sqm ?? 'N/A'),
         String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date) || 'N/A',
-        formatDate(prop.sold_date) || 'N/A',
+        formatDate(prop.listed_date || '' ),
+        formatDate(prop.sold_date || ''),
         prop.flood_risk || 'N/A',
         prop.bushfire_risk || 'N/A',
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
 
+      const fileName = 'property_report.pdf';
       const pdfBlob = await generatePdf({
         title: 'Property Report',
         head,
@@ -695,9 +687,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       } else {
         throw new Error('PDF generation did not return a Blob');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('PDF export error:', err);
-      toast.error(err.message || 'Failed to export PDF');
+      toast.error((err as Error).message  || 'Failed to export PDF');
     } finally {
       setExportLoading(false);
     }
@@ -712,8 +704,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     try {
       const head = [
         [
-          'Street Number',
-          'Street Name',
+          'St Number',
+          'St Name',
           'Suburb',
           'Postcode',
           'Agent',
@@ -721,21 +713,21 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           'Price',
           'Sold Price',
           'Status',
-          'Commission (%)',
-          'Commission Earned',
+          'Comm (%)',
+          'Comm Earned',
           'Agency',
           'Expected Price',
           'Sale Type',
-          'Bedrooms',
-          'Bathrooms',
-          'Car Garage',
+          'Beds',
+          'Baths',
+          'Garage',
           'SQM',
           'Land Size',
           'Listed Date',
           'Sold Date',
           'Flood Risk',
           'Bushfire Risk',
-          'Contract Status',
+          ' Status',
           'Features',
         ],
       ];
@@ -759,8 +751,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         String(prop.car_garage ?? 'N/A'),
         String(prop.sqm ?? 'N/A'),
         String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date) || 'N/A',
-        formatDate(prop.sold_date) || 'N/A',
+        formatDate(prop.listed_date || 'N/A'),
+        formatDate(prop.sold_date || 'N/A'),
         prop.flood_risk || 'N/A',
         prop.bushfire_risk || 'N/A',
         prop.contract_status || 'N/A',
@@ -782,9 +774,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       } else {
         throw new Error('PDF generation did not return a data URI');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('PDF preview error:', err);
-      toast.error(err.message || 'Failed to generate PDF preview');
+      toast.error((err as Error).message || 'Failed to generate PDF preview');
     } finally {
       setExportLoading(false);
     }
@@ -850,8 +842,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           String(prop.car_garage ?? 'N/A'),
           String(prop.sqm ?? 'N/A'),
           String(prop.landsize ?? 'N/A'),
-          formatDate(prop.listed_date),
-          formatDate(prop.sold_date),
+          formatDate(prop.listed_date || 'N/A'),
+          formatDate(prop.sold_date || 'N/A'),
           prop.flood_risk || 'N/A',
           prop.bushfire_risk || 'N/A',
           prop.contract_status || 'N/A',
@@ -930,8 +922,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                     <td>${prop.car_garage ?? 'N/A'}</td>
                     <td>${prop.sqm ?? 'N/A'}</td>
                     <td>${prop.landsize ?? 'N/A'}</td>
-                    <td>${formatDate(prop.listed_date)}</td>
-                    <td>${formatDate(prop.sold_date)}</td>
+                    <td>${formatDate(prop.listed_date || 'N/A')}</td>
+                    <td>${formatDate(prop.sold_date || 'N/A')}</td>
                     <td>${prop.flood_risk || 'N/A'}</td>
                     <td>${prop.bushfire_risk || 'N/A'}</td>
                     <td>${prop.contract_status || 'N/A'}</td>
@@ -1123,7 +1115,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       plugins: {
         ...chartOptions.plugins,
         title: {
-          ...chartOptions.plugins.title,
+          ...chartOptions.plugins?.title,
           text: 'Average Listed Price by Suburb',
         },
       },
@@ -1134,7 +1126,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       plugins: {
         ...chartOptions.plugins,
         title: {
-          ...chartOptions.plugins.title,
+          ...chartOptions.plugins?.title,
           text: 'Average Sold Price by Suburb',
         },
       },
@@ -1270,7 +1262,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.3 }}
                   >
-                    {console.log(`Filter suggestions for ${filterType}:`, dynamicFilterSuggestions[filterType])}
+                    {/* {console.log(`Filter suggestions for ${filterType}:`, dynamicFilterSuggestions[filterType])} */}
                     <input
                       type="text"
                       value={localManualInputs[filterType] || ''}
@@ -1287,7 +1279,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                         label: item,
                       }))}
                       value={(localFilters[filterType] || []).map((item: string) => ({ value: item, label: item }))}
-                      onChange={(selected) => handleFilterChange(filterType, selected)}
+                      onChange={(selected) => handleFilterChange(filterType, [...selected])}
                       placeholder={`Select ${filterType === 'agency_names' ? 'agency name' : filterType === 'propertyTypes' ? 'property type' : filterType === 'categories' ? 'status' : filterType.replace(/s$/, '')}...`}
                       styles={selectStyles}
                       noOptionsMessage={() => 'No options available'}
@@ -1485,7 +1477,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                               <td className="p-4 text-gray-700">{property.price ? formatCurrency(property.price) : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.sold_price ? formatCurrency(property.sold_price) : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.category || 'N/A'}</td>
-                              <td className="p-4 text-gray-700">{commissionRate ? `${commissionRate}%` : 'N/A'}</td>
+                              <td className="p-4 text-gray-700">{commissionRate ? `${commissionRate}%` : '2.2'}</td>
                               <td className="p-4 text-gray-700">{commissionEarned ? formatCurrency(commissionEarned) : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.agency_name || 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.expected_price ? formatCurrency(property.expected_price) : 'N/A'}</td>
@@ -1495,8 +1487,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                               <td className="p-4 text-gray-700">{property.car_garage ?? 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.sqm ?? 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.landsize ?? 'N/A'}</td>
-                              <td className="p-4 text-gray-700">{formatDate(property.listed_date)}</td>
-                              <td className="p-4 text-gray-700">{formatDate(property.sold_date)}</td>
+                              <td className="p-4 text-gray-700">{formatDate(property.listed_date || 'N/A')}</td>
+                              <td className="p-4 text-gray-700">{formatDate(property.sold_date || 'N/A')}</td>
                               <td className="p-4 text-gray-700">{property.flood_risk || 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.bushfire_risk || 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.contract_status || 'N/A'}</td>
@@ -1698,7 +1690,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                           <label className="block text-sm font-medium text-gray-700">Commission (%)</label>
                           <input
                             type="number"
-                            value={editingProperty?.commission || ''}
+                            value={editingProperty?.commission || 2.2}
                             onChange={(e) =>
                               setEditingProperty((prev) => prev ? { ...prev, commission: e.target.value ? parseFloat(e.target.value) : null } : prev)
                             }

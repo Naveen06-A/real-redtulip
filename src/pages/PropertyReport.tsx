@@ -167,7 +167,7 @@ export function PropertyReport() {
         p.id === formData.id ? { ...p, ...formData } : p
       ));
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error('Failed to update property');
       console.error('Update error:', err);
       return false;
@@ -218,7 +218,7 @@ export function PropertyReport() {
       setFilteredProperties(prev => prev.filter(p => p.id !== propertyId));
       toast.success('Property deleted successfully');
       generateMetrics(properties.filter(p => p.id !== propertyId));
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error('Failed to delete property');
       console.error('Delete error:', err);
     }

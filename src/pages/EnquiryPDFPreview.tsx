@@ -2,24 +2,17 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Download, X } from 'lucide-react';
 import jsPDF from 'jspdf';
-import { autoTable } from 'jspdf-autotable'; // Updated import
+import autoTable from 'jspdf-autotable';
 import { Enquiry } from '../types/types';
-
-// Extend jsPDF type to include autoTable
-declare module 'jspdf' {
-  interface jsPDF {
-    autoTable: typeof autoTable;
-  }
-}
+import watermarkImage from '../assets/red-tulip-logo.jpg'; // Ensure this path is correct
 
 interface EnquiryPDFPreviewProps {
   enquiry: Enquiry;
   isOpen: boolean;
   onClose: () => void;
-  onDownload: (enquiry: Enquiry) => void;
 }
 
-export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: EnquiryPDFPreviewProps) {
+export function EnquiryPDFPreview({ enquiry, isOpen, onClose }: EnquiryPDFPreviewProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [modalDimensions, setModalDimensions] = useState({ width: '90vw', maxWidth: 1200, height: '90vh' });
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -39,85 +32,106 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
+  // Function to add watermark to a page
+  const addWatermark = (doc: jsPDF) => {
+    try {
+      console.log('Adding watermark: red-tulip-logo.jpg');
+      doc.setGState(doc.GState({ opacity: 0.2 }));
+      // Center the image on an A4 page (210mm x 297mm)
+      // Adjust size as needed; here, it's scaled to 100mm x 100mm
+      doc.addImage(watermarkImage, 'JPEG', 55, 98.5, 100, 100, undefined, 'NONE', 45);
+      doc.setGState(doc.GState({ opacity: 1 }));
+      console.log('Watermark image added successfully');
+    } catch (imgError) {
+      console.warn('Failed to load watermark image:', imgError);
+      // Fallback: Add text watermark
+      doc.setGState(doc.GState({ opacity: 0.2 }));
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(40);
+      doc.setTextColor(150);
+      doc.text('Harcourts Red Tulip', 105, 148.5, { align: 'center', angle: 45 });
+      doc.setGState(doc.GState({ opacity: 1 }));
+      console.log('Fallback text watermark added');
+    }
+  };
+
   const generatePDF = async (preview: boolean = false) => {
     try {
       if (!enquiry) {
-        console.error('No enquiry data provided');
-        return;
+        throw new Error('No enquiry data provided');
       }
 
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-      // No manual attachment needed; autoTable should be available via import
 
-      // Set initial font context
-      doc.setFont('helvetica');
-      doc.setFontSize(18);
-      console.log('Initial doc state:', doc.getFontSize(), doc.getFont());
-
-      doc.setProperties({
-        title: `Enquiry_${enquiry.full_name}_${enquiry.id}`,
-        author: 'Harcourts',
-        creator: 'Harcourts Admin Dashboard',
+      // Preload image to validate
+      const img = new Image();
+      img.src = watermarkImage;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('Failed to load watermark image'));
       });
 
-      // Background and header
+      // Add watermark to the first page
+      addWatermark(doc);
+
+      // Background (light blue fill)
       doc.setFillColor(219, 234, 254);
       doc.rect(0, 0, 210, 297, 'F');
+
+      // Header
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
+      doc.setFontSize(16);
       doc.setTextColor(30, 58, 138);
-      doc.text('Harcourts Success', 105, 20, { align: 'center' });
+      doc.text('Harcourts Success', 105, 15, { align: 'center' });
 
       // Subtitle
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(12);
+      doc.setFontSize(10);
       doc.setTextColor(29, 78, 216);
-      doc.text(`Submission ID: ${enquiry.id}`, 20, 30);
-      doc.text(`Submitted: ${new Date(enquiry.submitted_at).toLocaleString()}`, 20, 38);
+      doc.text(`Submission ID: ${enquiry.id}`, 20, 25);
+      doc.text(`Submitted: ${new Date(enquiry.submitted_at).toLocaleString()}`, 20, 32);
 
-      // Table configuration
-      const tableData = [
-        ['Full Name', enquiry.full_name],
-        ['Languages Known', enquiry.languages_known || 'N/A'],
-        ['Full License', enquiry.do_you_hold_a_full_license ? 'Yes' : 'No'],
-        ['License Details', enquiry.full_license_details || 'N/A'],
-        ['Owns Car', enquiry.do_you_own_a_car ? 'Yes' : 'No'],
-        ['Car Details', enquiry.car_details || 'N/A'],
-        ['Driver’s License', enquiry.do_you_hold_a_drivers_license ? 'Yes' : 'No'],
-        ['Driver’s License Details', enquiry.drivers_license_details || 'N/A'],
-        ['Why Real Estate', enquiry.why_real_estate || 'N/A'],
-        ['Bought/Sold in QLD', enquiry.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'],
-        ['Bought/Sold QLD Details', enquiry.bought_sold_qld_details || 'N/A'],
-        ['Goal', enquiry.whats_your_goal || 'N/A'],
-        ['Expected Earnings', enquiry.expected_earnings || 'N/A'],
-        ['Agree to RITE Values', enquiry.agree_to_rite_values ? 'Yes' : 'No'],
-        ['Why Harcourts', enquiry.why_us || 'N/A'],
-        ['Expectations from Harcourts', enquiry.what_do_you_expect_from_us || 'N/A'],
-        ['Financial Capability', enquiry.financial_capability ? 'Yes' : 'No'],
-        ['Financial Capability Details', enquiry.financial_capability_details || 'N/A'],
-        ['Team Contribution', enquiry.team_contribution || 'N/A'],
-        ['Suburbs to Prospect', enquiry.suburbs_to_prospect || 'N/A'],
-        ['Strengths', enquiry.strengths || 'N/A'],
-        ['Weaknesses', enquiry.weaknesses || 'N/A'],
-      ];
-
-      // Use modern autoTable API (compatible with jspdf-autotable@5.x)
-      doc.autoTable({
-        startY: 45,
+      autoTable(doc, {
+        startY: 40,
         columns: ['Field', 'Details'],
-        body: tableData,
+        body: [
+          ['Full Name', enquiry.full_name],
+          ['Languages Known', enquiry.languages_known || 'N/A'],
+          ['Full License', enquiry.do_you_hold_a_full_license ? 'Yes' : 'No'],
+          ['License Details', enquiry.full_license_details || 'N/A'],
+          ['Owns Car', enquiry.do_you_own_a_car ? 'Yes' : 'No'],
+          ['Car Details', enquiry.car_details || 'N/A'],
+          ['Driver’s License', enquiry.do_you_hold_a_drivers_license ? 'Yes' : 'No'],
+          ['Driver’s License Details', enquiry.drivers_license_details || 'N/A'],
+          ['Why Real Estate', enquiry.why_real_estate || 'N/A'],
+          ['Bought/Sold in QLD', enquiry.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'],
+          ['Bought/Sold QLD Details', enquiry.bought_sold_qld_details || 'N/A'],
+          ['Goal', enquiry.whats_your_goal || 'N/A'],
+          ['Expected Earnings', enquiry.expected_earnings || 'N/A'],
+          ['Agree to RITE Values', enquiry.agree_to_rite_values ? 'Yes' : 'No'],
+          ['Why Harcourts', enquiry.why_us || 'N/A'],
+          ['Expectations from Harcourts', enquiry.what_do_you_expect_from_us || 'N/A'],
+          ['Financial Capability', enquiry.financial_capability ? 'Yes' : 'No'],
+          ['Financial Capability Details', enquiry.financial_capability_details || 'N/A'],
+          ['Team Contribution', enquiry.team_contribution || 'N/A'],
+          ['Suburbs to Prospect', enquiry.suburbs_to_prospect || 'N/A'],
+          ['Strengths', enquiry.strengths || 'N/A'],
+          ['Weaknesses', enquiry.weaknesses || 'N/A'],
+        ],
         theme: 'grid',
         styles: {
           font: 'helvetica',
-          fontSize: 10,
+          fontSize: 8,
           textColor: [17, 24, 39],
-          cellPadding: 4,
-          overflow: 'linebreak',
+          cellPadding: 2,
+          overflow: 'ellipsize',
+          minCellHeight: 6,
         },
         headStyles: {
           fillColor: [147, 197, 253],
           textColor: [30, 58, 138],
           fontStyle: 'bold',
+          fontSize: 8,
         },
         alternateRowStyles: {
           fillColor: [241, 245, 249],
@@ -126,43 +140,54 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
           0: { cellWidth: 60, fontStyle: 'bold', textColor: [29, 78, 216] },
           1: { cellWidth: 120 },
         },
-        margin: { left: 20, right: 20 },
-        didDrawPage: (data: any) => {
-          doc.setFont('helvetica');
-          doc.setFontSize(8);
+        margin: { left: 20, right: 20, top: 40, bottom: 20 },
+        pageBreak: 'auto', // Allow page breaks for long content
+        didDrawPage: (data) => {
+          // Add watermark to additional pages
+          if (data.pageNumber > 1) {
+            addWatermark(doc);
+            // Re-apply background for additional pages
+            doc.setFillColor(219, 234, 254);
+            doc.rect(0, 0, 210, 297, 'F');
+          }
+          // Footer
+          doc.setFillColor(219, 234, 254);
+          doc.rect(0, 287, 210, 10, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6);
           doc.setTextColor(100);
-          doc.text('Generated by Harcourts Admin Dashboard', 105, 290, { align: 'center' });
+          doc.text('Generated by Harcourts Admin Dashboard', 105, 287, { align: 'center' });
         },
       });
 
-      console.log('Post-autoTable doc state:', doc.getFontSize(), doc.getFont());
-
-      doc.setDisplayMode('100%', 'continuous');
+      // Set document properties
+      doc.setProperties({
+        title: `Enquiry_${enquiry.full_name}_${enquiry.id}`,
+        author: 'Harcourts',
+        creator: 'Harcourts Admin Dashboard',
+      });
 
       if (preview) {
         const pdfBlob = doc.output('blob');
-        console.log('Generated PDF blob:', pdfBlob); // Debug blob
         if (!pdfBlob || !(pdfBlob instanceof Blob)) {
           throw new Error('Invalid PDF blob generated');
         }
         const url = URL.createObjectURL(pdfBlob);
-        console.log('Generated PDF URL:', url); // Debug URL
         setPdfUrl(url);
       } else {
         doc.save(`enquiry-${enquiry.full_name}-${enquiry.id}.pdf`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('PDF generation error:', error);
-      if (preview) {
-        setPreviewError('Failed to generate PDF preview: ' + error.message);
-        setPdfUrl(null);
-      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setPreviewError(`Failed to generate PDF: ${message}`);
+      setPdfUrl(null);
     }
   };
 
   useEffect(() => {
     if (isOpen) {
-      setPreviewError(null); // Reset error on open
+      setPreviewError(null);
       generatePDF(true);
     } else if (pdfUrl) {
       URL.revokeObjectURL(pdfUrl);
@@ -197,7 +222,7 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
           <div className="text-center text-red-600 text-sm sm:text-base">{previewError}</div>
         ) : pdfUrl ? (
           <iframe
-            src={pdfUrl}
+            src={`${pdfUrl}#page=1&view=FitH`}
             className="w-full border border-blue-200 rounded-md"
             style={{ height: `calc(${modalDimensions.height} - 120px)` }}
             title="Enquiry PDF Preview"
@@ -220,7 +245,7 @@ export function EnquiryPDFPreview({ enquiry, isOpen, onClose, onDownload }: Enqu
             Close
           </motion.button>
           <motion.button
-            onClick={() => onDownload(enquiry)}
+            onClick={() => generatePDF(false)}
             className="flex items-center px-4 py-2 bg-blue-300 text-white rounded-md hover:bg-blue-400 text-sm sm:text-base"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

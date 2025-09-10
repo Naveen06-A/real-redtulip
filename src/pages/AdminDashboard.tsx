@@ -3,15 +3,15 @@ import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Home, FileText, Activity, BarChart, Link as LinkIcon, Eye, Download, Trash2, FileTerminalIcon } from 'lucide-react';
+import { UserPlus, Home, FileText, Activity, Link as LinkIcon, Eye, Download, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateAgentModal } from '../components/CreateAgentModal';
 import { EnquiryPDFPreview } from './EnquiryPDFPreview';
 import { Agent, Property, Enquiry } from '../types';
-
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
+import watermarkImage from '../assets/red-tulip-logo.jpg'; // Import watermark
 
 export function AdminDashboard() {
   const { user, profile } = useAuthStore();
@@ -53,15 +53,15 @@ export function AdminDashboard() {
         setShowModal('agent');
       },
     },
-    { name: 'Add Property', icon: Home, path:'/property-form' },
+    { name: 'Add Property', icon: Home, path: '/property-form' },
     { name: 'Job Enquiries', icon: FileText, path: '/enquiryjob' },
     { name: 'Create Marketing Plan', path: '/marketing-plan', icon: FileText },
     { name: 'Activity Log', path: '/activity-logger', icon: Activity },
     { name: 'Reports', path: '/reports', icon: FileText },
     { name: 'Business Plan', path: '/agent-business-plan', icon: FileText },
     { name: 'AdminBusinessPlan', path: '/admin-business-plan', icon: FileText },
-    {name: 'EMIPLAN',path:'/emi-calculator',icon:FileText},
-    {name:'Nurturing List', path:'/nurturing-list',icon:FileText},
+    { name: 'EMIPLAN', path: '/emi-calculator', icon: FileText },
+    { name: 'Nurturing List', path: '/nurturing-list', icon: FileText },
     {
       name: 'Agent Report',
       path: '/agent-reports',
@@ -159,75 +159,120 @@ export function AdminDashboard() {
 
   const generatePDF = (enquiry: Enquiry) => {
     try {
-      const doc = new jsPDF();
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
+      // Add watermark (image or fallback text)
+      try {
+        console.log('Attempting to add watermark: red-tulip-logo.jpg');
+        doc.setGState(doc.GState({ opacity: 0.2 }));
+        doc.addImage(watermarkImage, 'JPEG', 55, 98.5, 100, 100, undefined, 'NONE', 45);
+        doc.setGState(doc.GState({ opacity: 1 }));
+        console.log('Watermark image added successfully');
+      } catch (imgError) {
+        console.warn('Failed to load watermark image (red-tulip-logo.jpg):', imgError);
+        doc.setGState(doc.GState({ opacity: 0.2 }));
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(40);
+        doc.setTextColor(150);
+        doc.text('Harcourts Red Tulip', 105, 148.5, { align: 'center', angle: 45 });
+        doc.setGState(doc.GState({ opacity: 1 }));
+        console.log('Fallback text watermark added');
+      }
+
+      // Background
+      doc.setFillColor(219, 234, 254);
+      doc.rect(0, 0, 210, 297, 'F');
+
+      // Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(30, 58, 138);
+      doc.text('Harcourts Success', 105, 15, { align: 'center' });
+
+      // Subtitle
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(29, 78, 216);
+      doc.text(`Submission ID: ${enquiry.id}`, 20, 25);
+      doc.text(`Submitted: ${new Date(enquiry.submitted_at).toLocaleString()}`, 20, 32);
+
+      autoTable(doc, {
+        startY: 40,
+        columns: ['Field', 'Details'],
+        body: [
+          ['Full Name', enquiry.full_name],
+          ['Languages Known', enquiry.languages_known || 'N/A'],
+          ['Full License', enquiry.do_you_hold_a_full_license ? 'Yes' : 'No'],
+          ['License Details', enquiry.full_license_details || 'N/A'],
+          ['Owns Car', enquiry.do_you_own_a_car ? 'Yes' : 'No'],
+          ['Car Details', enquiry.car_details || 'N/A'],
+          ['Driver’s License', enquiry.do_you_hold_a_drivers_license ? 'Yes' : 'No'],
+          ['Driver’s License Details', enquiry.drivers_license_details || 'N/A'],
+          ['Why Real Estate', enquiry.why_real_estate || 'N/A'],
+          ['Bought/Sold in QLD', enquiry.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'],
+          ['Bought/Sold QLD Details', enquiry.bought_sold_qld_details || 'N/A'],
+          ['Goal', enquiry.whats_your_goal || 'N/A'],
+          ['Expected Earnings', enquiry.expected_earnings || 'N/A'],
+          ['Agree to RITE Values', enquiry.agree_to_rite_values ? 'Yes' : 'No'],
+          ['Why Harcourts', enquiry.why_us || 'N/A'],
+          ['Expectations from Harcourts', enquiry.what_do_you_expect_from_us || 'N/A'],
+          ['Financial Capability', enquiry.financial_capability ? 'Yes' : 'No'],
+          ['Financial Capability Details', enquiry.financial_capability_details || 'N/A'],
+          ['Team Contribution', enquiry.team_contribution || 'N/A'],
+          ['Suburbs to Prospect', enquiry.suburbs_to_prospect || 'N/A'],
+          ['Strengths', enquiry.strengths || 'N/A'],
+          ['Weaknesses', enquiry.weaknesses || 'N/A'],
+        ],
+        theme: 'grid',
+        styles: {
+          font: 'helvetica',
+          fontSize: 8,
+          textColor: [17, 24, 39],
+          cellPadding: 2,
+          overflow: 'ellipsize',
+          minCellHeight: 6,
+        },
+        headStyles: {
+          fillColor: [147, 197, 253],
+          textColor: [30, 58, 138],
+          fontStyle: 'bold',
+          fontSize: 8,
+        },
+        alternateRowStyles: {
+          fillColor: [241, 245, 249],
+        },
+        columnStyles: {
+          0: { cellWidth: 60, fontStyle: 'bold', textColor: [29, 78, 216] },
+          1: { cellWidth: 120 },
+        },
+        margin: { left: 20, right: 20, top: 40, bottom: 20 },
+        pageBreak: 'avoid',
+        didDrawPage: () => {
+          doc.setFillColor(219, 234, 254);
+          doc.rect(0, 287, 210, 10, 'F');
+          doc.setFont('helvetica');
+          doc.setFontSize(6);
+          doc.setTextColor(100);
+          doc.text('Generated by Harcourts Admin Dashboard', 105, 287, { align: 'center' });
+        },
+      });
+
+      // Set document properties
       doc.setProperties({
         title: `Enquiry_${enquiry.full_name}_${enquiry.id}`,
         author: 'Harcourts',
         creator: 'Harcourts Admin Dashboard',
       });
 
-      doc.setFillColor(219, 234, 254);
-      doc.rect(0, 0, 210, 297, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(30, 58, 138);
-      doc.text('Harcourts Success', 105, 20, { align: 'center' });
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(29, 78, 216);
-      doc.text(`Submission ID: ${enquiry.id}`, 20, 30);
-      doc.text(`Submitted: ${new Date(enquiry.submitted_at).toLocaleString()}`, 20, 38);
-
-      const tableData = [
-        ['Full Name', enquiry.full_name],
-        ['Languages Known', enquiry.languages_known || 'N/A'],
-        ['Full License', enquiry.do_you_hold_a_full_license ? 'Yes' : 'No'],
-        ['License Details', enquiry.full_license_details || 'N/A'],
-        ['Owns Car', enquiry.do_you_own_a_car ? 'Yes' : 'No'],
-        ['Car Details', enquiry.car_details || 'N/A'],
-        ['Driver’s License', enquiry.do_you_hold_a_drivers_license ? 'Yes' : 'No'],
-        ['Driver’s License Details', enquiry.drivers_license_details || 'N/A'],
-        ['Why Real Estate', enquiry.why_real_estate || 'N/A'],
-        ['Bought/Sold in QLD', enquiry.have_you_bought_and_sold_in_qld ? 'Yes' : 'No'],
-        ['Bought/Sold QLD Details', enquiry.bought_sold_qld_details || 'N/A'],
-        ['Goal', enquiry.whats_your_goal || 'N/A'],
-        ['Expected Earnings', enquiry.expected_earnings || 'N/A'],
-        ['Agree to RITE Values', enquiry.agree_to_rite_values ? 'Yes' : 'No'],
-        ['Why Harcourts', enquiry.why_us || 'N/A'],
-        ['Expectations from Harcourts', enquiry.what_do_you_expect_from_us || 'N/A'],
-        ['Financial Capability', enquiry.financial_capability ? 'Yes' : 'No'],
-        ['Financial Capability Details', enquiry.financial_capability_details || 'N/A'],
-        ['Team Contribution', enquiry.team_contribution || 'N/A'],
-        ['Suburbs to Prospect', enquiry.suburbs_to_prospect || 'N/A'],
-        ['Strengths', enquiry.strengths || 'N/A'],
-        ['Weaknesses', enquiry.weaknesses || 'N/A'],
-      ];
-
-      (doc as any).autoTable({
-        startY: 45,
-        head: [['Field', 'Details']],
-        body: tableData,
-        theme: 'grid',
-        styles: { font: 'helvetica', fontSize: 10, textColor: [17, 24, 39], cellPadding: 4, overflow: 'linebreak' },
-        headStyles: { fillColor: [147, 197, 253], textColor: [30, 58, 138], fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [241, 245, 249] },
-        columnStyles: { 0: { cellWidth: 60, fontStyle: 'bold', textColor: [29, 78, 216] }, 1: { cellWidth: 120 } },
-        margin: { left: 20, right: 20 },
-        didDrawPage: () => {
-          doc.setFontSize(8);
-          doc.setTextColor(100);
-          doc.text('Generated by Harcourts Admin Dashboard', 105, 290, { align: 'center' });
-        },
-      });
-
+      console.log('Saving PDF:', `enquiry-${enquiry.full_name}-${enquiry.id}.pdf`);
       doc.save(`enquiry-${enquiry.full_name}-${enquiry.id}.pdf`);
       toast.success('PDF downloaded successfully!', {
         style: { background: '#BFDBFE', color: '#1E3A8A', borderRadius: '8px' },
       });
-    } catch (error: any) {
-      toast.error('Failed to generate PDF: ' + error.message, {
+    } catch (error: unknown) {
+      console.error('PDF generation error:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error('Failed to generate PDF: ' + message, {
         style: { background: '#FECACA', color: '#991B1B', borderRadius: '8px' },
       });
     }
@@ -545,12 +590,12 @@ export function AdminDashboard() {
 
       <AnimatePresence>
         {showPDFModal && (
-          <EnquiryPDFPreview
-            enquiry={enquiries.find(e => e.id === showPDFModal)!}
-            isOpen={!!showPDFModal}
-            onClose={() => setShowPDFModal(null)}
-            onDownload={generatePDF}
-          />
+        <EnquiryPDFPreview
+          enquiry={enquiries.find(e => e.id === showPDFModal)!}
+          isOpen={!!showPDFModal}
+          onClose={() => setShowPDFModal(null)}
+          onDownload={generatePDF}
+        />
         )}
       </AnimatePresence>
 
@@ -810,7 +855,7 @@ export function AdminDashboard() {
                             <Eye className="w-4 h-4 mr-1" /> View
                           </button>
                           <button
-                            onClick={() => generatePDF(enquiry)}
+                            onClick={() => generatePDF(enquiry)} // Fixed: Pass full enquiry object
                             className="flex items-center text-blue-300 hover:text-blue-400 underline"
                           >
                             <Download className="w-4 h-4 mr-1" /> Download

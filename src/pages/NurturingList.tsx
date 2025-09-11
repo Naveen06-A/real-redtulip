@@ -68,7 +68,7 @@ export function NurturingList() {
     notes: '',
     call_back_date: '',
     needs_monthly_appraisals: false,
-    status: 'New',
+    status: 'Inprogress',
     priority: 'warm',
   });
   const [hasPhoneNumber, setHasPhoneNumber] = useState<string>('No');
@@ -327,19 +327,20 @@ export function NurturingList() {
 
   const getStatusBadgeColor = (status: string | null) => {
     switch (status) {
-      case 'New':
-        return [219, 234, 254, 0.8];
-      case 'Contacted':
-        return [254, 243, 199, 0.8];
-      case 'Followed Up':
-        return [233, 213, 255, 0.8];
+      case 'Inprogress':
+        return [219, 234, 254, 0.8]; // Blue for In Progress
+      case 'Not interested':
+        return [254, 202, 202, 0.8]; // Red for Not Interested
+      case 'Undecided':
+        return [252, 231, 243, 0.8]; // Pink for Undecided
+      case 'Will list':
+        return [199, 210, 254, 0.8]; // Indigo for Will List
       case 'Closed':
-        return [209, 250, 229, 0.8];
+        return [209, 250, 229, 0.8]; // Green for Closed
       default:
-        return [243, 244, 246, 0.8];
+        return [243, 244, 246, 0.8]; // Gray for default
     }
   };
-
   const getPriorityBadgeClass = (priority: string | null) => {
     switch (priority) {
       case 'hot':
@@ -683,7 +684,7 @@ export function NurturingList() {
         last_name: c.last_name,
         email: c.email,
         phone_number: c.phone_number || '',
-        status: 'New',
+        status: 'Inprogress',
         priority: 'warm',
         agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
       }));
@@ -720,7 +721,7 @@ export function NurturingList() {
           const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
           const validContacts: Partial<NurturingContact>[] = [];
           const errors: string[] = [];
-          const allowedStatuses = ['New', 'Contacted', 'Followed Up', 'Closed'];
+          const allowedStatuses = [ 'Inprogress', 'Not interested','undecided' ,'will list','Closed'];
           const allowedPriorities = ['hot', 'warm', 'cold'];
           const serialToDate = (serial: number): string | null => {
             const excelEpoch = new Date(1899, 11, 31);
@@ -905,7 +906,7 @@ export function NurturingList() {
       notes: '',
       call_back_date: '',
       needs_monthly_appraisals: false,
-      status: 'New',
+      status: 'Inprogress',
       priority: 'warm',
     });
     setHasPhoneNumber('No');
@@ -941,12 +942,14 @@ export function NurturingList() {
 
   const getStatusBadgeClass = (status: string | null) => {
     switch (status) {
-      case 'New':
+      case 'Inprogress':
         return 'bg-blue-100 text-blue-800';
-      case 'Contacted':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Followed Up':
-        return 'bg-purple-100 text-purple-800';
+      case 'Not interested':
+        return 'bg-red-100 text-red-800';
+      case 'Undecided':
+        return 'bg-pink-100 text-pink-800';
+      case 'Will list':
+        return 'bg-indigo-100 text-indigo-800';
       case 'Closed':
         return 'bg-green-100 text-green-800';
       default:
@@ -972,9 +975,9 @@ export function NurturingList() {
     if (taskFilter === 'completed') {
       filteredContacts = filteredContacts.filter(c => c.status === 'Closed');
     } else if (taskFilter === 'ongoing') {
-      filteredContacts = filteredContacts.filter(c => c.status === 'Contacted' || c.status === 'Followed Up');
+      filteredContacts = filteredContacts.filter(c => c.status === 'Inprogress' || c.status === 'Undecided' || c.status === 'Will list');
     } else if (taskFilter === 'progress') {
-      filteredContacts = filteredContacts.filter(c => c.status === 'New');
+      filteredContacts = filteredContacts.filter(c => c.status === 'Inprogress');
     }
   }
 
@@ -1309,9 +1312,10 @@ export function NurturingList() {
                   aria-label="Status"
                   disabled={isViewMode}
                 >
-                  <option value="New">New</option>
-                  <option value="Contacted">Contacted</option>
-                  <option value="Followed Up">Followed Up</option>
+                  <option value="Inprogress">In Progress</option>
+                  <option value="Not interested">Not Interested</option>
+                  <option value="Undecided">Undecided</option>
+                  <option value="Will list">Will List</option>
                   <option value="Closed">Closed</option>
                 </select>
                 <select

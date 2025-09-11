@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Plus, Check } from 'lucide-react';
+import { X, Plus, Check, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface Contact {
   id?: string;
@@ -10,6 +11,7 @@ interface Contact {
   email: string;
   phone_number: string;
   street_name: string | null;
+  suburb: string | null;
 }
 
 interface StreetStats {
@@ -29,6 +31,7 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
     email: '',
     phone_number: '',
     street_name: null,
+    suburb: null,
   });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,19 +44,25 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
   }, [suburb]);
 
   const fetchContacts = async () => {
-    if (!suburb) return;
-
+    if (!suburb) {
+      setError('Suburb is required to fetch contacts');
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('contacts')
-        .select('id, first_name, last_name, email, phone_number, street_name')
+        .select('id, first_name, last_name, email, phone_number, street_name, suburb')
         .ilike('suburb', `%${suburb.toLowerCase().split(' qld')[0]}%`);
-
-      if (error) throw new Error(`Failed to fetch contacts: ${error.message}`);
+      if (error) {
+        console.error('Fetch error:', error);
+        throw new Error(`Failed to fetch contacts: ${error.message} (Code: ${error.code}, Details: ${error.details})`);
+      }
       setContacts(data || []);
+      setError(null);
     } catch (err: any) {
       setError(`Error fetching contacts: ${err.message}`);
+      console.error('Fetch error:', err);
     } finally {
       setLoading(false);
     }
@@ -61,35 +70,131 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
 
   const handleAddContact = async () => {
     if (!newContact.first_name || !newContact.last_name || !newContact.email || !newContact.phone_number) {
-      setError('All fields are required');
+      setError('All fields (First Name, Last Name, Email, Phone Number) are required');
       return;
     }
-
     if (!selectedStreet) {
       setIsModalOpen(true);
       return;
     }
-
+    if (!suburb) {
+      setError('Suburb is required');
+      return;
+    }
     setLoading(true);
     try {
+      const contactToInsert = {
+        first_name: newContact.first_name,
+        last_name: newContact.last_name,
+        email: newContact.email,
+        phone_number: newContact.phone_number,
+        street_name: selectedStreet,
+        status: 'Inprogress', // Add this line
+        suburb,
+      };
       const { data, error } = await supabase
         .from('contacts')
-        .insert([{ ...newContact, street_name: selectedStreet, suburb }])
+        .insert([contactToInsert])
         .select();
-
-      if (error) throw new Error(`Failed to add contact: ${error.message}`);
-
+      if (error) {
+        console.error('Supabase error:', error);
+        throw new Error(`Failed to add contact: ${error.message} (Code: ${error.code}, Details: ${error.details})`);
+      }
       setContacts([...contacts, data[0]]);
-      setNewContact({ first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
+      setNewContact({ first_name: '', last_name: '', email: '', phone_number: '', street_name: null, suburb: null });
       setSelectedStreet(null);
       setSuccess('Contact added successfully');
       setError(null);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
       setError(`Error adding contact: ${err.message}`);
+      console.error('Insert error:', err);
     } finally {
       setLoading(false);
       setIsModalOpen(false);
+    }
+  };
+
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setError('No file selected');
+      return;
+    }
+    if (!suburb) {
+      setError('Please select a suburb before uploading');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+        const validContacts: any[] = [];
+        const invalidRows: number[] = [];
+
+        jsonData.forEach((row: any, index: number) => {
+          const contact = {
+            first_name: row['First Name']?.toString().trim() || '',
+            last_name: row['Last Name']?.toString().trim() || '',
+            email: row['Email']?.toString().trim() || '',
+            phone_number: row['Phone Number']?.toString().trim() || '',
+            street_name: row['Street Name']?.toString().trim() || null,
+            suburb,
+            status: 'Inprogress',
+          };
+
+          if (
+            contact.first_name &&
+            contact.last_name &&
+            contact.email &&
+            contact.phone_number &&
+            contact.street_name &&
+            streetStats.some((street) => street.street_name === contact.street_name)
+          ) {
+            validContacts.push(contact);
+          } else {
+            invalidRows.push(index + 2);
+          }
+        });
+
+        if (validContacts.length === 0) {
+          setError('No valid contacts found in the Excel file. Ensure columns are named "First Name", "Last Name", "Email", "Phone Number", and "Street Name".');
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const { data, error } = await supabase
+            .from('contacts')
+            .insert(validContacts)
+            .select();
+          if (error) {
+            console.error('Supabase error:', error);
+            throw new Error(`Failed to import contacts: ${error.message} (Code: ${error.code}, Details: ${error.details})`);
+          }
+          setContacts([...contacts, ...data]);
+          setSuccess(`Successfully imported ${data.length} contacts${invalidRows.length > 0 ? `. Invalid rows: ${invalidRows.join(', ')}` : ''}`);
+          setError(null);
+          setTimeout(() => setSuccess(null), 3000);
+        } catch (err: any) {
+          setError(`Error importing contacts: ${err.message}`);
+          console.error('Bulk insert error:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      setError(`Error processing file: ${err.message}`);
+      console.error('File processing error:', err);
+      setLoading(false);
     }
   };
 
@@ -113,7 +218,6 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
       <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
         <span className="mr-2 text-indigo-600">📇</span> Manage Contacts for {suburb || 'Select a Suburb'}
       </h2>
-
       {error && (
         <motion.div
           className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm"
@@ -134,7 +238,6 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
           <Check className="w-5 h-5 mr-2" /> {success}
         </motion.div>
       )}
-
       <div className="mb-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-3">Add New Contact</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -187,7 +290,34 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
           <Plus className="w-5 h-5 mr-2" /> Add Contact
         </motion.button>
       </div>
-
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-3">Import Contacts from Excel</h3>
+        <p className="text-sm text-gray-600 mb-2">
+          Upload an Excel file with columns: First Name, Last Name, Email, Phone Number, Street Name
+        </p>
+        <input
+          type="file"
+          accept=".xlsx, .xls"
+          onChange={handleExcelUpload}
+          disabled={loading}
+          className="p-3 border border-gray-200 rounded-lg bg-gray-50 text-sm w-full"
+          aria-label="Upload Excel file"
+        />
+        <motion.button
+          onClick={() => {
+            const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+            fileInput.click();
+          }}
+          disabled={loading}
+          className={`mt-2 flex items-center justify-center px-4 py-2 rounded-lg text-white ${
+            loading ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'
+          } transition-all duration-200`}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          <Upload className="w-5 h-5 mr-2" /> Upload Excel
+        </motion.button>
+      </div>
       <AnimatePresence>
         {isModalOpen && (
           <motion.div
@@ -241,7 +371,6 @@ export function ContactPage({ suburb, streetStats }: ContactPageProps) {
           </motion.div>
         )}
       </AnimatePresence>
-
       <div>
         <h3 className="text-lg font-semibold text-gray-800 mb-3">Existing Contacts</h3>
         {loading ? (

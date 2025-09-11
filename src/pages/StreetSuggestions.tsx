@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, UserPlus, X, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, UserPlus, X, Check, Edit2, Trash2, Upload } from 'lucide-react';
 import { normalizeSuburb, formatCurrency } from '../reportsUtils';
+import * as XLSX from 'xlsx';
 
 interface Property {
   id: string;
@@ -58,6 +59,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [selectedStreet, setSelectedStreet] = useState<string | null>(null);
   const [newContact, setNewContact] = useState<Contact>({
+    id: '',
     first_name: '',
     last_name: '',
     email: '',
@@ -66,6 +68,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
   });
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactSuccess, setContactSuccess] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   useEffect(() => {
     setLocalFilter(soldPropertiesFilter);
@@ -89,8 +92,6 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
         const normalizedInput = normalizeSuburb(suburb);
         const queryString = `%${normalizedInput.toLowerCase().split(' qld')[0]}%`;
 
-        console.log('Fetching properties for suburb:', suburb, 'Normalized:', normalizedInput, 'Query:', queryString);
-
         // Fetch properties
         const { data: propertiesData, error: propError } = await supabase
           .from('properties')
@@ -105,21 +106,17 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
           return;
         }
 
-        console.log('Properties fetched:', propertiesData);
-
-        // Fetch contacts from nurturing_list
+        // Fetch contacts
         const { data: contactsData, error: contactError } = await supabase
-          .from('nurturing_list')
+          .from('contacts')
           .select('id, first_name, last_name, email, phone_number, street_name')
           .ilike('suburb', queryString);
 
         if (contactError) throw new Error(`Failed to fetch contacts: ${contactError.message}`);
 
-        console.log('Contacts fetched:', contactsData);
-
         let filteredProperties = propertiesData;
         if (localFilter !== 'all') {
-          const now = new Date('2025-08-22T10:18:00+05:30'); // Updated to current date: August 22, 2025, 10:18 AM IST
+          const now = new Date('2025-09-11T15:54:00+05:30'); // Updated to current date
           let startDate: Date;
           switch (localFilter) {
             case '30_days':
@@ -137,7 +134,6 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
             default:
               startDate = new Date(0);
           }
-          console.log('Applying filter:', localFilter, 'Start date:', startDate.toISOString());
           filteredProperties = propertiesData.filter(
             (prop) => !prop.sold_date || new Date(prop.sold_date) >= startDate
           );
@@ -185,7 +181,6 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
           streetMap.set(streetName, stats);
         });
 
-        // Add contacts to streetMap
         (contactsData || []).forEach((contact) => {
           const streetName = contact.street_name?.trim() || 'Unknown Street';
           const stats = streetMap.get(streetName) || { listed: 0, sold: 0, total: 0, totalSoldPrice: 0, properties: [], contacts: [] };
@@ -212,10 +207,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
             b.listed_count - a.listed_count
         );
 
-        // Limit to 25 streets for 5x5 grid
         const limitedStatsArray = statsArray.slice(0, 25);
-
-        console.log('Street stats:', limitedStatsArray);
 
         const newAddedStreets: { [key: string]: { door_knock: number; phone_call: number; contacts: number } } = {};
         limitedStatsArray.forEach((street) => {
@@ -244,7 +236,6 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
   }, [suburb, localFilter]);
 
   const handleSelectStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
-    console.log(`handleSelectStreet called with street: ${street.street_name}, type: ${type}`);
     onSelectStreet({ name: street.street_name }, type);
     setAddedStreets((prev) => ({
       ...prev,
@@ -263,36 +254,187 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('nurturing_list')
-        .insert([{ first_name: newContact.first_name, last_name: newContact.last_name, email: newContact.email, phone_number: newContact.phone_number, street_name: selectedStreet, suburb }])
-        .select();
+      if (isEditMode && newContact.id) {
+        // Update existing contact
+        const { error } = await supabase
+          .from('contacts')
+          .update({
+            first_name: newContact.first_name,
+            last_name: newContact.last_name,
+            email: newContact.email,
+            phone_number: newContact.phone_number,
+            street_name: selectedStreet,
+            suburb,
+          })
+          .eq('id', newContact.id);
 
-      if (error) throw new Error(`Failed to add contact: ${error.message}`);
+        if (error) throw new Error(`Failed to update contact: ${error.message}`);
+
+        setStreetStats((prev) =>
+          prev.map((street) =>
+            street.street_name === selectedStreet
+              ? {
+                  ...street,
+                  contacts: street.contacts.map((contact) =>
+                    contact.id === newContact.id ? { ...newContact, street_name: selectedStreet } : contact
+                  ),
+                }
+              : street
+          )
+        );
+        setContactSuccess('Contact updated successfully');
+      } else {
+        // Add new contact
+        const { data: insertData, error } = await supabase
+          .from('contacts')
+          .insert([
+            {
+              first_name: newContact.first_name,
+              last_name: newContact.last_name,
+              email: newContact.email,
+              phone_number: newContact.phone_number,
+              street_name: selectedStreet,
+              suburb,
+            },
+          ])
+          .select();
+
+        if (error) throw new Error(`Failed to add contact: ${error.message}`);
+
+        setStreetStats((prev) =>
+          prev.map((street) =>
+            street.street_name === selectedStreet
+              ? { ...street, contacts: [...street.contacts, insertData[0]] }
+              : street
+          )
+        );
+        setAddedStreets((prev) => ({
+          ...prev,
+          [selectedStreet!]: {
+            ...prev[selectedStreet!],
+            contacts: (prev[selectedStreet!]?.contacts || 0) + 1,
+          },
+        }));
+        setContactSuccess('Contact added successfully');
+      }
+
+      setNewContact({ id: '', first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
+      setContactError(null);
+      setTimeout(() => setContactSuccess(null), 3000);
+    } catch (err: any) {
+      setContactError(`Error ${isEditMode ? 'updating' : 'adding'} contact: ${err.message}`);
+    } finally {
+      setLoading(false);
+      setIsContactModalOpen(false);
+      setIsEditMode(false);
+    }
+  };
+
+  const handleEditContact = (contact: Contact) => {
+    setNewContact(contact);
+    setSelectedStreet(contact.street_name);
+    setIsEditMode(true);
+    setIsContactModalOpen(true);
+  };
+
+  const handleDeleteContact = async (contactId: string, streetName: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('contacts')
+        .delete()
+        .eq('id', contactId);
+
+      if (error) throw new Error(`Failed to delete contact: ${error.message}`);
 
       setStreetStats((prev) =>
         prev.map((street) =>
-          street.street_name === selectedStreet
-            ? { ...street, contacts: [...street.contacts, data[0]] }
+          street.street_name === streetName
+            ? { ...street, contacts: street.contacts.filter((contact) => contact.id !== contactId) }
             : street
         )
       );
       setAddedStreets((prev) => ({
         ...prev,
-        [selectedStreet!]: {
-          ...prev[selectedStreet!],
-          contacts: (prev[selectedStreet!]?.contacts || 0) + 1,
+        [streetName]: {
+          ...prev[streetName],
+          contacts: (prev[streetName]?.contacts || 1) - 1,
         },
       }));
-      setNewContact({ first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
-      setContactSuccess('Contact added successfully');
-      setContactError(null);
+      setContactSuccess('Contact deleted successfully');
       setTimeout(() => setContactSuccess(null), 3000);
     } catch (err: any) {
-      setContactError(`Error adding contact: ${err.message}`);
+      setContactError(`Error deleting contact: ${err.message}`);
     } finally {
       setLoading(false);
-      setIsContactModalOpen(false);
+    }
+  };
+
+  const handleExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files || !selectedStreet || !suburb) return;
+
+    setLoading(true);
+    setContactError(null);
+    try {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet) as Contact[];
+
+        const validContacts: Contact[] = json
+          .filter((row: any) => row.first_name && row.last_name && row.email && row.phone_number)
+          .map((row: any) => ({
+            first_name: row.first_name,
+            last_name: row.last_name,
+            email: row.email,
+            phone_number: row.phone_number,
+            street_name: selectedStreet,
+            suburb,
+          }));
+
+        if (validContacts.length === 0) {
+          setContactError('No valid contacts found in the Excel file');
+          setLoading(false);
+          return;
+        }
+
+        const { data: importedData, error } = await supabase
+          .from('contacts')
+          .insert(validContacts)
+          .select();
+
+        if (error) throw new Error(`Failed to import contacts: ${error.message}`);
+
+        setStreetStats((prev) =>
+          prev.map((street) =>
+            street.street_name === selectedStreet
+              ? { ...street, contacts: [...street.contacts, ...importedData] }
+              : street
+          )
+        );
+        setAddedStreets((prev) => ({
+          ...prev,
+          [selectedStreet]: {
+            ...prev[selectedStreet],
+            contacts: (prev[selectedStreet]?.contacts || 0) + validContacts.length,
+          },
+        }));
+        setContactSuccess(`Successfully imported ${validContacts.length} contacts for ${selectedStreet}`);
+        setTimeout(() => setContactSuccess(null), 3000);
+
+        // Reset the form and file input
+        setNewContact({ id: '', first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
+        event.target.value = '';
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      setContactError(`Error importing contacts: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -303,6 +445,8 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
 
   const openContactModal = (streetName: string) => {
     setSelectedStreet(streetName);
+    setNewContact({ id: '', first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
+    setIsEditMode(false);
     setIsContactModalOpen(true);
   };
 
@@ -563,6 +707,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                                 <th className="p-1 text-left">Last Name</th>
                                 <th className="p-1 text-left">Email</th>
                                 <th className="p-1 text-left">Phone Number</th>
+                                <th className="p-1 text-left">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -578,6 +723,24 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                                   <td className="p-1">{contact.last_name}</td>
                                   <td className="p-1">{contact.email}</td>
                                   <td className="p-1">{contact.phone_number}</td>
+                                  <td className="p-1 flex gap-1">
+                                    <motion.button
+                                      onClick={() => handleEditContact(contact)}
+                                      className="text-blue-600 hover:text-blue-800"
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </motion.button>
+                                    <motion.button
+                                      onClick={() => handleDeleteContact(contact.id!, street.street_name)}
+                                      className="text-red-600 hover:text-red-800"
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </motion.button>
+                                  </td>
                                 </motion.tr>
                               ))}
                             </tbody>
@@ -609,9 +772,13 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
               transition={{ duration: 0.3 }}
             >
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">Add Contact for {selectedStreet}</h3>
+                <h3 className="text-lg font-semibold text-gray-800">{isEditMode ? 'Edit Contact' : 'Add Contacts'} for {selectedStreet}</h3>
                 <motion.button
-                  onClick={() => setIsContactModalOpen(false)}
+                  onClick={() => {
+                    setIsContactModalOpen(false);
+                    setIsEditMode(false);
+                    setNewContact({ id: '', first_name: '', last_name: '', email: '', phone_number: '', street_name: null });
+                  }}
                   className="text-gray-600 hover:text-gray-800"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
@@ -639,44 +806,100 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                   <Check className="w-5 h-5 mr-2" /> {contactSuccess}
                 </motion.div>
               )}
-              <div className="grid grid-cols-1 gap-4">
-                <input
-                  type="text"
-                  name="first_name"
-                  value={newContact.first_name}
-                  onChange={handleInputChange}
-                  placeholder="First Name"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="First Name"
-                />
-                <input
-                  type="text"
-                  name="last_name"
-                  value={newContact.last_name}
-                  onChange={handleInputChange}
-                  placeholder="Last Name"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Last Name"
-                />
-                <input
-                  type="email"
-                  name="email"
-                  value={newContact.email}
-                  onChange={handleInputChange}
-                  placeholder="Email"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Email"
-                />
-                <input
-                  type="tel"
-                  name="phone_number"
-                  value={newContact.phone_number}
-                  onChange={handleInputChange}
-                  placeholder="Phone Number"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Phone Number"
-                />
-              </div>
+              {!isEditMode && (
+                <div className="mb-4">
+                  <label className="block text-gray-800 font-semibold mb-2 text-sm">Import Contacts from Excel (for {selectedStreet})</label>
+                  <div className="flex items-center">
+                    <Upload className="w-5 h-5 mr-2 text-gray-500" />
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls"
+                      onChange={handleExcelImport}
+                      className="p-2 border border-gray-200 rounded-lg bg-gray-50 text-sm flex-1"
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+              )}
+              {isEditMode ? (
+                <div className="grid grid-cols-1 gap-4">
+                  <input
+                    type="text"
+                    name="first_name"
+                    value={newContact.first_name}
+                    onChange={handleInputChange}
+                    placeholder="First Name"
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="First Name"
+                  />
+                  <input
+                    type="text"
+                    name="last_name"
+                    value={newContact.last_name}
+                    onChange={handleInputChange}
+                    placeholder="Last Name"
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="Last Name"
+                  />
+                  <input
+                    type="email"
+                    name="email"
+                    value={newContact.email}
+                    onChange={handleInputChange}
+                    placeholder="Email"
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="Email"
+                  />
+                  <input
+                    type="tel"
+                    name="phone_number"
+                    value={newContact.phone_number}
+                    onChange={handleInputChange}
+                    placeholder="Phone Number"
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="Phone Number"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4">
+                  <input
+                    type="text"
+                    name="first_name"
+                    value={newContact.first_name}
+                    onChange={handleInputChange}
+                    placeholder="First Name "
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="First Name"
+                  />
+                  <input
+                    type="text"
+                    name="last_name"
+                    value={newContact.last_name}
+                    onChange={handleInputChange}
+                    placeholder="Last Name "
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="Last Name"
+                  />
+                  <input
+                    type="email"
+                    name="email"
+                    value={newContact.email}
+                    onChange={handleInputChange}
+                    placeholder="Email "
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="Email"
+                  />
+                  <input
+                    type="tel"
+                    name="phone_number"
+                    value={newContact.phone_number}
+                    onChange={handleInputChange}
+                    placeholder="Phone Number "
+                    className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
+                    aria-label="Phone Number"
+                  />
+                </div>
+              )}
               <motion.button
                 onClick={handleAddContact}
                 disabled={loading}
@@ -686,7 +909,7 @@ export function StreetSuggestions({ suburb, soldPropertiesFilter, onSelectStreet
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
-                <UserPlus className="w-5 h-5 mr-2" /> Add Contact
+                <UserPlus className="w-5 h-5 mr-2" /> {isEditMode ? 'Update Contact' : 'Add Single Contact'}
               </motion.button>
             </motion.div>
           </motion.div>

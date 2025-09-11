@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -40,7 +39,7 @@ interface BasicContact {
 
 interface Agent {
   id: string;
-  name: string; // Changed from username to name
+  name: string;
 }
 
 export function NurturingList() {
@@ -337,10 +336,17 @@ export function NurturingList() {
         return [199, 210, 254, 0.8]; // Indigo for Will List
       case 'Closed':
         return [209, 250, 229, 0.8]; // Green for Closed
+      case 'will buy':
+        return [255, 223, 186, 0.8]; // Orange for Will Buy
+      case 'will sell':
+        return [204, 255, 204, 0.8]; // Light Green for Will Sell
+      case 'wants to buy':
+        return [255, 245, 204, 0.8]; // Light Yellow for Wants to Buy
       default:
         return [243, 244, 246, 0.8]; // Gray for default
     }
   };
+
   const getPriorityBadgeClass = (priority: string | null) => {
     switch (priority) {
       case 'hot':
@@ -367,7 +373,7 @@ export function NurturingList() {
     }
   };
 
-    const handleDownloadPDF = (contact: NurturingContact) => {
+  const handleDownloadPDF = (contact: NurturingContact) => {
     try {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -453,7 +459,8 @@ export function NurturingList() {
       doc.text(`Postcode: ${contact.postcode || 'N/A'}`, margin + 5, y + rowHeight * 2);
       doc.text(`House Type: ${contact.house_type || 'N/A'}`, margin + 5, y + rowHeight * 3);
       
-      y += 25;
+      
+      y += 40;
       
       // Additional information
       doc.setFont(undefined, 'bold');
@@ -704,13 +711,17 @@ export function NurturingList() {
       toast.error('User not authenticated');
       return;
     }
+
     if (!excelFile) {
       toast.error('Please select an Excel file to import');
       return;
     }
+
     setLoading(true);
+
     try {
       const reader = new FileReader();
+
       reader.onload = async (e) => {
         try {
           const fileData = new Uint8Array(e.target?.result as ArrayBuffer);
@@ -718,71 +729,101 @@ export function NurturingList() {
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
+
           const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
           const validContacts: Partial<NurturingContact>[] = [];
           const errors: string[] = [];
-          const allowedStatuses = [ 'Inprogress', 'Not interested','undecided' ,'will list','Closed'];
+          const allowedStatuses = ['Inprogress', 'Not interested', 'Undecided', 'Will list', 'Closed', 'will buy', 'will sell', 'wants to buy'];
           const allowedPriorities = ['hot', 'warm', 'cold'];
+
+          const cleanString = (value: any): string => {
+            if (typeof value !== 'string') return '';
+            return value.trim();
+          };
+
+          const parseDate = (dateStr: string): string | null => {
+            const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+            if (match) {
+              const [, day, month, year] = match;
+              const isoDate = `${year}-${month}-${day}`;
+              const parsedDate = new Date(isoDate);
+              if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() === parseInt(year)) {
+                return isoDate;
+              }
+            }
+            const parsedDate = new Date(dateStr);
+            if (!isNaN(parsedDate.getTime())) {
+              const year = parsedDate.getFullYear();
+              const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+              const day = String(parsedDate.getDate()).padStart(2, '0');
+              return `${year}-${month}-${day}`;
+            }
+            return null;
+          };
+
           const serialToDate = (serial: number): string | null => {
             const excelEpoch = new Date(1899, 11, 31);
             const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
-            if (serial < 60) {
-              date.setDate(date.getDate() - 1);
-            }
+            if (serial < 60) date.setDate(date.getDate() - 1);
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
             const isoDate = `${year}-${month}-${day}`;
             const checkDate = new Date(isoDate);
-            if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) {
-              return null;
-            }
+            if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) return null;
             return isoDate;
           };
+
+          const generateUniqueId = () => {
+            return `no-email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          };
+
+          const safeNumericValue = (value: any): string => {
+            if (value === null || value === undefined || value === '') return '';
+            return value.toString().replace(/[^0-9.]/g, '');
+          };
+
           jsonData.forEach((row: any, index: number) => {
-            const email = row.email?.toString().trim();
-            if (!email || !row.first_name || !row.last_name) {
-              errors.push(`Row ${index + 2}: Missing required fields (first_name, last_name, or email)`);
+            // Skip completely empty rows
+            const isRowEmpty = Object.values(row).every(val => {
+              if (typeof val === 'string') return val.trim() === '';
+              return val === null || val === undefined;
+            });
+
+            if (isRowEmpty) return;
+
+            const firstName = cleanString(row.first_name);
+            const lastName = cleanString(row.last_name);
+
+            if (!firstName && !lastName) {
+              errors.push(`Row ${index + 2}: Missing both first name and last name`);
               return;
             }
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-              errors.push(`Row ${index + 2}: Invalid email format (${email})`);
-              return;
-            }
-            if (existingEmails.has(email.toLowerCase())) {
-              errors.push(`Row ${index + 2}: Duplicate email (${email})`);
-              return;
-            }
-            let callBackDate = row.call_back_date?.toString().trim();
-            let formattedDate: string | null = null;
-            if (callBackDate) {
-              const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
-              if (dateRegex.test(callBackDate)) {
-                const [day, month, year] = callBackDate.split('-');
-                const isoDate = `${year}-${month}-${day}`;
-                const date = new Date(isoDate);
-                if (isNaN(date.getTime()) || date.getFullYear() !== parseInt(year) || date.getMonth() + 1 !== parseInt(month) || date.getDate() !== parseInt(day)) {
-                  errors.push(`Row ${index + 2}: Invalid date value (${callBackDate})`);
-                  return;
-                }
-                formattedDate = isoDate;
-              } else if (!isNaN(parseFloat(callBackDate)) && parseFloat(callBackDate) > 0) {
-                const serial = parseFloat(callBackDate);
-                const isoDate = serialToDate(serial);
-                if (isoDate) {
-                  formattedDate = isoDate;
-                } else {
-                  errors.push(`Row ${index + 2}: Invalid Excel serial date (${callBackDate})`);
-                  return;
-                }
+
+            let email = cleanString(row.email);
+            let finalEmail = email;
+
+            if (!email) {
+              if (firstName || lastName) {
+                finalEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@placeholder.com`.replace(/\s+/g, '.');
               } else {
-                errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${callBackDate}). Use DD-MM-YYYY (e.g., 01-09-2025).`);
-                return;
+                finalEmail = `unknown.${generateUniqueId()}@placeholder.com`;
               }
             }
-            let status = row.status?.toString().trim();
+
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(finalEmail)) {
+              errors.push(`Row ${index + 2}: Invalid email format (${finalEmail})`);
+              return;
+            }
+
+            if (existingEmails.has(finalEmail.toLowerCase())) {
+              errors.push(`Row ${index + 2}: Duplicate email (${finalEmail})`);
+              return;
+            }
+
+            let status = cleanString(row.status);
             if (!status) {
-              status = 'New';
+              status = 'Inprogress';
             } else {
               const normalizedStatus = allowedStatuses.find(s => s.toLowerCase() === status.toLowerCase());
               if (!normalizedStatus) {
@@ -791,75 +832,115 @@ export function NurturingList() {
               }
               status = normalizedStatus;
             }
-            let priority = row.priority?.toString().trim().toLowerCase();
+
+            let priority = cleanString(row.priority).toLowerCase();
             if (!priority) {
               priority = 'warm';
             } else {
-              const normalizedPriority = allowedPriorities.find(p => p.toLowerCase() === priority.toLowerCase());
+              const normalizedPriority = allowedPriorities.find(p => p.toLowerCase() === priority);
               if (!normalizedPriority) {
                 errors.push(`Row ${index + 2}: Invalid priority value (${priority}). Must be one of: ${allowedPriorities.join(', ')}`);
                 return;
               }
               priority = normalizedPriority;
             }
-            const needsMonthlyAppraisals = row.needs_monthly_appraisals?.toString().toLowerCase() === 'yes' ||
-                                          row.needs_monthly_appraisals === true ||
-                                          row.needs_monthly_appraisals === 1;
+
+            const needsMonthlyAppraisals =
+              cleanString(row.needs_monthly_appraisals).toLowerCase() === 'yes' ||
+              row.needs_monthly_appraisals === true ||
+              row.needs_monthly_appraisals === 1;
+
+            let callBackDate: string | null = null;
+            if (row.call_back_date) {
+              if (typeof row.call_back_date === 'string') {
+                callBackDate = parseDate(row.call_back_date);
+                if (!callBackDate) {
+                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                }
+              } else if (typeof row.call_back_date === 'number') {
+                callBackDate = serialToDate(row.call_back_date);
+                if (!callBackDate) {
+                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                }
+              } else {
+                errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+              }
+            }
+
+            const streetNumber = safeNumericValue(row.street_number);
+            const postcode = safeNumericValue(row.postcode);
+
             validContacts.push({
-              first_name: row.first_name?.toString().trim() || '',
-              last_name: row.last_name?.toString().trim() || '',
-              email: email,
-              phone_number: row.phone_number?.toString().trim() || '',
-              mobile: row.mobile?.toString().trim() || '',
-              street_number: row.street_number?.toString().trim() || '',
-              street_name: row.street_name?.toString().trim() || '',
-              suburb: row.suburb?.toString().trim() || '',
-              postcode: row.postcode?.toString().trim() || '',
-              house_type: row.house_type?.toString().trim() || '',
-              requirements: row.requirements?.toString().trim() || '',
-              notes: row.notes?.toString().trim() || '',
-              call_back_date: formattedDate,
+              first_name: firstName,
+              last_name: lastName,
+              email: finalEmail,
+              phone_number: cleanString(row.phone_number),
+              mobile: cleanString(row.mobile),
+              street_number: streetNumber,
+              street_name: cleanString(row.street_name),
+              suburb: cleanString(row.suburb),
+              postcode: postcode,
+              house_type: cleanString(row.house_type),
+              requirements: cleanString(row.requirements),
+              notes: cleanString(row.notes),
+              call_back_date: callBackDate,
               needs_monthly_appraisals: needsMonthlyAppraisals,
               status: status,
               priority: priority as 'hot' | 'warm' | 'cold',
               agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
             });
           });
+
           if (errors.length > 0) {
             toast.error(`Some rows could not be imported:\n${errors.join('\n')}`, {
               autoClose: 10000,
             });
           }
+
           if (validContacts.length === 0) {
             toast.info('No valid contacts to import');
             setLoading(false);
             return;
           }
+
           const { data: importedData, error } = await supabase
             .from('nurturing_list')
             .insert(validContacts)
             .select<unknown, NurturingContact>();
+
           if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
+
           setContacts([...contacts, ...importedData]);
           setExcelFile(null);
           resetForm();
-          toast.success(`${validContacts.length} contacts imported successfully from Excel`);
+
+          const placeholderCount = validContacts.filter(c => c.email?.includes('@placeholder.com')).length;
+          let successMessage = `${validContacts.length} contacts imported successfully from Excel`;
+
+          if (placeholderCount > 0) {
+            successMessage += ` (${placeholderCount} with placeholder emails)`;
+          }
+
+          toast.success(successMessage);
         } catch (err: any) {
           toast.error(`Error processing Excel file: ${err.message}`);
         } finally {
           setLoading(false);
         }
       };
+
       reader.onerror = () => {
         toast.error('Error reading Excel file');
         setLoading(false);
       };
+
       reader.readAsArrayBuffer(excelFile);
     } catch (err: any) {
       toast.error(`Error importing Excel contacts: ${err.message}`);
       setLoading(false);
     }
   };
+
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -952,6 +1033,12 @@ export function NurturingList() {
         return 'bg-indigo-100 text-indigo-800';
       case 'Closed':
         return 'bg-green-100 text-green-800';
+      case 'will buy':
+        return 'bg-orange-100 text-orange-800';
+      case 'will sell':
+        return 'bg-lime-100 text-lime-800';
+      case 'wants to buy':
+        return 'bg-yellow-100 text-yellow-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -1306,7 +1393,7 @@ export function NurturingList() {
                 </select>
                 <select
                   name="status"
-                  value={newContact.status || 'New'}
+                  value={newContact.status || 'Inprogress'}
                   onChange={handleInputChange}
                   className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   aria-label="Status"
@@ -1317,6 +1404,9 @@ export function NurturingList() {
                   <option value="Undecided">Undecided</option>
                   <option value="Will list">Will List</option>
                   <option value="Closed">Closed</option>
+                  <option value="will buy">Will Buy</option>
+                  <option value="will sell">Will Sell</option>
+                  <option value="wants to buy">Wants to Buy</option>
                 </select>
                 <select
                   name="priority"
@@ -1591,7 +1681,7 @@ export function NurturingList() {
                                   setSelectedContact(contact);
                                   setNewContact({
                                     ...contact,
-                                    status: contact.status === 'Closed' ? 'New' : 'Closed',
+                                    status: contact.status === 'Closed' ? 'Inprogress' : 'Closed',
                                   });
                                   setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
                                   setMode('manual');

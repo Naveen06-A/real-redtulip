@@ -1,4 +1,3 @@
-
 import {
   ArcElement,
   BarElement,
@@ -14,9 +13,8 @@ import {
 } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// import { jsPDF } from 'jspdf';
-// import autoTable from 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   ChevronDown,
   Download,
@@ -75,7 +73,7 @@ ChartJS.register(
 
 const ITEMS_PER_PAGE = 10;
 
-// interface PropertyReportPageProps {}
+interface PropertyReportPageProps {}
 
 interface PropertyFormData {
   id: string;
@@ -104,7 +102,6 @@ interface PropertyFormData {
   contract_status: string;
   features: string[];
 }
-
 const ALLOWED_SUBURBS = [
   'Moggill QLD 4070',
   'Bellbowrie QLD 4070',
@@ -120,7 +117,7 @@ const ALLOWED_SUBURBS = [
   'Spring Mountain QLD 4300',
 ].map(suburb => normalizeSuburb(suburb));
 
-export function PropertyReportPage() {
+export function PropertyReportPage(props: PropertyReportPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -128,6 +125,7 @@ export function PropertyReportPage() {
     filteredProperties: initialFilteredProperties = [],
     filters,
     filterSuggestions,
+    manualInputs,
     filterPreviewCount,
     currentPage,
   } = location.state || {};
@@ -328,7 +326,7 @@ export function PropertyReportPage() {
     setIsEditModalOpen(true);
   };
 
-  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProperty || isUpdating) return;
 
@@ -408,9 +406,9 @@ export function PropertyReportPage() {
       setIsEditModalOpen(false);
       setEditingProperty(null);
       setFormErrors({});
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Update error:', err);
-      toast.error((err as Error).message || 'Failed to update property');
+      toast.error(err.message || 'Failed to update property');
     } finally {
       setIsUpdating(false);
     }
@@ -422,19 +420,16 @@ export function PropertyReportPage() {
   }
 
   const applyFilters = useCallback((newFilters: Filters, properties: PropertyDetails[]) => {
-    try {
-      console.log('Applying filters:', newFilters);
-      console.log('Properties count before filtering:', properties.length);
-      // Validate input properties
-      if (!Array.isArray(properties)) {
-        console.error('Invalid properties array:', properties);
-        throw new Error('Properties data is not an array');
-      }
-      const filtered = properties.filter((prop: PropertyDetails) => {
-        if (!prop || typeof prop !== 'object') {
-          console.warn('Invalid property encountered:', prop);
-          return false;
-        }
+      try {
+        console.log('Applying filters:', newFilters);
+        console.log('Properties count before filtering:', properties.length);
+        
+        // Always use initialFilteredProperties as the base for filtering
+        const baseProperties = initialFilteredProperties.filter((prop: PropertyDetails) => 
+          prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
+        );
+        
+        const filtered = baseProperties.filter((prop: PropertyDetails) => {
 
         const suburbMatch = ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || '')) &&
         (newFilters.suburbs.length === 0 ||
@@ -452,11 +447,11 @@ export function PropertyReportPage() {
           newFilters.agency_names.length === 0 ||
           newFilters.agency_names.some((agency: string) => (prop.agency_name || 'Unknown').toLowerCase() === agency.toLowerCase());
         const propertyTypeMatch =
-          (newFilters.propertyTypes || []).length === 0 ||
-          (newFilters.propertyTypes || []).some((type: string) => (prop.property_type || '').toLowerCase() === type.toLowerCase());
+          newFilters.propertyTypes.length === 0 ||
+          newFilters.propertyTypes.some((type: string) => (prop.property_type || '').toLowerCase() === type.toLowerCase());
         const categoryMatch =
-          (newFilters.categories || []).length === 0 ||
-          (newFilters.categories || []).some((category: string) => {
+          newFilters.categories.length === 0 ||
+          newFilters.categories.some((category: string) => {
             const propCategory = (prop.category || '').toLowerCase().trim();
             const filterCategory = category.toLowerCase().trim();
             if (!propCategory) {
@@ -495,12 +490,16 @@ export function PropertyReportPage() {
     try {
       const newValues = selected.map((option) => option.value);
       console.log(`Filter changed: ${filterType} =`, newValues);
+      
       setLocalFilters((prev: Filters) => {
         const newFilters = { ...prev, [filterType]: newValues };
+        
+        // Apply ALL current filters to the original dataset, not the already filtered properties
+        applyFilters(newFilters, initialFilteredProperties); // Changed this line
+        
         if (filterType === 'suburbs') {
           updateFilterSuggestions(newValues);
         }
-        applyFilters(newFilters, initialFilteredProperties);
         localStorage.setItem('reportFilters', JSON.stringify(newFilters));
         return newFilters;
       });
@@ -551,6 +550,7 @@ export function PropertyReportPage() {
         propertyTypes: [],
         categories: [],
       };
+      
       console.log('Resetting filters');
       setLocalFilters(emptyFilters);
       setLocalManualInputs({
@@ -562,12 +562,26 @@ export function PropertyReportPage() {
         propertyTypes: '',
         categories: '',
       });
-      // setLocalFilters(emptyFilters);
-      setFilteredProperties(initialFilteredProperties.filter((prop: PropertyDetails) =>{
-      prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
-      }));
-      setFilteredProperties(initialFilteredProperties);
-      setLocalFilterPreviewCount(initialFilteredProperties.length);
+      
+      // Reset to the original filtered properties (only allowed suburbs)
+      const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
+        prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
+      );
+      
+      setFilteredProperties(filtered);
+      setLocalFilterPreviewCount(filtered.length);
+      
+      // Update suggestions based on the reset data
+      setDynamicFilterSuggestions({
+        suburbs: ALLOWED_SUBURBS,
+        streetNames: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
+        streetNumbers: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
+        agents: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
+        agency_names: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
+        propertyTypes: [...new Set(filtered.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))] || [],
+        categories: ['Listed', 'Sold'],
+      });
+      
       localStorage.removeItem('reportFilters');
       toast.success('Filters reset successfully');
       setLocalCurrentPage(1);
@@ -597,9 +611,9 @@ export function PropertyReportPage() {
 
       setFilteredProperties((prev) => prev.filter((prop) => prop.id !== propertyId));
       toast.success('Property deleted successfully');
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Delete error:', err);
-      toast.error((err as Error).message  || 'Failed to delete property');
+      toast.error(err.message || 'Failed to delete property');
     }
   };
 
@@ -642,7 +656,7 @@ export function PropertyReportPage() {
       const body = filteredProperties.map((prop: PropertyDetails) => [
         prop.street_number || 'N/A',
         prop.street_name || 'N/A',
-        normalizeSuburb(prop.suburb || ''),
+        normalizeSuburb(prop.suburb || '') || 'N/A',
         prop.postcode || 'N/A',
         prop.agent_name || 'N/A',
         prop.property_type || 'N/A',
@@ -659,15 +673,17 @@ export function PropertyReportPage() {
         String(prop.car_garage ?? 'N/A'),
         String(prop.sqm ?? 'N/A'),
         String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date || '' ),
-        formatDate(prop.sold_date || ''),
+        formatDate(prop.listed_date) || 'N/A',
+        formatDate(prop.sold_date) || 'N/A',
         prop.flood_risk || 'N/A',
         prop.bushfire_risk || 'N/A',
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
 
-      const fileName = 'property_report.pdf';
+      console.log('Export PDF - Head:', head);
+      console.log('Export PDF - Body sample (first 2 rows):', body.slice(0, 2));
+
       const pdfBlob = await generatePdf({
         title: 'Property Report',
         head,
@@ -680,107 +696,113 @@ export function PropertyReportPage() {
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = fileName;
+        a.download = 'property_report.pdf';
         a.click();
         URL.revokeObjectURL(url);
         toast.success('PDF downloaded successfully');
       } else {
         throw new Error('PDF generation did not return a Blob');
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('PDF export error:', err);
-      toast.error((err as Error).message  || 'Failed to export PDF');
+      toast.error(err.message || 'Failed to export PDF');
     } finally {
       setExportLoading(false);
     }
   };
 
   const previewPropertyReportPDF = async () => {
-    if (!propertyMetrics) {
-      toast.error('No property metrics available for preview');
-      return;
-    }
-    setExportLoading(true);
-    try {
-      const head = [
-        [
-          'St Number',
-          'St Name',
-          'Suburb',
-          'Postcode',
-          'Agent',
-          'Type',
-          'Price',
-          'Sold Price',
-          'Status',
-          'Comm (%)',
-          'Comm Earned',
-          'Agency',
-          'Expected Price',
-          'Sale Type',
-          'Beds',
-          'Baths',
-          'Garage',
-          'SQM',
-          'Land Size',
-          'Listed Date',
-          'Sold Date',
-          'Flood Risk',
-          'Bushfire Risk',
-          ' Status',
-          'Features',
-        ],
-      ];
-      const body = filteredProperties.map((prop: PropertyDetails) => [
-        prop.street_number || 'N/A',
-        prop.street_name || 'N/A',
-        normalizeSuburb(prop.suburb || ''),
-        prop.postcode || 'N/A',
-        prop.agent_name || 'N/A',
-        prop.property_type || 'N/A',
-        formatCurrency(prop.price || 0),
-        prop.sold_price ? formatCurrency(prop.sold_price) : 'N/A',
-        prop.category || 'N/A',
-        prop.commission ? `${prop.commission}%` : 'N/A',
-        prop.commission_earned ? formatCurrency(prop.commission_earned) : 'N/A',
-        prop.agency_name || 'N/A',
-        prop.expected_price ? formatCurrency(prop.expected_price) : 'N/A',
-        prop.sale_type || 'N/A',
-        String(prop.bedrooms ?? 'N/A'),
-        String(prop.bathrooms ?? 'N/A'),
-        String(prop.car_garage ?? 'N/A'),
-        String(prop.sqm ?? 'N/A'),
-        String(prop.landsize ?? 'N/A'),
-        formatDate(prop.listed_date || 'N/A'),
-        formatDate(prop.sold_date || 'N/A'),
-        prop.flood_risk || 'N/A',
-        prop.bushfire_risk || 'N/A',
-        prop.contract_status || 'N/A',
-        formatArray(prop.features || []),
-      ]);
+  if (!propertyMetrics) {
+    toast.error('No property metrics available for preview');
+    return;
+  }
+  setExportLoading(true);
+  try {
+    const head = [
+      [
+        'Street Number',
+        'Street Name',
+        'Suburb',
+        'Postcode',
+        'Agent',
+        'Type',
+        'Price',
+        'Sold Price',
+        'Status',
+        'Commission (%)',
+        'Commission Earned',
+        'Agency',
+        'Expected Price',
+        'Sale Type',
+        'Bedrooms',
+        'Bathrooms',
+        'Car Garage',
+        'SQM',
+        'Land Size',
+        'Listed Date',
+        'Sold Date',
+        'Flood Risk',
+        'Bushfire Risk',
+        'Contract Status',
+        'Features',
+      ],
+    ];
+    const body = filteredProperties.map((prop: PropertyDetails) => [
+      prop.street_number || 'N/A',
+      prop.street_name || 'N/A',
+      normalizeSuburb(prop.suburb || '') || 'N/A',
+      prop.postcode || 'N/A',
+      prop.agent_name || 'N/A',
+      prop.property_type || 'N/A',
+      formatCurrency(prop.price || 0),
+      prop.sold_price ? formatCurrency(prop.sold_price) : 'N/A',
+      prop.category || 'N/A',
+      prop.commission ? `${prop.commission}%` : 'N/A',
+      prop.commission_earned ? formatCurrency(prop.commission_earned) : 'N/A',
+      prop.agency_name || 'N/A',
+      prop.expected_price ? formatCurrency(prop.expected_price) : 'N/A',
+      prop.sale_type || 'N/A',
+      String(prop.bedrooms ?? 'N/A'),
+      String(prop.bathrooms ?? 'N/A'),
+      String(prop.car_garage ?? 'N/A'),
+      String(prop.sqm ?? 'N/A'),
+      String(prop.landsize ?? 'N/A'),
+      formatDate(prop.listed_date) || 'N/A',
+      formatDate(prop.sold_date) || 'N/A',
+      prop.flood_risk || 'N/A',
+      prop.bushfire_risk || 'N/A',
+      prop.contract_status || 'N/A',
+      formatArray(prop.features || []),
+    ]);
 
-      const pdfDataUri = await generatePdf({
-        title: 'Property Report',
-        head,
-        body,
-        fileName: 'property_report.pdf',
-        outputType: 'datauristring',
-      });
+    console.log('Preview PDF - Head:', head);
+    console.log('Preview PDF - Body sample (first 2 rows):', body.slice(0, 2));
 
-      if (typeof pdfDataUri === 'string') {
-        setPdfUrl(pdfDataUri);
-        setIsPdfPreviewOpen(true);
-        toast.success('PDF preview generated successfully');
-      } else {
-        throw new Error('PDF generation did not return a data URI');
-      }
-    } catch (err: unknown) {
-      console.error('PDF preview error:', err);
-      toast.error((err as Error).message || 'Failed to generate PDF preview');
-    } finally {
-      setExportLoading(false);
+    // Generate PDF as Blob instead of data URI
+    const pdfBlob = await generatePdf({
+      title: 'Property Report',
+      head,
+      body,
+      fileName: 'property_report.pdf',
+      outputType: 'blob', // Changed to blob
+    });
+
+    if (!(pdfBlob instanceof Blob)) {
+      throw new Error('PDF generation did not return a Blob');
     }
-  };
+
+    const url = URL.createObjectURL(pdfBlob);
+    console.log('Generated PDF Blob URL:', url);
+    setPdfUrl(url);
+    setIsPdfPreviewOpen(true);
+    toast.success('PDF preview generated successfully');
+  } catch (err: any) {
+    console.error('PDF preview error:', err);
+    toast.error(err.message || 'Failed to generate PDF preview');
+  } finally {
+    setExportLoading(false);
+  }
+};
 
   const exportPropertyReportCSV = async () => {
     if (!propertyMetrics) {
@@ -792,7 +814,7 @@ export function PropertyReportPage() {
       const data = [
         ['Property Report'],
         [`Generated on: ${moment().format('MMMM Do YYYY, h:mm:ss a')}`],
-        ['Generated by xAI Property Management'],
+        ['Generated by RedTulip Property Management'],
         [],
         ['Property Details'],
         [
@@ -842,8 +864,8 @@ export function PropertyReportPage() {
           String(prop.car_garage ?? 'N/A'),
           String(prop.sqm ?? 'N/A'),
           String(prop.landsize ?? 'N/A'),
-          formatDate(prop.listed_date || 'N/A'),
-          formatDate(prop.sold_date || 'N/A'),
+          formatDate(prop.listed_date),
+          formatDate(prop.sold_date),
           prop.flood_risk || 'N/A',
           prop.bushfire_risk || 'N/A',
           prop.contract_status || 'N/A',
@@ -922,8 +944,8 @@ export function PropertyReportPage() {
                     <td>${prop.car_garage ?? 'N/A'}</td>
                     <td>${prop.sqm ?? 'N/A'}</td>
                     <td>${prop.landsize ?? 'N/A'}</td>
-                    <td>${formatDate(prop.listed_date || 'N/A')}</td>
-                    <td>${formatDate(prop.sold_date || 'N/A')}</td>
+                    <td>${formatDate(prop.listed_date)}</td>
+                    <td>${formatDate(prop.sold_date)}</td>
                     <td>${prop.flood_risk || 'N/A'}</td>
                     <td>${prop.bushfire_risk || 'N/A'}</td>
                     <td>${prop.contract_status || 'N/A'}</td>
@@ -1115,7 +1137,7 @@ export function PropertyReportPage() {
       plugins: {
         ...chartOptions.plugins,
         title: {
-          ...chartOptions.plugins?.title,
+          ...chartOptions.plugins.title,
           text: 'Average Listed Price by Suburb',
         },
       },
@@ -1126,7 +1148,7 @@ export function PropertyReportPage() {
       plugins: {
         ...chartOptions.plugins,
         title: {
-          ...chartOptions.plugins?.title,
+          ...chartOptions.plugins.title,
           text: 'Average Sold Price by Suburb',
         },
       },
@@ -1262,7 +1284,7 @@ export function PropertyReportPage() {
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.3 }}
                   >
-                    {/* {console.log(`Filter suggestions for ${filterType}:`, dynamicFilterSuggestions[filterType])} */}
+                    {console.log(`Filter suggestions for ${filterType}:`, dynamicFilterSuggestions[filterType])}
                     <input
                       type="text"
                       value={localManualInputs[filterType] || ''}
@@ -1279,7 +1301,7 @@ export function PropertyReportPage() {
                         label: item,
                       }))}
                       value={(localFilters[filterType] || []).map((item: string) => ({ value: item, label: item }))}
-                      onChange={(selected) => handleFilterChange(filterType, [...selected])}
+                      onChange={(selected) => handleFilterChange(filterType, selected)}
                       placeholder={`Select ${filterType === 'agency_names' ? 'agency name' : filterType === 'propertyTypes' ? 'property type' : filterType === 'categories' ? 'status' : filterType.replace(/s$/, '')}...`}
                       styles={selectStyles}
                       noOptionsMessage={() => 'No options available'}
@@ -1477,7 +1499,7 @@ export function PropertyReportPage() {
                               <td className="p-4 text-gray-700">{property.price ? formatCurrency(property.price) : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.sold_price ? formatCurrency(property.sold_price) : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.category || 'N/A'}</td>
-                              <td className="p-4 text-gray-700">{commissionRate ? `${commissionRate}%` : '2.2'}</td>
+                              <td className="p-4 text-gray-700">{commissionRate ? `${commissionRate}%` : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{commissionEarned ? formatCurrency(commissionEarned) : 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.agency_name || 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.expected_price ? formatCurrency(property.expected_price) : 'N/A'}</td>
@@ -1487,8 +1509,8 @@ export function PropertyReportPage() {
                               <td className="p-4 text-gray-700">{property.car_garage ?? 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.sqm ?? 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.landsize ?? 'N/A'}</td>
-                              <td className="p-4 text-gray-700">{formatDate(property.listed_date || 'N/A')}</td>
-                              <td className="p-4 text-gray-700">{formatDate(property.sold_date || 'N/A')}</td>
+                              <td className="p-4 text-gray-700">{formatDate(property.listed_date)}</td>
+                              <td className="p-4 text-gray-700">{formatDate(property.sold_date)}</td>
                               <td className="p-4 text-gray-700">{property.flood_risk || 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.bushfire_risk || 'N/A'}</td>
                               <td className="p-4 text-gray-700">{property.contract_status || 'N/A'}</td>
@@ -1690,7 +1712,7 @@ export function PropertyReportPage() {
                           <label className="block text-sm font-medium text-gray-700">Commission (%)</label>
                           <input
                             type="number"
-                            value={editingProperty?.commission || 2.2}
+                            value={editingProperty?.commission || ''}
                             onChange={(e) =>
                               setEditingProperty((prev) => prev ? { ...prev, commission: e.target.value ? parseFloat(e.target.value) : null } : prev)
                             }

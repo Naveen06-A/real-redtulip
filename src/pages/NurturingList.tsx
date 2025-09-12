@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, X, Check, Edit, Download, Search, Eye, Trash, Upload } from 'lucide-react';
+import { UserPlus,FileText, X, Check, Edit, Download, Search, Eye, Trash, Upload } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-toastify';
 import jsPDF from 'jspdf';
@@ -70,6 +70,9 @@ export function NurturingList() {
     status: 'Inprogress',
     priority: 'warm',
   });
+  const [showTasksReport, setShowTasksReport] = useState(false);
+  const [reportFormat, setReportFormat] = useState<'table' | 'cards'>('table');
+
   const [hasPhoneNumber, setHasPhoneNumber] = useState<string>('No');
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactSuccess, setContactSuccess] = useState<string | null>(null);
@@ -86,7 +89,7 @@ export function NurturingList() {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [selectedNotes, setSelectedNotes] = useState('');
   const [showCompletedTasks, setShowCompletedTasks] = useState(false);
-
+  
   const houseTypeOptions = [
     { value: '', label: 'Select House Type' },
     { value: 'house', label: 'House' },
@@ -101,6 +104,7 @@ export function NurturingList() {
     { value: 'warm', label: 'Warm ☀️', emoji: '☀️' },
     { value: 'cold', label: 'Cold ❄️', emoji: '❄️' },
   ];
+  
 
   useEffect(() => {
     if (!user || !profile) {
@@ -108,7 +112,6 @@ export function NurturingList() {
       toast.error('User not authenticated');
       return;
     }
-
     const fetchAvailableContacts = async () => {
       try {
         const { data, error } = await supabase.from('contacts').select('id, first_name, last_name, email, phone_number');
@@ -119,7 +122,6 @@ export function NurturingList() {
         toast.error(`Error fetching available contacts: ${err.message}`);
       }
     };
-
     const fetchAgents = async () => {
       if (profile.role === 'admin') {
         const { data, error } = await supabase.from('profiles').select('id, name').in('role', ['admin', 'agent']);
@@ -127,7 +129,6 @@ export function NurturingList() {
         setAgents(data || []);
       }
     };
-
     const fetchNurturingContacts = async () => {
       setLoading(true);
       try {
@@ -147,16 +148,13 @@ export function NurturingList() {
         setLoading(false);
       }
     };
-
     fetchAvailableContacts();
     fetchAgents();
     setSelectedAgent(profile.role === 'admin' ? 'all' : user.id);
     fetchNurturingContacts();
-
     const reminderInterval = setInterval(() => {
       // Reminders are handled in UI
     }, 1000 * 60 * 60);
-
     return () => clearInterval(reminderInterval);
   }, [profile, user, selectedAgent]);
 
@@ -379,162 +377,161 @@ export function NurturingList() {
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 15;
       const contentWidth = pageWidth - 2 * margin;
-      
+
       // Set blue theme colors
       const primaryColor = [14, 105, 203]; // Deep blue
       const secondaryColor = [227, 239, 255]; // Light blue background
       const accentColor = [66, 153, 225]; // Medium blue
-      
+
       // Add header with blue background
       doc.setFillColor(...primaryColor);
       doc.rect(0, 0, pageWidth, 40, 'F');
-      
+
       // Header text
       doc.setFontSize(20);
       doc.setTextColor(255, 255, 255);
       doc.setFont(undefined, 'bold');
       doc.text('Contact Details', margin, 25);
-      
+
       // Contact name
       doc.setFontSize(16);
       doc.text(`${contact.first_name} ${contact.last_name}`, pageWidth - margin, 25, { align: 'right' });
-      
+
       let y = 50;
-      
+
       // Add decorative element
       doc.setDrawColor(...accentColor);
       doc.setLineWidth(0.5);
       doc.line(margin, y - 5, pageWidth - margin, y - 5);
-      
+
       // Create two-column layout with blue accents
       const leftColumnX = margin;
       const rightColumnX = pageWidth / 2 + 5;
       const rowHeight = 8;
-      
+
       // Set background for content area
       doc.setFillColor(...secondaryColor);
       doc.rect(margin, y, contentWidth, 120, 'F');
-      
+
       // Contact information
       doc.setFontSize(12);
       doc.setTextColor(...primaryColor);
       doc.setFont(undefined, 'bold');
       doc.text('CONTACT INFORMATION', margin + 5, y + 10);
-      
+
       doc.setDrawColor(...accentColor);
       doc.line(margin + 5, y + 12, margin + 60, y + 12);
-      
+
       y += 20;
-      
+
       doc.setFontSize(10);
       doc.setTextColor(0, 0, 0);
       doc.setFont(undefined, 'normal');
-      
+
       // Left column details
       doc.text(`Email: ${contact.email || 'N/A'}`, leftColumnX + 5, y);
       doc.text(`Phone: ${contact.phone_number || 'N/A'}`, leftColumnX + 5, y + rowHeight);
       doc.text(`Mobile: ${contact.mobile || 'N/A'}`, leftColumnX + 5, y + rowHeight * 2);
-      
+
       // Right column details
       doc.text(`Status: ${contact.status || 'N/A'}`, rightColumnX, y);
       doc.text(`Priority: ${contact.priority ? contact.priority.charAt(0).toUpperCase() + contact.priority.slice(1) : 'N/A'} ${getPriorityEmoji(contact.priority)}`, rightColumnX, y + rowHeight);
       doc.text(`Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`, rightColumnX, y + rowHeight * 2);
-      
+
       y += 30;
-      
+
       // Address section
       doc.setFont(undefined, 'bold');
       doc.setTextColor(...primaryColor);
       doc.text('ADDRESS DETAILS', margin + 5, y);
-      
+
       doc.setDrawColor(...accentColor);
       doc.line(margin + 5, y + 2, margin + 70, y + 2);
-      
+
       y += 10;
-      
+
       doc.setFont(undefined, 'normal');
       doc.setTextColor(0, 0, 0);
       doc.text(`Street: ${contact.street_number || ''} ${contact.street_name || ''}`, margin + 5, y);
       doc.text(`Suburb: ${contact.suburb || 'N/A'}`, margin + 5, y + rowHeight);
       doc.text(`Postcode: ${contact.postcode || 'N/A'}`, margin + 5, y + rowHeight * 2);
       doc.text(`House Type: ${contact.house_type || 'N/A'}`, margin + 5, y + rowHeight * 3);
-      
-      
+
       y += 40;
-      
+
       // Additional information
       doc.setFont(undefined, 'bold');
       doc.setTextColor(...primaryColor);
       doc.text('ADDITIONAL INFORMATION', margin + 5, y);
-      
+
       doc.setDrawColor(...accentColor);
       doc.line(margin + 5, y + 2, margin + 110, y + 2);
-      
+
       y += 10;
-      
+
       doc.setFont(undefined, 'normal');
       doc.setTextColor(0, 0, 0);
-      
+
       // Requirements with proper text wrapping
       const requirements = contact.requirements || 'N/A';
       const splitRequirements = doc.splitTextToSize(`Requirements: ${requirements}`, contentWidth - 10);
       doc.text(splitRequirements, margin + 5, y);
       y += rowHeight * splitRequirements.length;
-      
+
       // Monthly appraisals
       doc.text(`Monthly Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`, margin + 5, y);
-      
+
       y += 15;
-      
+
       // Notes section with blue background
       if (contact.notes) {
         doc.setFillColor(...secondaryColor);
         const notesHeight = 40;
         doc.rect(margin, y, contentWidth, notesHeight, 'F');
-        
+
         doc.setFont(undefined, 'bold');
         doc.setTextColor(...primaryColor);
         doc.text('NOTES', margin + 5, y + 8);
-        
+
         doc.setDrawColor(...accentColor);
         doc.line(margin + 5, y + 10, margin + 30, y + 10);
-        
+
         const notes = contact.notes;
         const splitNotes = doc.splitTextToSize(notes, contentWidth - 10);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(0, 0, 0);
         doc.text(splitNotes, margin + 5, y + 15);
-        
+
         y += notesHeight + 5;
       } else {
         // Add empty notes section
         doc.setFillColor(...secondaryColor);
         doc.rect(margin, y, contentWidth, 20, 'F');
-        
+
         doc.setFont(undefined, 'bold');
         doc.setTextColor(...primaryColor);
         doc.text('NOTES', margin + 5, y + 8);
-        
+
         doc.setDrawColor(...accentColor);
         doc.line(margin + 5, y + 10, margin + 30, y + 10);
-        
+
         doc.setFont(undefined, 'normal');
         doc.setTextColor(100, 100, 100);
         doc.text('No notes available', margin + 5, y + 15);
-        
+
         y += 25;
       }
-      
+
       // Footer
       const footerY = doc.internal.pageSize.getHeight() - 15;
       doc.setFillColor(...primaryColor);
       doc.rect(0, footerY, pageWidth, 15, 'F');
-      
+
       doc.setFontSize(8);
       doc.setTextColor(255, 255, 255);
       doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, footerY + 10);
       doc.text('Nurturing List Management System', pageWidth - margin, footerY + 10, { align: 'right' });
-      
+
       doc.save(`${contact.first_name}_${contact.last_name}_contact.pdf`);
     } catch (error: any) {
       console.error('Error generating individual PDF:', error);
@@ -548,37 +545,37 @@ export function NurturingList() {
         toast.info('No tasks available to download.');
         return;
       }
-      
+
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 15;
       const contentWidth = pageWidth - 2 * margin;
-      
+
       // Set blue theme colors
       const primaryColor = [14, 105, 203];
       const secondaryColor = [227, 239, 255];
       const accentColor = [66, 153, 225];
-      
+
       // Add header
       doc.setFillColor(...primaryColor);
       doc.rect(0, 0, pageWidth, 40, 'F');
-      
+
       doc.setFontSize(20);
       doc.setTextColor(255, 255, 255);
       doc.setFont(undefined, 'bold');
       doc.text('All Nurturing Tasks', margin, 25);
-      
+
       doc.setFontSize(10);
       doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, pageWidth - margin, 25, { align: 'right' });
       doc.text(`Total Tasks: ${contacts.length}`, pageWidth - margin, 35, { align: 'right' });
-      
+
       let y = 50;
-      
+
       contacts.forEach((contact, index) => {
         if (y > 250) {
           doc.addPage();
           y = 20;
-          
+
           // Add header to new page
           doc.setFillColor(...primaryColor);
           doc.rect(0, 0, pageWidth, 40, 'F');
@@ -588,26 +585,26 @@ export function NurturingList() {
           doc.text('All Nurturing Tasks (Continued)', margin, 25);
           y = 50;
         }
-        
+
         // Calculate height needed for this contact card
         const notes = contact.notes || '';
         const splitNotes = notes ? doc.splitTextToSize(notes, contentWidth - 10) : [];
         const notesHeight = splitNotes.length * 5;
         const cardHeight = 70 + (notes ? Math.max(notesHeight - 15, 0) : 0);
-        
+
         // Contact card with blue background
         doc.setFillColor(...secondaryColor);
         doc.roundedRect(margin, y, contentWidth, cardHeight, 3, 3, 'F');
-        
+
         doc.setDrawColor(...accentColor);
         doc.roundedRect(margin, y, contentWidth, cardHeight, 3, 3, 'S');
-        
+
         // Contact name and status
         doc.setFontSize(12);
         doc.setTextColor(...primaryColor);
         doc.setFont(undefined, 'bold');
         doc.text(`${contact.first_name} ${contact.last_name}`, margin + 5, y + 10);
-        
+
         // Status badge
         const status = contact.status || 'New';
         const statusWidth = doc.getTextWidth(status) + 8;
@@ -616,37 +613,37 @@ export function NurturingList() {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(8);
         doc.text(status, margin + contentWidth - statusWidth/2 - 5, y + 9, { align: 'center' });
-        
+
         y += 15;
-        
+
         // Contact details
         doc.setFontSize(9);
         doc.setTextColor(0, 0, 0);
         doc.setFont(undefined, 'normal');
-        
+
         doc.text(`Email: ${contact.email || 'N/A'}`, margin + 5, y + 10);
         doc.text(`Phone: ${contact.phone_number || 'N/A'}`, margin + 5, y + 20);
         doc.text(`Priority: ${contact.priority || 'N/A'} ${getPriorityEmoji(contact.priority)}`, margin + 5, y + 30);
-        
+
         doc.text(`Call Back: ${contact.call_back_date ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}`, margin + contentWidth/2, y + 10);
         doc.text(`Status: ${contact.status || 'N/A'}`, margin + contentWidth/2, y + 20);
         doc.text(`Appraisals: ${contact.needs_monthly_appraisals ? 'Yes' : 'No'}`, margin + contentWidth/2, y + 30);
-        
+
         y += 40;
-        
+
         // Add notes section if available
         if (notes) {
           doc.setFont(undefined, 'bold');
           doc.setTextColor(...primaryColor);
           doc.text('Notes:', margin + 5, y);
-          
+
           doc.setFont(undefined, 'normal');
           doc.setTextColor(0, 0, 0);
           doc.text(splitNotes, margin + 5, y + 5);
-          
+
           y += splitNotes.length * 5 + 10;
         }
-        
+
         // Add separator if not last contact
         if (index < contacts.length - 1) {
           doc.setDrawColor(...accentColor);
@@ -655,17 +652,17 @@ export function NurturingList() {
           y += 10;
         }
       });
-      
+
       // Add footer to last page
       const footerY = doc.internal.pageSize.getHeight() - 15;
       doc.setFillColor(...primaryColor);
       doc.rect(0, footerY, pageWidth, 15, 'F');
-      
+
       doc.setFontSize(8);
       doc.setTextColor(255, 255, 255);
       doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, footerY + 10);
       doc.text('Nurturing List Management System', pageWidth - margin, footerY + 10, { align: 'right' });
-      
+
       doc.save('all_nurturing_tasks.pdf');
     } catch (error: any) {
       console.error('Error generating PDF for all tasks:', error);
@@ -705,242 +702,289 @@ export function NurturingList() {
       setLoading(false);
     }
   };
+    const handleExcelImport = async () => {
+      if (!user) {
+        toast.error('User not authenticated');
+        return;
+      }
+      if (!excelFile) {
+        toast.error('Please select an Excel file to import');
+        return;
+      }
+      setLoading(true);
+      try {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const fileData = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(fileData, { type: 'array', dateNF: 'dd-mm-yyyy' });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
 
-  const handleExcelImport = async () => {
-    if (!user) {
-      toast.error('User not authenticated');
-      return;
-    }
+            // Get all existing contacts to check for duplicates
+            const { data: existingContacts, error: fetchError } = await supabase
+              .from('nurturing_list')
+              .select('email, phone_number, mobile');
 
-    if (!excelFile) {
-      toast.error('Please select an Excel file to import');
-      return;
-    }
+            if (fetchError) throw new Error(`Failed to fetch existing contacts: ${fetchError.message}`);
 
-    setLoading(true);
+            // Create sets for checking uniqueness
+            const existingEmails = new Set(existingContacts.map(c => c.email.toLowerCase()));
+            const existingPhones = new Set(
+              existingContacts
+                .filter(c => c.phone_number)
+                .map(c => c.phone_number.replace(/\D/g, ''))
+            );
+            const existingMobiles = new Set(
+              existingContacts
+                .filter(c => c.mobile)
+                .map(c => c.mobile.replace(/\D/g, ''))
+            );
 
-    try {
-      const reader = new FileReader();
+            const validContacts: Partial<NurturingContact>[] = [];
+            const errors: string[] = [];
+            const allowedStatuses = ['Inprogress', 'Not interested', 'Undecided', 'Will list', 'Closed', 'will buy', 'will sell', 'wants to buy'];
+            const allowedPriorities = ['hot', 'warm', 'cold'];
 
-      reader.onload = async (e) => {
-        try {
-          const fileData = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(fileData, { type: 'array', dateNF: 'dd-mm-yyyy' });
-          const sheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' });
+            const cleanString = (value: any): string => {
+              if (typeof value !== 'string') return '';
+              return value.trim();
+            };
 
-          const existingEmails = new Set(contacts.map(c => c.email.toLowerCase()));
-          const validContacts: Partial<NurturingContact>[] = [];
-          const errors: string[] = [];
-          const allowedStatuses = ['Inprogress', 'Not interested', 'Undecided', 'Will list', 'Closed', 'will buy', 'will sell', 'wants to buy'];
-          const allowedPriorities = ['hot', 'warm', 'cold'];
+            const normalizePhone = (phone: string): string => {
+              return phone.replace(/\D/g, '');
+            };
 
-          const cleanString = (value: any): string => {
-            if (typeof value !== 'string') return '';
-            return value.trim();
-          };
+            const parseDate = (dateStr: string): string | null => {
+              const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+              if (match) {
+                const [, day, month, year] = match;
+                const isoDate = `${year}-${month}-${day}`;
+                const parsedDate = new Date(isoDate);
+                if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() === parseInt(year)) {
+                  return isoDate;
+                }
+              }
+              const parsedDate = new Date(dateStr);
+              if (!isNaN(parsedDate.getTime())) {
+                const year = parsedDate.getFullYear();
+                const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                const day = String(parsedDate.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+              }
+              return null;
+            };
 
-          const parseDate = (dateStr: string): string | null => {
-            const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-            if (match) {
-              const [, day, month, year] = match;
+            const serialToDate = (serial: number): string | null => {
+              const excelEpoch = new Date(1899, 11, 31);
+              const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
+              if (serial < 60) date.setDate(date.getDate() - 1);
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const day = String(date.getDate()).padStart(2, '0');
               const isoDate = `${year}-${month}-${day}`;
-              const parsedDate = new Date(isoDate);
-              if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() === parseInt(year)) {
-                return isoDate;
-              }
-            }
-            const parsedDate = new Date(dateStr);
-            if (!isNaN(parsedDate.getTime())) {
-              const year = parsedDate.getFullYear();
-              const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-              const day = String(parsedDate.getDate()).padStart(2, '0');
-              return `${year}-${month}-${day}`;
-            }
-            return null;
-          };
+              const checkDate = new Date(isoDate);
+              if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) return null;
+              return isoDate;
+            };
 
-          const serialToDate = (serial: number): string | null => {
-            const excelEpoch = new Date(1899, 11, 31);
-            const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
-            if (serial < 60) date.setDate(date.getDate() - 1);
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const isoDate = `${year}-${month}-${day}`;
-            const checkDate = new Date(isoDate);
-            if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) return null;
-            return isoDate;
-          };
+            const generateUniqueId = () => {
+              return `no-email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            };
 
-          const generateUniqueId = () => {
-            return `no-email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          };
+            const safeNumericValue = (value: any): string => {
+              if (value === null || value === undefined || value === '') return '';
+              return value.toString().replace(/[^0-9.]/g, '');
+            };
 
-          const safeNumericValue = (value: any): string => {
-            if (value === null || value === undefined || value === '') return '';
-            return value.toString().replace(/[^0-9.]/g, '');
-          };
+            jsonData.forEach((row: any, index: number) => {
+              const isRowEmpty = Object.values(row).every(val => {
+                if (typeof val === 'string') return val.trim() === '';
+                return val === null || val === undefined;
+              });
+              if (isRowEmpty) return;
 
-          jsonData.forEach((row: any, index: number) => {
-            // Skip completely empty rows
-            const isRowEmpty = Object.values(row).every(val => {
-              if (typeof val === 'string') return val.trim() === '';
-              return val === null || val === undefined;
-            });
-
-            if (isRowEmpty) return;
-
-            const firstName = cleanString(row.first_name);
-            const lastName = cleanString(row.last_name);
-
-            if (!firstName && !lastName) {
-              errors.push(`Row ${index + 2}: Missing both first name and last name`);
-              return;
-            }
-
-            let email = cleanString(row.email);
-            let finalEmail = email;
-
-            if (!email) {
-              if (firstName || lastName) {
-                finalEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@placeholder.com`.replace(/\s+/g, '.');
-              } else {
-                finalEmail = `unknown.${generateUniqueId()}@placeholder.com`;
-              }
-            }
-
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(finalEmail)) {
-              errors.push(`Row ${index + 2}: Invalid email format (${finalEmail})`);
-              return;
-            }
-
-            if (existingEmails.has(finalEmail.toLowerCase())) {
-              errors.push(`Row ${index + 2}: Duplicate email (${finalEmail})`);
-              return;
-            }
-
-            let status = cleanString(row.status);
-            if (!status) {
-              status = 'Inprogress';
-            } else {
-              const normalizedStatus = allowedStatuses.find(s => s.toLowerCase() === status.toLowerCase());
-              if (!normalizedStatus) {
-                errors.push(`Row ${index + 2}: Invalid status value (${status}). Must be one of: ${allowedStatuses.join(', ')}`);
+              const firstName = cleanString(row.first_name);
+              const lastName = cleanString(row.last_name);
+              if (!firstName && !lastName) {
+                errors.push(`Row ${index + 2}: Missing both first name and last name`);
                 return;
               }
-              status = normalizedStatus;
-            }
 
-            let priority = cleanString(row.priority).toLowerCase();
-            if (!priority) {
-              priority = 'warm';
-            } else {
-              const normalizedPriority = allowedPriorities.find(p => p.toLowerCase() === priority);
-              if (!normalizedPriority) {
-                errors.push(`Row ${index + 2}: Invalid priority value (${priority}). Must be one of: ${allowedPriorities.join(', ')}`);
+              let email = cleanString(row.email);
+              let finalEmail = email;
+              if (!email) {
+                if (firstName || lastName) {
+                  finalEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@placeholder.com`.replace(/\s+/g, '.');
+                } else {
+                  finalEmail = `unknown.${generateUniqueId()}@placeholder.com`;
+                }
+              }
+
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(finalEmail)) {
+                errors.push(`Row ${index + 2}: Invalid email format (${finalEmail})`);
                 return;
               }
-              priority = normalizedPriority;
-            }
 
-            const needsMonthlyAppraisals =
-              cleanString(row.needs_monthly_appraisals).toLowerCase() === 'yes' ||
-              row.needs_monthly_appraisals === true ||
-              row.needs_monthly_appraisals === 1;
-
-            let callBackDate: string | null = null;
-            if (row.call_back_date) {
-              if (typeof row.call_back_date === 'string') {
-                callBackDate = parseDate(row.call_back_date);
-                if (!callBackDate) {
-                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
-                }
-              } else if (typeof row.call_back_date === 'number') {
-                callBackDate = serialToDate(row.call_back_date);
-                if (!callBackDate) {
-                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
-                }
-              } else {
-                errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+              // Skip duplicate email, phone, or mobile without logging errors
+              if (existingEmails.has(finalEmail.toLowerCase())) {
+                return;
               }
+
+              const phone = cleanString(row.phone_number);
+              const normalizedPhone = phone ? normalizePhone(phone) : '';
+              if (normalizedPhone && existingPhones.has(normalizedPhone)) {
+                return;
+              }
+
+              const mobile = cleanString(row.mobile);
+              const normalizedMobile = mobile ? normalizePhone(mobile) : '';
+              if (normalizedMobile && existingMobiles.has(normalizedMobile)) {
+                return;
+              }
+
+              let status = cleanString(row.status);
+              if (!status) {
+                status = 'Inprogress';
+              } else {
+                const normalizedStatus = allowedStatuses.find(s => s.toLowerCase() === status.toLowerCase());
+                if (!normalizedStatus) {
+                  errors.push(`Row ${index + 2}: Invalid status value (${status}). Must be one of: ${allowedStatuses.join(', ')}`);
+                  return;
+                }
+                status = normalizedStatus;
+              }
+
+              let priority = cleanString(row.priority).toLowerCase();
+              if (!priority) {
+                priority = 'warm';
+              } else {
+                const normalizedPriority = allowedPriorities.find(p => p.toLowerCase() === priority);
+                if (!normalizedPriority) {
+                  errors.push(`Row ${index + 2}: Invalid priority value (${priority}). Must be one of: ${allowedPriorities.join(', ')}`);
+                  return;
+                }
+                priority = normalizedPriority;
+              }
+
+              const needsMonthlyAppraisals =
+                cleanString(row.needs_monthly_appraisals).toLowerCase() === 'yes' ||
+                row.needs_monthly_appraisals === true ||
+                row.needs_monthly_appraisals === 1;
+
+              let callBackDate: string | null = null;
+              if (row.call_back_date) {
+                if (typeof row.call_back_date === 'string') {
+                  callBackDate = parseDate(row.call_back_date);
+                  if (!callBackDate) {
+                    errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                  }
+                } else if (typeof row.call_back_date === 'number') {
+                  callBackDate = serialToDate(row.call_back_date);
+                  if (!callBackDate) {
+                    errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                  }
+                } else {
+                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                }
+              }
+
+              const streetNumber = safeNumericValue(row.street_number);
+              const postcode = safeNumericValue(row.postcode);
+
+              validContacts.push({
+                first_name: firstName,
+                last_name: lastName,
+                email: finalEmail,
+                phone_number: phone,
+                mobile: mobile,
+                street_number: streetNumber,
+                street_name: cleanString(row.street_name),
+                suburb: cleanString(row.suburb),
+                postcode: postcode,
+                house_type: cleanString(row.house_type),
+                requirements: cleanString(row.requirements),
+                notes: cleanString(row.notes),
+                call_back_date: callBackDate,
+                needs_monthly_appraisals: needsMonthlyAppraisals,
+                status: status,
+                priority: priority as 'hot' | 'warm' | 'cold',
+                agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
+              });
+            });
+
+            // Show only non-duplicate errors
+            if (errors.length > 0) {
+              toast.error(
+                <div>
+                  <p>Some rows could not be imported:</p>
+                  <ul className="max-h-40 overflow-y-auto mt-2">
+                    {errors.slice(0, 5).map((error, i) => (
+                      <li key={i} className="text-sm">{error}</li>
+                    ))}
+                    {errors.length > 5 && <li className="text-sm">...and {errors.length - 5} more errors</li>}
+                  </ul>
+                </div>,
+                {
+                  autoClose: 10000,
+                }
+              );
             }
 
-            const streetNumber = safeNumericValue(row.street_number);
-            const postcode = safeNumericValue(row.postcode);
+            if (validContacts.length === 0) {
+              toast.info('No new valid contacts to import');
+              setLoading(false);
+              return;
+            }
 
-            validContacts.push({
-              first_name: firstName,
-              last_name: lastName,
-              email: finalEmail,
-              phone_number: cleanString(row.phone_number),
-              mobile: cleanString(row.mobile),
-              street_number: streetNumber,
-              street_name: cleanString(row.street_name),
-              suburb: cleanString(row.suburb),
-              postcode: postcode,
-              house_type: cleanString(row.house_type),
-              requirements: cleanString(row.requirements),
-              notes: cleanString(row.notes),
-              call_back_date: callBackDate,
-              needs_monthly_appraisals: needsMonthlyAppraisals,
-              status: status,
-              priority: priority as 'hot' | 'warm' | 'cold',
-              agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
+            const { data: importedData, error } = await supabase
+              .from('nurturing_list')
+              .insert(validContacts)
+              .select<unknown, NurturingContact>();
+
+            if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
+
+            // Update the existing contacts sets with the newly imported data
+            importedData.forEach(contact => {
+              existingEmails.add(contact.email.toLowerCase());
+              if (contact.phone_number) {
+                existingPhones.add(normalizePhone(contact.phone_number));
+              }
+              if (contact.mobile) {
+                existingMobiles.add(normalizePhone(contact.mobile));
+              }
             });
-          });
 
-          if (errors.length > 0) {
-            toast.error(`Some rows could not be imported:\n${errors.join('\n')}`, {
-              autoClose: 10000,
-            });
-          }
+            setContacts([...contacts, ...importedData]);
+            setExcelFile(null);
+            resetForm();
 
-          if (validContacts.length === 0) {
-            toast.info('No valid contacts to import');
+            const placeholderCount = validContacts.filter(c => c.email?.includes('@placeholder.com')).length;
+            let successMessage = `${validContacts.length} new contacts imported successfully from Excel`;
+            if (placeholderCount > 0) {
+              successMessage += ` (${placeholderCount} with placeholder emails)`;
+            }
+
+            toast.success(successMessage);
+          } catch (err: any) {
+            toast.error(`Error processing Excel file: ${err.message}`);
+          } finally {
             setLoading(false);
-            return;
           }
+        };
 
-          const { data: importedData, error } = await supabase
-            .from('nurturing_list')
-            .insert(validContacts)
-            .select<unknown, NurturingContact>();
-
-          if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
-
-          setContacts([...contacts, ...importedData]);
-          setExcelFile(null);
-          resetForm();
-
-          const placeholderCount = validContacts.filter(c => c.email?.includes('@placeholder.com')).length;
-          let successMessage = `${validContacts.length} contacts imported successfully from Excel`;
-
-          if (placeholderCount > 0) {
-            successMessage += ` (${placeholderCount} with placeholder emails)`;
-          }
-
-          toast.success(successMessage);
-        } catch (err: any) {
-          toast.error(`Error processing Excel file: ${err.message}`);
-        } finally {
+        reader.onerror = () => {
+          toast.error('Error reading Excel file');
           setLoading(false);
-        }
-      };
+        };
 
-      reader.onerror = () => {
-        toast.error('Error reading Excel file');
+        reader.readAsArrayBuffer(excelFile);
+      } catch (err: any) {
+        toast.error(`Error importing Excel contacts: ${err.message}`);
         setLoading(false);
-      };
-
-      reader.readAsArrayBuffer(excelFile);
-    } catch (err: any) {
-      toast.error(`Error importing Excel contacts: ${err.message}`);
-      setLoading(false);
-    }
-  };
-
+      }
+    };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -1045,7 +1089,7 @@ export function NurturingList() {
   };
 
   const handleViewSavedTasks = () => {
-    setShowTasks(!showTasks);
+    setShowTasks(true);
     setTaskSearchQuery('');
     setTaskFilter('all');
     setShowCompletedTasks(false);
@@ -1084,7 +1128,179 @@ export function NurturingList() {
       return dateA - dateB;
     });
   }
+  // Add this function to generate a comprehensive report
+  const generateTasksReport = () => {
+    if (sortedContacts.length === 0) {
+      return <p className="text-gray-500 text-center py-8">No tasks found matching your criteria.</p>;
+    }
 
+    if (reportFormat === 'cards') {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+          {sortedContacts.map((contact) => (
+            <motion.div
+              key={contact.id}
+              className="bg-white p-4 rounded-lg shadow-md border border-gray-200"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="flex justify-between items-start mb-3">
+                <h4 className="font-semibold text-gray-800">
+                  {contact.first_name} {contact.last_name}
+                </h4>
+                <span className={`px-2 py-1 text-xs rounded-full ${getStatusBadgeClass(contact.status)}`}>
+                  {contact.status || 'New'}
+                </span>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Email:</span>
+                  <span className="text-gray-800">{contact.email}</span>
+                </div>
+                
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Phone:</span>
+                  <span className="text-gray-800">{contact.phone_number || 'N/A'}</span>
+                </div>
+                
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Priority:</span>
+                  <span className={`px-2 py-1 text-xs rounded-full ${getPriorityBadgeClass(contact.priority)}`}>
+                    {getPriorityEmoji(contact.priority)} {contact.priority || 'N/A'}
+                  </span>
+                </div>
+                
+                {contact.call_back_date && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Call Back:</span>
+                    <span className="text-gray-800">
+                      {new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                    </span>
+                  </div>
+                )}
+                
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Appraisals:</span>
+                  <span className="text-gray-800">{contact.needs_monthly_appraisals ? 'Yes' : 'No'}</span>
+                </div>
+                
+                {contact.requirements && (
+                  <div>
+                    <p className="text-gray-600 text-xs">Requirements:</p>
+                    <p className="text-gray-800 text-sm mt-1">{contact.requirements}</p>
+                  </div>
+                )}
+                
+                {contact.notes && (
+                  <div>
+                    <p className="text-gray-600 text-xs">Notes:</p>
+                    <p className="text-gray-800 text-sm mt-1 line-clamp-2">{contact.notes}</p>
+                  </div>
+                )}
+                
+                <div className="pt-2 flex justify-between items-center">
+                  <span className="text-xs text-red-500">{getReminder(contact)}</span>
+                  <div className="flex space-x-2">
+                    <motion.button
+                      onClick={() => handleDownloadPDF(contact)}
+                      className="text-gray-500 hover:text-green-600"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      title="Download PDF"
+                    >
+                      <Download className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      );
+    }
+
+    // Table format (default)
+    return (
+      <div className="overflow-x-auto mt-4">
+        <table className="min-w-full divide-y divide-gray-200 bg-white">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Call Back</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Appraisals</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reminder</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {sortedContacts.map((contact) => (
+              <motion.tr
+                key={contact.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+              >
+                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  {contact.first_name} {contact.last_name}
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{contact.email}</td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{contact.phone_number || 'N/A'}</td>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getPriorityBadgeClass(contact.priority)}`}>
+                    {getPriorityEmoji(contact.priority)} {contact.priority || 'N/A'}
+                  </span>
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeClass(contact.status)}`}>
+                    {contact.status || 'New'}
+                  </span>
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {contact.call_back_date
+                    ? new Date(contact.call_back_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+                    : 'N/A'}
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {contact.needs_monthly_appraisals ? 'Yes' : 'No'}
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-red-500">
+                  {getReminder(contact)}
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                  <div className="flex space-x-2">
+                    <motion.button
+                      onClick={() => handleViewContact(contact)}
+                      className="text-gray-500 hover:text-blue-600"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      title="View Details"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </motion.button>
+                    <motion.button
+                      onClick={() => handleDownloadPDF(contact)}
+                      className="text-gray-500 hover:text-green-600"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      title="Download PDF"
+                    >
+                      <Download className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+                </td>
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
   if (loading) {
     return (
       <motion.div
@@ -1113,7 +1329,7 @@ export function NurturingList() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-3xl font-bold text-gray-800 flex items-center">
             <span className="mr-2">📋</span> Nurturing List
@@ -1121,11 +1337,20 @@ export function NurturingList() {
           <div className="flex items-center space-x-4">
             <motion.button
               onClick={handleViewSavedTasks}
-              className="py-2 px-4 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+              className="py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              Saved Tasks
+              View All Tasks
+            </motion.button>
+              <motion.button
+              onClick={handleViewSavedTasks}
+              className="flex items-center py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              View Saved Tasks
             </motion.button>
             {(profile?.role === 'agent' || profile?.role === 'admin') && (
               <motion.button
@@ -1503,16 +1728,140 @@ export function NurturingList() {
           </motion.div>
         )}
         <AnimatePresence>
+          {showTasksReport && (
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-auto"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTasksReport(false)}
+            >
+              <motion.div
+                className="bg-white p-6 rounded-xl shadow-md border border-gray-200 w-full max-w-6xl max-h-[90vh] overflow-auto"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.3 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-semibold text-gray-800">Saved Tasks Report</h3>
+                  <div className="flex items-center space-x-4">
+                    <div className="flex space-x-2">
+                      <motion.button
+                        onClick={() => setReportFormat('table')}
+                        className={`px-3 py-2 rounded-lg text-sm ${
+                          reportFormat === 'table' 
+                            ? 'bg-blue-600 text-white' 
+                            : 'bg-gray-200 text-gray-700'
+                        }`}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        Table View
+                      </motion.button>
+                      <motion.button
+                        onClick={() => setReportFormat('cards')}
+                        className={`px-3 py-2 rounded-lg text-sm ${
+                          reportFormat === 'cards' 
+                            ? 'bg-blue-600 text-white' 
+                            : 'bg-gray-200 text-gray-700'
+                        }`}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        Card View
+                      </motion.button>
+                    </div>
+                    <motion.button
+                      onClick={() => setShowTasksReport(false)}
+                      className="p-2 text-gray-500 hover:text-gray-700"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                    >
+                      <X className="w-5 h-5" />
+                    </motion.button>
+                  </div>
+                </div>
+
+                <div className="mb-6 flex flex-wrap gap-4">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <input
+                      type="text"
+                      value={taskSearchQuery}
+                      onChange={(e) => setTaskSearchQuery(e.target.value)}
+                      placeholder="Search tasks..."
+                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent pl-10"
+                    />
+                    <Search className="absolute left-3 top-3 w-4 h-4 text-gray-500" />
+                  </div>
+                  
+                  <select
+                    value={taskFilter}
+                    onChange={(e) => setTaskFilter(e.target.value as typeof taskFilter)}
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                  >
+                    <option value="all">All Tasks</option>
+                    <option value="progress">In Progress</option>
+                    <option value="ongoing">Ongoing</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                  
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                  >
+                    <option value="newToOld">New to Old</option>
+                    <option value="oldToNew">Old to New</option>
+                    <option value="dueSoon">Due Soon</option>
+                  </select>
+                  
+                  {profile?.role === 'admin' && (
+                    <select
+                      value={selectedAgent}
+                      onChange={(e) => setSelectedAgent(e.target.value)}
+                      className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                    >
+                      <option value="all">All Agents</option>
+                      {agents.map(agent => (
+                        <option key={agent.id} value={agent.id}>{agent.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className="mb-4 flex justify-between items-center">
+                  <p className="text-sm text-gray-600">
+                    Showing {sortedContacts.length} of {contacts.length} tasks
+                  </p>
+                  <motion.button
+                    onClick={handleDownloadAllTasks}
+                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Report
+                  </motion.button>
+                </div>
+
+                {generateTasksReport()}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
           {showTasks && (
             <motion.div
-              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowTasks(false)}
             >
               <motion.div
-                className="contact-list bg-white p-6 rounded-xl shadow-md border border-gray-200 w-full max-w-6xl max-h-[90vh] overflow-y-auto overflow-x-auto"
+                className="contact-list bg-white p-6 rounded-xl shadow-md border border-gray-200 w-full h-full max-w-full max-h-full overflow-y-auto overflow-x-auto"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
@@ -1521,14 +1870,24 @@ export function NurturingList() {
               >
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-xl font-semibold text-gray-800">Saved Tasks</h3>
-                  <motion.button
-                    onClick={() => setShowTasks(false)}
-                    className="py-2 px-4 bg-gray-500 text-white rounded-lg text-sm font-medium hover:bg-gray-600"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    Close
-                  </motion.button>
+                  <div className="flex items-center space-x-4">
+                    <motion.button
+                      onClick={handleViewSavedTasks}
+                      className="py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      View All Tasks
+                    </motion.button>
+                    <motion.button
+                      onClick={() => setShowTasks(false)}
+                      className="py-2 px-4 bg-gray-500 text-white rounded-lg text-sm font-medium hover:bg-gray-600"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      Close
+                    </motion.button>
+                  </div>
                 </div>
                 <div className="mb-4 flex space-x-4 items-center">
                   <div className="relative flex-1">
@@ -1635,21 +1994,21 @@ export function NurturingList() {
                     <table className="min-w-full divide-y divide-gray-200 bg-white">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Select</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mobile</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">House Type</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Call Back</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reminder</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Appraisals</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Requirements</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                          <th className="px- py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Select</th>
+                          <th className="px- py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mobile</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">House Type</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Call Back</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reminder</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Appraisals</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Requirements</th>
+                          <th className="px-6 py- text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
                           {profile?.role === 'admin' && (
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
                           )}

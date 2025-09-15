@@ -2,6 +2,12 @@ import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { X, Save, Download } from 'lucide-react';
 
+interface Revenue {
+  name: string;
+  amount: number;
+  period: 'monthly' | 'yearly';
+}
+
 interface Expense {
   name: string;
   amount: number;
@@ -18,14 +24,12 @@ interface EMIPlan {
   ownPercent: number;
   ownFundsInterestRate: number;
   ownTenure: number;
-  revenue1: number;
-  revenue2: number;
-  revenuePeriod: 'monthly' | 'yearly';
+  revenues: Revenue[];
   expenses: Expense[];
 }
 
 interface PeriodData {
-  period: number; // Represents year or month
+  period: number;
   revenue: number;
   expenses: number;
   ownAmount: number;
@@ -57,7 +61,7 @@ interface SavedPlan {
 
 const formatNumberInput = (value: number): string => {
   if (value === 0) return '';
-  return new Intl.NumberFormat('en-IN', {
+  return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);
@@ -130,9 +134,9 @@ const CurrencyInput: React.FC<{
 };
 
 const formatCurrency = (value: number): string => {
-  return new Intl.NumberFormat('en-IN', {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'INR',
+    currency: 'USD',
     minimumFractionDigits: 2,
   }).format(value);
 };
@@ -143,8 +147,14 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const loanTenureMonths = plan.loanTenure * 12;
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
-  const yearlyRevenue = plan.revenuePeriod === 'yearly' ? plan.revenue1 + plan.revenue2 : (plan.revenue1 + plan.revenue2) * 12;
-  const monthlyRevenue = plan.revenuePeriod === 'yearly' ? (plan.revenue1 + plan.revenue2) / 12 : plan.revenue1 + plan.revenue2;
+  const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
+    const amount = rev.period === 'yearly' ? rev.amount : rev.amount * 12;
+    return sum + amount;
+  }, 0);
+  const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
+    const amount = rev.period === 'monthly' ? rev.amount : rev.amount / 12;
+    return sum + amount;
+  }, 0);
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
     const amount = expense.period === 'yearly' ? expense.amount : expense.amount * 12;
     return sum + amount;
@@ -199,8 +209,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     yearPrincipalOwn += principalOwn;
     yearTotalRepayment += (interestBank + principalBank) + (interestOwn + principalOwn);
 
-    // Monthly data
-    const monthlyRepayment = (principalBank + interestBank) + (principalOwn + interestOwn);
     monthlyAvg.push({
       period: currentMonth,
       revenue: monthlyRevenue,
@@ -211,7 +219,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       loanRepayment: principalBank + interestBank,
       ownInterest: interestOwn,
       loanInterest: interestBank,
-      pl: monthlyRevenue - (monthlyExpenses + monthlyRepayment),
+      pl: monthlyRevenue - (monthlyExpenses + (principalBank + interestBank + principalOwn + interestOwn)),
     });
 
     if (currentMonth % 12 === 0 || currentMonth === maxMonths) {
@@ -276,9 +284,9 @@ const validateInputs = (plan: EMIPlan): string | null => {
   if (plan.ownTenure <= 0) return 'Own Funds Tenure must be greater than zero.';
   if (plan.interestPerAnnum < 0) return 'Interest Per Annum cannot be negative.';
   if (plan.ownFundsInterestRate < 0) return 'Own Funds Interest Rate cannot be negative.';
-  if (plan.revenue1 < 0) return 'Revenue 1 cannot be negative.';
-  if (plan.revenue2 < 0) return 'Revenue 2 cannot be negative.';
+  if (plan.revenues.some((revenue) => revenue.amount < 0)) return 'Revenues cannot be negative.';
   if (plan.expenses.some((expense) => expense.amount < 0)) return 'Expenses cannot be negative.';
+  if (plan.revenues.length < 2) return 'At least two revenues are required.';
   if (plan.expenses.length < 2) return 'At least two expenses are required.';
   return null;
 };
@@ -294,9 +302,10 @@ export function EMIPlanCalculator() {
     ownPercent: 30,
     ownFundsInterestRate: 0,
     ownTenure: 0,
-    revenue1: 0,
-    revenue2: 0,
-    revenuePeriod: 'monthly',
+    revenues: [
+      { name: 'Revenue 1', amount: 0, period: 'monthly' },
+      { name: 'Revenue 2', amount: 0, period: 'monthly' },
+    ],
     expenses: [
       { name: 'Expense 1', amount: 0, period: 'monthly' },
       { name: 'Expense 2', amount: 0, period: 'monthly' },
@@ -309,6 +318,7 @@ export function EMIPlanCalculator() {
   });
   const [showAmortizationTable, setShowAmortizationTable] = useState(false);
   const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
+  const [viewPlanModal, setViewPlanModal] = useState<SavedPlan | null>(null);
 
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
 
@@ -317,7 +327,7 @@ export function EMIPlanCalculator() {
       setEmiPlan((prev) => {
         let updatedPlan = {
           ...prev,
-          [field]: field === 'typeOfLoan' || field === 'revenuePeriod' ? value : typeof value === 'number' ? value : parseFloat(value) || 0,
+          [field]: field === 'typeOfLoan' ? value : typeof value === 'number' ? value : parseFloat(value) || 0,
         };
 
         if (field === 'bankPercent') {
@@ -354,6 +364,47 @@ export function EMIPlanCalculator() {
       });
     },
     []
+  );
+
+  const handleRevenueChange = useCallback(
+    (index: number, field: 'name' | 'amount' | 'period', value: string | number | 'monthly' | 'yearly') => {
+      setEmiPlan((prev) => {
+        const updatedRevenues = [...prev.revenues];
+        updatedRevenues[index] = {
+          ...updatedRevenues[index],
+          [field]: field === 'amount' ? (typeof value === 'number' ? value : parseInt(value as string) || 0) : value,
+        };
+        const updatedPlan = { ...prev, revenues: updatedRevenues };
+        const validationError = validateInputs(updatedPlan);
+        setError(validationError);
+        return updatedPlan;
+      });
+    },
+    []
+  );
+
+  const addRevenue = useCallback(() => {
+    if (emiPlan.revenues.length < 3) {
+      setEmiPlan((prev) => ({
+        ...prev,
+        revenues: [...prev.revenues, { name: 'Others', amount: 0, period: 'monthly' }],
+      }));
+    }
+  }, [emiPlan.revenues.length]);
+
+  const removeRevenue = useCallback(
+    (index: number) => {
+      if (emiPlan.revenues.length > 2) {
+        setEmiPlan((prev) => {
+          const updatedRevenues = prev.revenues.filter((_, i) => i !== index);
+          const updatedPlan = { ...prev, revenues: updatedRevenues };
+          const validationError = validateInputs(updatedPlan);
+          setError(validationError);
+          return updatedPlan;
+        });
+      }
+    },
+    [emiPlan.revenues.length]
   );
 
   const handleExpenseChange = useCallback(
@@ -410,6 +461,7 @@ export function EMIPlanCalculator() {
     const updatedPlans = [...savedPlans, newPlan];
     setSavedPlans(updatedPlans);
     localStorage.setItem('emiPlans', JSON.stringify(updatedPlans));
+    setViewPlanModal(newPlan);
     setError('Plan saved successfully!');
     setTimeout(() => setError(null), 3000);
   }, [emiPlan, savedPlans]);
@@ -431,12 +483,87 @@ export function EMIPlanCalculator() {
       setError(validationError);
       return;
     }
-    console.log('Generating PDF with LaTeX content...');
+
+    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
+    const latexContent = `
+\\documentclass{article}
+\\usepackage{geometry}
+\\usepackage{booktabs}
+\\usepackage{array}
+\\geometry{a4paper, margin=1in}
+\\title{EMI Plan: ${planName}}
+\\author{}
+\\date{${new Date().toLocaleDateString()}}
+\\begin{document}
+\\maketitle
+
+\\section*{Loan Details}
+\\begin{tabular}{lr}
+\\toprule
+\\textbf{Field} & \\textbf{Value} \\\\
+\\midrule
+Loan Type & ${planName} \\\\
+Loan Tenure (Years) & ${emiPlan.loanTenure} \\\\
+Loan Amount & \\$${formatNumberInput(emiPlan.loanAmount)} \\\\
+Interest Per Annum & ${emiPlan.interestPerAnnum}\\% \\\\
+Bank Percentage & ${emiPlan.bankPercent}\\% \\\\
+Own Percentage & ${emiPlan.ownPercent}\\% \\\\
+Own Funds Tenure (Years) & ${emiPlan.ownTenure} \\\\
+Own Funds Interest Rate & ${emiPlan.ownFundsInterestRate}\\% \\\\
+\\bottomrule
+\\end{tabular}
+
+\\section*{Revenues}
+\\begin{tabular}{lrr}
+\\toprule
+\\textbf{Name} & \\textbf{Amount} & \\textbf{Period} \\\\
+\\midrule
+${emiPlan.revenues
+  .map((rev) => `${rev.name} & \\$${formatNumberInput(rev.amount)} & ${rev.period} \\\\`)
+  .join('\n')}
+\\bottomrule
+\\end{tabular}
+
+\\section*{Expenses}
+\\begin{tabular}{lrr}
+\\toprule
+\\textbf{Name} & \\textbf{Amount} & \\textbf{Period} \\\\
+\\midrule
+${emiPlan.expenses
+  .map((exp) => `${exp.name} & \\$${formatNumberInput(exp.amount)} & ${exp.period} \\\\`)
+  .join('\n')}
+\\bottomrule
+\\end{tabular}
+
+\\section*{Yearly Profit/Loss Summary}
+\\begin{tabular}{lrrrrr}
+\\toprule
+\\textbf{Year} & \\textbf{Revenue} & \\textbf{Expenses} & \\textbf{Loan Payments} & \\textbf{Total Interest} & \\textbf{P/L} \\\\
+\\midrule
+${calculations.yearlyAvg
+  .map(
+    (year) =>
+      `${year.period} & \\$${formatNumberInput(year.revenue)} & \\$${formatNumberInput(
+        year.expenses
+      )} & \\$${formatNumberInput(year.loanRepayment + year.ownRepayment)} & \\$${formatNumberInput(
+        (calculations.totalBankInterest + calculations.totalOwnInterest) / Math.max(emiPlan.loanTenure, emiPlan.ownTenure)
+      )} & \\$${formatNumberInput(year.pl)} \\\\`
+  )
+  .join('\n')}
+\\bottomrule
+\\end{tabular}
+
+\\end{document}
+`;
+
+    const blob = new Blob([latexContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = '#';
-    link.download = 'EMIBreakdown.pdf';
+    link.href = url;
+    link.download = `EMIBreakdown_${planName.replace(/\s+/g, '_')}.tex`;
     link.click();
-  }, [emiPlan]);
+    window.URL.revokeObjectURL(url);
+  }, [emiPlan, calculations]);
 
   const loanTypeOptions = [
     'Business Loan',
@@ -498,6 +625,16 @@ export function EMIPlanCalculator() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 bg-gray-100 min-h-screen">
+      <style>{`
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type="number"] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -535,20 +672,68 @@ export function EMIPlanCalculator() {
           </div>
         )}
 
+        {viewPlanModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+              <h2 className="text-2xl font-bold mb-4">
+                Plan Details: {viewPlanModal.emiPlan.typeOfLoan === 'Manual Entry' ? viewPlanModal.emiPlan.customLoanType : viewPlanModal.emiPlan.typeOfLoan}
+              </h2>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">Loan Details</h3>
+                <p><strong>Type:</strong> {viewPlanModal.emiPlan.typeOfLoan === 'Manual Entry' ? viewPlanModal.emiPlan.customLoanType : viewPlanModal.emiPlan.typeOfLoan}</p>
+                <p><strong>Loan Tenure:</strong> {viewPlanModal.emiPlan.loanTenure} years</p>
+                <p><strong>Loan Amount:</strong> {formatCurrency(viewPlanModal.emiPlan.loanAmount)}</p>
+                <p><strong>Interest Per Annum:</strong> {viewPlanModal.emiPlan.interestPerAnnum}%</p>
+                <p><strong>Bank Percentage:</strong> {viewPlanModal.emiPlan.bankPercent}%</p>
+                <p><strong>Own Percentage:</strong> {viewPlanModal.emiPlan.ownPercent}%</p>
+                <p><strong>Own Funds Tenure:</strong> {viewPlanModal.emiPlan.ownTenure} years</p>
+                <p><strong>Own Funds Interest Rate:</strong> {viewPlanModal.emiPlan.ownFundsInterestRate}%</p>
+              </div>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">Revenues</h3>
+                <ul>
+                  {viewPlanModal.emiPlan.revenues.map((rev, index) => (
+                    <li key={index}>
+                      {rev.name}: {formatCurrency(rev.amount)} ({rev.period})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">Expenses</h3>
+                <ul>
+                  {viewPlanModal.emiPlan.expenses.map((exp, index) => (
+                    <li key={index}>
+                      {exp.name}: {formatCurrency(exp.amount)} ({exp.period})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setViewPlanModal(null)}
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mb-8">
-          {/* Loan Details Tables */}
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Type</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Term (Years)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount ($)</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest %</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan %</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own %</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Loan (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Loan ($)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -594,7 +779,7 @@ export function EMIPlanCalculator() {
                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     min="0"
                     step="1000"
-                    placeholder="3,00,000"
+                    placeholder="300,000"
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
@@ -642,13 +827,13 @@ export function EMIPlanCalculator() {
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount ($)</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenure (Years)</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest %</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment Total (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Own (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment Total ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Own ($)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -684,47 +869,61 @@ export function EMIPlanCalculator() {
             </tbody>
           </table>
 
-          {/* Expenses Table */}
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue Period</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue 1 (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue 2 (₹)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenues</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               <tr>
                 <td className="px-4 py-4 text-sm text-gray-700">
-                  <select
-                    value={emiPlan.revenuePeriod}
-                    onChange={(e) => handleInputChange('revenuePeriod', e.target.value as 'monthly' | 'yearly')}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="monthly">Monthly</option>
-                    <option value="yearly">Yearly</option>
-                  </select>
-                </td>
-                <td className="px-4 py-4 text-sm text-gray-700">
-                  <CurrencyInput
-                    value={emiPlan.revenue1}
-                    onChange={(value) => handleInputChange('revenue1', value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    min="0"
-                    step="1000"
-                    placeholder="3,00,000"
-                  />
-                </td>
-                <td className="px-4 py-4 text-sm text-gray-700">
-                  <CurrencyInput
-                    value={emiPlan.revenue2}
-                    onChange={(value) => handleInputChange('revenue2', value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    min="0"
-                    step="1000"
-                    placeholder="3,00,000"
-                  />
+                  {emiPlan.revenues.map((revenue, index) => (
+                    <div key={index} className="mb-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={revenue.name}
+                          onChange={(e) => handleRevenueChange(index, 'name', e.target.value)}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Revenue Name"
+                        />
+                        <CurrencyInput
+                          value={revenue.amount}
+                          onChange={(value) => handleRevenueChange(index, 'amount', value)}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          min="0"
+                          step="1000"
+                          placeholder="0"
+                        />
+                        <select
+                          value={revenue.period}
+                          onChange={(e) => handleRevenueChange(index, 'period', e.target.value as 'monthly' | 'yearly')}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="monthly">Monthly</option>
+                          <option value="yearly">Yearly</option>
+                        </select>
+                        {index >= 2 && (
+                          <button
+                            onClick={() => removeRevenue(index)}
+                            className="ml-2 text-red-600 hover:text-red-800"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {emiPlan.revenues.length < 3 && (
+                    <button
+                      onClick={addRevenue}
+                      className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+                    >
+                      Add Revenue
+                    </button>
+                  )}
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
                   {emiPlan.expenses.map((expense, index) => (
@@ -777,7 +976,6 @@ export function EMIPlanCalculator() {
             </tbody>
           </table>
 
-          {/* Profit/Loss Overview */}
           <div className="mt-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-center bg-blue-200 w-full py-2">Profit/Loss Overview</h2>
@@ -792,26 +990,46 @@ export function EMIPlanCalculator() {
                 <option value="monthly">Monthly</option>
               </select>
             </div>
+            <div className="flex justify-end gap-4 mb-4">
+              <motion.button
+                onClick={savePlan}
+                className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Save className="w-5 h-5" />
+                View the Plan
+              </motion.button>
+              <motion.button
+                onClick={generatePDF}
+                className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Download className="w-5 h-5" />
+                Download the Plan
+              </motion.button>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full bg-white border border-gray-200 rounded-lg">
                 <thead>
                   <tr className="bg-gray-50">
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{plPeriod === 'yearly' ? 'Year' : 'Month'}</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Repayment (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount Repayment (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Interest (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Interest (₹)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L (₹)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Repayment ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Interest ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount Repayment ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Interest ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L ($)</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L Progress</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((entry, index) => {
-                    const maxPL = Math.max(...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map(e => Math.abs(e.pl))) || 1;
+                    const maxPL = Math.max(...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((e) => Math.abs(e.pl))) || 1;
                     const progress = (Math.abs(entry.pl) / maxPL) * 100;
 
                     return (
@@ -845,7 +1063,6 @@ export function EMIPlanCalculator() {
             </div>
           </div>
 
-          {/* Financial Breakdown Section */}
           <div className="mt-8">
             <div className="mb-4">
               <button
@@ -866,17 +1083,17 @@ export function EMIPlanCalculator() {
                       <th colSpan={6} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Own Funds Details</th>
                     </tr>
                     <tr className="bg-gray-50">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal ($)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI (₹)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal (₹)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI ($)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal ($)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
                     </tr>
                   </thead>
@@ -925,7 +1142,6 @@ export function EMIPlanCalculator() {
               </div>
             )}
 
-            {/* Yearly Average Repayment Breakdown */}
             <div className="mb-8">
               <h2 className="text-xl font-bold mb-4 bg-blue-200">Yearly Average Repayment Breakdown</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -936,9 +1152,9 @@ export function EMIPlanCalculator() {
                       <thead>
                         <tr className="bg-gray-50">
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank (₹)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own (₹)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total (₹)</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank ($)</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own ($)</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total ($)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -962,9 +1178,9 @@ export function EMIPlanCalculator() {
                       <thead>
                         <tr className="bg-gray-50">
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank Interest (₹)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Interest (₹)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest (₹)</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank Interest ($)</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Interest ($)</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest ($)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -983,19 +1199,38 @@ export function EMIPlanCalculator() {
               </div>
             </div>
 
-            {/* Profit/Loss Summary */}
             <div className="mb-8 bg-white p-4 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-3 bg-blue-200">Profit/Loss Summary</h3>
+              <div className="flex justify-end gap-4 mb-4">
+                <motion.button
+                  onClick={savePlan}
+                  className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Save className="w-5 h-5" />
+                  View the Plan
+                </motion.button>
+                <motion.button
+                  onClick={generatePDF}
+                  className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Download className="w-5 h-5" />
+                  Download the Plan
+                </motion.button>
+              </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full">
                   <thead>
                     <tr className="bg-gray-50">
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue (₹)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses (₹)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Payments (₹)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest (₹)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L (₹)</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue ($)</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses ($)</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Payments ($)</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest ($)</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L ($)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -1019,27 +1254,27 @@ export function EMIPlanCalculator() {
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex justify-end gap-4 mb-8">
-          <motion.button
-            onClick={savePlan}
-            className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Save className="w-5 h-5" />
-            Save Plan
-          </motion.button>
-          <motion.button
-            onClick={generatePDF}
-            className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Download className="w-5 h-5" />
-            Save as PDF
-          </motion.button>
+          <div className="flex justify-end gap-4 mb-8">
+            <motion.button
+              onClick={savePlan}
+              className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Save className="w-5 h-5" />
+              Save Plan
+            </motion.button>
+            <motion.button
+              onClick={generatePDF}
+              className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Download className="w-5 h-5" />
+              Save as PDF
+            </motion.button>
+          </div>
         </div>
       </motion.div>
     </div>

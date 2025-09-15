@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, UserPlus, X, Check, Edit2, Trash2, Upload, Download } from 'lucide-react';
+import { ChevronDown, ChevronUp, UserPlus, X, Check, Edit2, Trash2, Upload } from 'lucide-react';
 import { normalizeSuburb, formatCurrency } from '../reportsUtils';
 import * as XLSX from 'xlsx';
 
@@ -24,16 +24,20 @@ interface Property {
 
 interface Contact {
   id?: string;
-  title: string;
-  first_name: string;
-  last_name: string;
-  email: string;
+  owner_1: string;
+  owner_2: string;
+  owner_1_email: string;
+  owner_2_email: string;
   phone_number: string;
-  mobile_number: string;
+  owner_1_mobile: string;
+  owner_2_mobile: string;
   outcome: string;
   street_name: string | null;
   street_number: string | null;
   suburb?: string;
+  status: string;
+  last_sold_date: string | null;
+  price: number | null;
 }
 
 interface StreetStats {
@@ -71,26 +75,61 @@ export function StreetSuggestions({
   }>({});
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [selectedStreet, setSelectedStreet] = useState<string | null>(null);
+  const [modalView, setModalView] = useState<'add' | 'list'>('add');
   const [newContact, setNewContact] = useState<Contact>({
     id: '',
-    title: '',
-    first_name: '',
-    last_name: '',
-    email: '',
+    owner_1: '',
+    owner_2: '',
+    owner_1_email: '',
+    owner_2_email: '',
     phone_number: '',
-    mobile_number: '',
+    owner_1_mobile: '',
+    owner_2_mobile: '',
     outcome: '',
     street_name: null,
     street_number: null,
+    suburb: '',
+    status: '',
+    last_sold_date: null,
+    price: null,
   });
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactSuccess, setContactSuccess] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isGlobalImportOpen, setIsGlobalImportOpen] = useState(false);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [showConfirmDeleteAll, setShowConfirmDeleteAll] = useState(false);
+  const [showConfirmDeleteSelected, setShowConfirmDeleteSelected] = useState(false);
 
   useEffect(() => {
     setLocalFilter(soldPropertiesFilter);
   }, [soldPropertiesFilter]);
+
+  // Convert Excel serial date to YYYY-MM-DD
+  const excelSerialToDate = (serial: number | string | null | undefined): string | null => {
+    if (!serial || serial === 'NA' || serial === '' || serial === null || serial === undefined) return null;
+
+    // Handle YYYY-MM-DD HH:MM:SS format (like "2012-07-03 00:00:00")
+    if (typeof serial === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(serial)) {
+      const datePart = serial.split(' ')[0];
+      const date = new Date(datePart);
+      return isNaN(date.getTime()) ? null : datePart;
+    }
+
+    // Handle YYYY-MM-DD format
+    if (typeof serial === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(serial)) {
+      const date = new Date(serial);
+      return isNaN(date.getTime()) ? null : serial;
+    }
+
+    // Handle Excel serial numbers
+    const serialNum = typeof serial === 'string' ? parseFloat(serial) : serial;
+    if (isNaN(serialNum)) return null;
+
+    const excelEpoch = new Date(1900, 0, 1);
+    const date = new Date(excelEpoch.getTime() + (serialNum - 2) * 24 * 60 * 60 * 1000);
+    return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
+  };
 
   const normalizeKey = (key: string): string => {
     return key.trim().toLowerCase().replace(/\s+/g, '_');
@@ -99,26 +138,48 @@ export function StreetSuggestions({
   const normalizeRow = (row: any, headerMap: { [key: string]: string }): any => {
     const normalized: any = {};
     const standardKeys = [
-      'title',
-      'first_name',
-      'last_name',
-      'email',
+      'owner_1',
+      'owner_2',
+      'owner_1_email',
+      'owner_2_email',
       'phone_number',
-      'mobile_number',
+      'owner_1_mobile',
+      'owner_2_mobile',
       'outcome',
       'street_name',
       'street_number',
-      'suburb'
+      'suburb',
+      'status',
+      'last_sold_date',
+      'price',
     ];
+    
     standardKeys.forEach((stdKey) => {
       const origKey = headerMap[stdKey];
-      normalized[stdKey] = origKey ? (row[origKey] || '').toString().trim() : '';
+      let value = origKey ? (row[origKey] ?? null) : null;
+      
+      // Handle special cases for date and price fields
+      if (stdKey === 'last_sold_date') {
+        value = excelSerialToDate(value);
+      } else if (stdKey === 'price' && value) {
+        // Remove any currency symbols and commas before parsing
+        if (typeof value === 'string') {
+          value = value.replace(/[$,]/g, '');
+        }
+        const numValue = parseFloat(value.toString());
+        value = isNaN(numValue) ? null : numValue;
+      } else if (value === 'NA' || value === 'Unsure') {
+        value = stdKey === 'price' ? null : '';
+      }
+      
+      normalized[stdKey] = value;
     });
-    // If phone_number is empty but mobile_number exists, swap them
-    if (!normalized.phone_number && normalized.mobile_number) {
-      normalized.phone_number = normalized.mobile_number;
-      normalized.mobile_number = '';
+    
+    if (!normalized.phone_number && normalized.owner_1_mobile) {
+      normalized.phone_number = normalized.owner_1_mobile;
+      normalized.owner_1_mobile = '';
     }
+    
     return normalized;
   };
 
@@ -129,41 +190,43 @@ export function StreetSuggestions({
       setLoading(false);
       return;
     }
+    
     setLoading(true);
     setError(null);
     setStreetStats([]);
     setAddedStreets({});
-
+    
     try {
       const normalizedInput = normalizeSuburb(suburb);
       const queryString = `%${normalizedInput.toLowerCase().split(' qld')[0]}%`;
-
-      // Fetch properties
+      
       const { data: propertiesData, error: propError } = await supabase
         .from('properties')
         .select(
           'id, street_name, street_number, suburb, price, sold_price, sold_date, property_type, bedrooms, bathrooms, car_garage, sqm, landsize'
         )
         .ilike('suburb', queryString);
-
+        
       if (propError) throw new Error(`Failed to fetch properties: ${propError.message}`);
+      
       if (!propertiesData || propertiesData.length === 0) {
         setError(`No properties found for ${suburb}. Please add properties to the database or check the suburb name format.`);
         setLoading(false);
         return;
       }
-
-      // Fetch contacts with new fields
+      
       const { data: contactsData, error: contactError } = await supabase
         .from('contacts')
-        .select('id, title, first_name, last_name, email, phone_number, mobile_number, outcome, street_name, street_number, suburb')
+        .select(
+          'id, owner_1, owner_2, owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, street_name, street_number, suburb, status, last_sold_date, price'
+        )
         .ilike('suburb', queryString);
-
+        
       if (contactError) throw new Error(`Failed to fetch contacts: ${contactError.message}`);
-
+      
       let filteredProperties = propertiesData;
       if (localFilter !== 'all') {
-        const now = new Date(); // Use current date dynamically
+        const now = new Date();
         let startDate: Date;
         switch (localFilter) {
           case '30_days':
@@ -185,7 +248,7 @@ export function StreetSuggestions({
           (prop) => !prop.sold_date || new Date(prop.sold_date) >= startDate
         );
       }
-
+      
       if (filteredProperties.length === 0) {
         setError(
           `No properties found for ${suburb} with filter "${localFilter.replace('_', ' ')}". Try a broader filter or ensure sold_date is populated.`
@@ -193,7 +256,7 @@ export function StreetSuggestions({
         setLoading(false);
         return;
       }
-
+      
       const combinedProperties: Property[] = filteredProperties.map((prop) => ({
         id: prop.id,
         street_name: prop.street_name,
@@ -210,12 +273,12 @@ export function StreetSuggestions({
         landsize: prop.landsize,
         status: prop.sold_price || prop.sold_date ? 'Sold' : 'Listed',
       }));
-
+      
       const streetMap = new Map<
         string,
         { listed: number; sold: number; total: number; totalSoldPrice: number; properties: Property[]; contacts: Contact[] }
       >();
-
+      
       combinedProperties.forEach((prop) => {
         const streetName = prop.street_name?.trim() || 'Unknown Street';
         const stats =
@@ -229,15 +292,18 @@ export function StreetSuggestions({
         stats.properties.push(prop);
         streetMap.set(streetName, stats);
       });
-
+      
       (contactsData || []).forEach((contact) => {
         const streetName = contact.street_name?.trim() || 'Unknown Street';
         const stats =
           streetMap.get(streetName) || { listed: 0, sold: 0, total: 0, totalSoldPrice: 0, properties: [], contacts: [] };
-        stats.contacts.push(contact);
+        stats.contacts.push({
+          ...contact,
+          last_sold_date: contact.last_sold_date ? excelSerialToDate(contact.last_sold_date) : null,
+        });
         streetMap.set(streetName, stats);
       });
-
+      
       const statsArray: StreetStats[] = Array.from(streetMap.entries()).map(([street_name, stats]) => ({
         street_name,
         listed_count: stats.listed,
@@ -247,19 +313,16 @@ export function StreetSuggestions({
         properties: stats.properties,
         contacts: stats.contacts,
       }));
-
+      
       statsArray.sort(
         (a, b) =>
           b.sold_count - a.sold_count ||
           b.total_properties - a.total_properties ||
           b.listed_count - a.listed_count
       );
-
-      // Removed limit to display all streets
-      const allStatsArray = statsArray;
-
+      
       const newAddedStreets: { [key: string]: { door_knock: number; phone_call: number; contacts: number } } = {};
-      allStatsArray.forEach((street) => {
+      statsArray.forEach((street) => {
         const streetName = street.street_name;
         const doorKnockCount = Array.isArray(existingDoorKnocks)
           ? existingDoorKnocks.filter((s) => s.name === streetName).length
@@ -270,9 +333,9 @@ export function StreetSuggestions({
         const contactCount = street.contacts.length;
         newAddedStreets[streetName] = { door_knock: doorKnockCount, phone_call: phoneCallCount, contacts: contactCount };
       });
-
+      
       setAddedStreets(newAddedStreets);
-      setStreetStats(allStatsArray);
+      setStreetStats(statsArray);
     } catch (err: any) {
       setError(`Error fetching street suggestions for ${suburb}: ${err.message}`);
       console.error('Fetch error:', err);
@@ -297,30 +360,38 @@ export function StreetSuggestions({
   };
 
   const handleAddContact = async () => {
-    if (!newContact.first_name || !newContact.last_name) {
-      setContactError('First Name and Last Name are required');
+    if (!newContact.owner_1 || !newContact.owner_2) {
+      setContactError('Owner 1 and Owner 2 are required');
       return;
     }
+    
     setLoading(true);
     try {
+      const contactData = {
+        owner_1: newContact.owner_1,
+        owner_2: newContact.owner_2,
+        owner_1_email: newContact.owner_1_email || '',
+        owner_2_email: newContact.owner_2_email || '',
+        phone_number: newContact.phone_number || '',
+        owner_1_mobile: newContact.owner_1_mobile || '',
+        owner_2_mobile: newContact.owner_2_mobile || '',
+        outcome: newContact.outcome || '',
+        street_name: selectedStreet,
+        street_number: newContact.street_number || null,
+        suburb,
+        status: newContact.status || '',
+        last_sold_date: newContact.last_sold_date ? excelSerialToDate(newContact.last_sold_date) : null,
+        price: newContact.price ? parseFloat(newContact.price.toString()) : null,
+      };
+      
       if (isEditMode && newContact.id) {
-        // Update existing contact
         const { error } = await supabase
           .from('contacts')
-          .update({
-            title: newContact.title,
-            first_name: newContact.first_name,
-            last_name: newContact.last_name,
-            email: newContact.email,
-            phone_number: newContact.phone_number,
-            mobile_number: newContact.mobile_number,
-            outcome: newContact.outcome,
-            street_name: selectedStreet,
-            street_number: newContact.street_number,
-            suburb,
-          })
+          .update(contactData)
           .eq('id', newContact.id);
+          
         if (error) throw new Error(`Failed to update contact: ${error.message}`);
+        
         setStreetStats((prev) =>
           prev.map((street) =>
             street.street_name === selectedStreet
@@ -328,34 +399,23 @@ export function StreetSuggestions({
                   ...street,
                   contacts: street.contacts.map((contact) =>
                     contact.id === newContact.id
-                      ? { ...newContact, street_name: selectedStreet, suburb }
+                      ? { ...contactData, id: newContact.id, street_name: selectedStreet, suburb }
                       : contact
                   ),
                 }
               : street
           )
         );
+        
         setContactSuccess('Contact updated successfully');
       } else {
-        // Add new contact
         const { data: insertData, error } = await supabase
           .from('contacts')
-          .insert([
-            {
-              title: newContact.title,
-              first_name: newContact.first_name,
-              last_name: newContact.last_name,
-              email: newContact.email,
-              phone_number: newContact.phone_number,
-              mobile_number: newContact.mobile_number,
-              outcome: newContact.outcome,
-              street_name: selectedStreet,
-              street_number: newContact.street_number,
-              suburb,
-            },
-          ])
+          .insert([contactData])
           .select();
+          
         if (error) throw new Error(`Failed to add contact: ${error.message}`);
+        
         setStreetStats((prev) =>
           prev.map((street) =>
             street.street_name === selectedStreet
@@ -363,6 +423,7 @@ export function StreetSuggestions({
               : street
           )
         );
+        
         setAddedStreets((prev) => ({
           ...prev,
           [selectedStreet!]: {
@@ -370,36 +431,45 @@ export function StreetSuggestions({
             contacts: (prev[selectedStreet!]?.contacts || 0) + 1,
           },
         }));
+        
         setContactSuccess('Contact added successfully');
       }
+      
       setNewContact({
         id: '',
-        title: '',
-        first_name: '',
-        last_name: '',
-        email: '',
+        owner_1: '',
+        owner_2: '',
+        owner_1_email: '',
+        owner_2_email: '',
         phone_number: '',
-        mobile_number: '',
+        owner_1_mobile: '',
+        owner_2_mobile: '',
         outcome: '',
         street_name: null,
         street_number: null,
+        suburb: '',
+        status: '',
+        last_sold_date: null,
+        price: null,
       });
+      
       setContactError(null);
       setTimeout(() => setContactSuccess(null), 3000);
     } catch (err: any) {
       setContactError(`Error ${isEditMode ? 'updating' : 'adding'} contact: ${err.message}`);
     } finally {
       setLoading(false);
-      setIsContactModalOpen(false);
-      setIsEditMode(false);
+      setModalView('list');
     }
   };
 
   const handleEditContact = (contact: Contact) => {
-    setNewContact(contact);
-    setSelectedStreet(contact.street_name);
+    setNewContact({
+      ...contact,
+      last_sold_date: contact.last_sold_date || '',
+    });
     setIsEditMode(true);
-    setIsContactModalOpen(true);
+    setModalView('add');
   };
 
   const handleDeleteContact = async (contactId: string, streetName: string) => {
@@ -407,6 +477,7 @@ export function StreetSuggestions({
     try {
       const { error } = await supabase.from('contacts').delete().eq('id', contactId);
       if (error) throw new Error(`Failed to delete contact: ${error.message}`);
+      
       setStreetStats((prev) =>
         prev.map((street) =>
           street.street_name === streetName
@@ -414,6 +485,7 @@ export function StreetSuggestions({
             : street
         )
       );
+      
       setAddedStreets((prev) => ({
         ...prev,
         [streetName]: {
@@ -421,6 +493,7 @@ export function StreetSuggestions({
           contacts: (prev[streetName]?.contacts || 1) - 1,
         },
       }));
+      
       setContactSuccess('Contact deleted successfully');
       setTimeout(() => setContactSuccess(null), 3000);
     } catch (err: any) {
@@ -430,82 +503,175 @@ export function StreetSuggestions({
     }
   };
 
+  const handleDeleteAllContacts = async (streetName: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('contacts').delete().eq('street_name', streetName);
+      if (error) throw new Error(`Failed to delete all contacts: ${error.message}`);
+      
+      setStreetStats((prev) =>
+        prev.map((street) =>
+          street.street_name === streetName
+            ? { ...street, contacts: [] }
+            : street
+        )
+      );
+      
+      setAddedStreets((prev) => ({
+        ...prev,
+        [streetName]: {
+          ...prev[streetName],
+          contacts: 0,
+        },
+      }));
+      
+      setContactSuccess('All contacts deleted successfully');
+      setTimeout(() => setContactSuccess(null), 3000);
+    } catch (err: any) {
+      setContactError(`Error deleting all contacts: ${err.message}`);
+    } finally {
+      setLoading(false);
+      setShowConfirmDeleteAll(false);
+    }
+  };
+
+  const handleDeleteSelectedContacts = async (streetName: string) => {
+    if (selectedContactIds.length === 0) return;
+    
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('contacts').delete().in('id', selectedContactIds);
+      if (error) throw new Error(`Failed to delete selected contacts: ${error.message}`);
+      
+      setStreetStats((prev) =>
+        prev.map((street) =>
+          street.street_name === streetName
+            ? { ...street, contacts: street.contacts.filter((contact) => !selectedContactIds.includes(contact.id!)) }
+            : street
+        )
+      );
+      
+      setAddedStreets((prev) => ({
+        ...prev,
+        [streetName]: {
+          ...prev[streetName],
+          contacts: (prev[streetName]?.contacts || 0) - selectedContactIds.length,
+        },
+      }));
+      
+      setSelectedContactIds([]);
+      setContactSuccess('Selected contacts deleted successfully');
+      setTimeout(() => setContactSuccess(null), 3000);
+    } catch (err: any) {
+      setContactError(`Error deleting selected contacts: ${err.message}`);
+    } finally {
+      setLoading(false);
+      setShowConfirmDeleteSelected(false);
+    }
+  };
+
+  const toggleSelectContact = (contactId: string) => {
+    setSelectedContactIds((prev) =>
+      prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [...prev, contactId]
+    );
+  };
+
+  const toggleSelectAllContacts = (contacts: Contact[]) => {
+    if (selectedContactIds.length === contacts.length) {
+      setSelectedContactIds([]);
+    } else {
+      setSelectedContactIds(contacts.map((c) => c.id!));
+    }
+  };
+
   const handleSingleStreetExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || !selectedStreet || !suburb) return;
+    
     setLoading(true);
     setContactError(null);
-
+    
     try {
-      // Fetch available street numbers for the selected street
       const { data: propertiesData, error: propError } = await supabase
         .from('properties')
         .select('street_number')
         .eq('street_name', selectedStreet)
         .eq('suburb', suburb);
-
+        
       if (propError) throw new Error(`Failed to fetch properties: ${propError.message}`);
+      
       const availableStreetNumbers = propertiesData
         .map((prop) => prop.street_number)
         .filter((num): num is string => !!num);
-
+      
       const file = event.target.files[0];
       const reader = new FileReader();
+      
       reader.onload = async (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         let json = XLSX.utils.sheet_to_json(worksheet) as any[];
-
-        // Normalize headers if json is not empty
+        
         if (json.length > 0) {
           const firstRowKeys = Object.keys(json[0]);
           const headerMap: { [key: string]: string } = {};
+          
           firstRowKeys.forEach((origKey) => {
-            const normKey = normalizeKey(origKey);
+            let normKey = normalizeKey(origKey);
+            if (normKey === 'owner1_email') normKey = 'owner_1_email';
+            if (normKey === 'owner2_email') normKey = 'owner_2_email';
+            if (normKey === 'own1_mob') normKey = 'owner_1_mobile';
+            if (normKey === 'own2_mob') normKey = 'owner_2_mobile';
+            if (normKey === 'street_no') normKey = 'street_number';
+            if (normKey === 'last_sold_date') normKey = 'last_sold_date';
             headerMap[normKey] = origKey;
           });
+          
           json = json.map((row) => normalizeRow(row, headerMap));
         }
-
+        
         const validContacts: Omit<Contact, 'id'>[] = json
           .filter(
             (row) =>
-              row.first_name &&
-              row.last_name
+              row.owner_1 &&
+              row.owner_2
           )
           .map((row, index) => {
-            // If street_number is provided in Excel, use it; otherwise cycle through available
             const streetNumberFromExcel = row.street_number;
             const streetNumber = streetNumberFromExcel || (availableStreetNumbers[index % availableStreetNumbers.length] || null);
-
+            
             return {
-              title: row.title,
-              first_name: row.first_name,
-              last_name: row.last_name,
-              email: row.email,
-              phone_number: row.phone_number,
-              mobile_number: row.mobile_number,
-              outcome: row.outcome,
+              owner_1: row.owner_1,
+              owner_2: row.owner_2,
+              owner_1_email: row.owner_1_email || '',
+              owner_2_email: row.owner_2_email || '',
+              phone_number: row.phone_number || '',
+              owner_1_mobile: row.owner_1_mobile || '',
+              owner_2_mobile: row.owner_2_mobile || '',
+              outcome: row.outcome || '',
               street_name: selectedStreet,
               street_number: streetNumber,
               suburb,
+              status: row.status || '',
+              last_sold_date: row.last_sold_date,
+              price: row.price,
             };
           });
-
+          
         if (validContacts.length === 0) {
-          setContactError('No valid contacts found in the Excel file. Ensure columns include first_name and last_name.');
+          setContactError('No valid contacts found in the Excel file. Ensure columns include owner_1 and owner_2.');
           setLoading(false);
           return;
         }
-
+        
         const { data: importedData, error } = await supabase
           .from('contacts')
           .insert(validContacts)
           .select();
-
+          
         if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-
+        
         setStreetStats((prev) =>
           prev.map((street) =>
             street.street_name === selectedStreet
@@ -513,31 +679,39 @@ export function StreetSuggestions({
               : street
           )
         );
+        
         setAddedStreets((prev) => ({
           ...prev,
-          [selectedStreet]: {
-            ...prev[selectedStreet],
-            contacts: (prev[selectedStreet]?.contacts || 0) + validContacts.length,
+          [selectedStreet!]: {
+            ...prev[selectedStreet!],
+            contacts: (prev[selectedStreet!]?.contacts || 0) + validContacts.length,
           },
         }));
+        
         setContactSuccess(`Successfully imported ${validContacts.length} contacts for ${selectedStreet}`);
         setTimeout(() => setContactSuccess(null), 3000);
-
-        // Reset the form and file input
+        
         setNewContact({
           id: '',
-          title: '',
-          first_name: '',
-          last_name: '',
-          email: '',
+          owner_1: '',
+          owner_2: '',
+          owner_1_email: '',
+          owner_2_email: '',
           phone_number: '',
-          mobile_number: '',
+          owner_1_mobile: '',
+          owner_2_mobile: '',
           outcome: '',
           street_name: null,
           street_number: null,
+          suburb: '',
+          status: '',
+          last_sold_date: null,
+          price: null,
         });
+        
         event.target.value = '';
       };
+      
       reader.readAsArrayBuffer(file);
     } catch (err: any) {
       setContactError(`Error importing contacts: ${err.message}`);
@@ -548,76 +722,84 @@ export function StreetSuggestions({
 
   const handleGlobalExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || !suburb) return;
+    
     setLoading(true);
     setContactError(null);
-
+    
     try {
       const file = event.target.files[0];
       const reader = new FileReader();
+      
       reader.onload = async (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         let json = XLSX.utils.sheet_to_json(worksheet) as any[];
-
-        // Normalize headers if json is not empty
+        
         if (json.length > 0) {
           const firstRowKeys = Object.keys(json[0]);
           const headerMap: { [key: string]: string } = {};
           
-          // Create a mapping from normalized keys to original keys
           firstRowKeys.forEach((origKey) => {
-            const normKey = normalizeKey(origKey);
+            let normKey = normalizeKey(origKey);
+            if (normKey === 'owner1_email') normKey = 'owner_1_email';
+            if (normKey === 'owner2_email') normKey = 'owner_2_email';
+            if (normKey === 'own1_mob') normKey = 'owner_1_mobile';
+            if (normKey === 'own2_mob') normKey = 'owner_2_mobile';
+            if (normKey === 'street_no') normKey = 'street_number';
+            if (normKey === 'last_sold_date') normKey = 'last_sold_date';
             headerMap[normKey] = origKey;
           });
           
-          // Normalize all rows using the header mapping
           json = json.map((row) => normalizeRow(row, headerMap));
         }
-
+        
         const validContacts: Omit<Contact, 'id'>[] = json
           .filter(
             (row) =>
-              row.first_name &&
-              row.last_name
+              row.owner_1 &&
+              row.owner_2
           )
           .map((row) => ({
-            title: row.title || '',
-            first_name: row.first_name,
-            last_name: row.last_name,
-            email: row.email || '',
+            owner_1: row.owner_1,
+            owner_2: row.owner_2,
+            owner_1_email: row.owner_1_email || '',
+            owner_2_email: row.owner_2_email || '',
             phone_number: row.phone_number || '',
-            mobile_number: row.mobile_number || '',
+            owner_1_mobile: row.owner_1_mobile || '',
+            owner_2_mobile: row.owner_2_mobile || '',
             outcome: row.outcome || '',
             street_name: row.street_name ? row.street_name.trim() : '',
             street_number: row.street_number || null,
             suburb: row.suburb || suburb,
+            status: row.status || '',
+            last_sold_date: row.last_sold_date,
+            price: row.price,
           }));
-
+          
         if (validContacts.length === 0) {
-          setContactError('No valid contacts found in the Excel file. Ensure columns include first_name and last_name.');
+          setContactError('No valid contacts found in the Excel file. Ensure columns include owner_1 and owner_2.');
           setLoading(false);
           return;
         }
-
+        
         const { data: importedData, error } = await supabase
           .from('contacts')
           .insert(validContacts)
           .select();
-
+          
         if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-
-        // Refetch data to update all streets
+        
         await fetchData();
-
+        
         setContactSuccess(`Successfully imported ${validContacts.length} contacts across all streets`);
         setTimeout(() => setContactSuccess(null), 3000);
-
-        // Reset file input
+        
         event.target.value = '';
         setIsGlobalImportOpen(false);
       };
+      
       reader.readAsArrayBuffer(file);
     } catch (err: any) {
       setContactError(`Error importing contacts: ${err.message}`);
@@ -631,22 +813,57 @@ export function StreetSuggestions({
     setNewContact((prev) => ({ ...prev, [name]: value }));
   };
 
-  const openContactModal = (streetName: string) => {
+  const openContactModal = (streetName: string, view: 'add' | 'list' = 'add') => {
     setSelectedStreet(streetName);
+    setModalView(view);
     setNewContact({
       id: '',
-      title: '',
-      first_name: '',
-      last_name: '',
-      email: '',
+      owner_1: '',
+      owner_2: '',
+      owner_1_email: '',
+      owner_2_email: '',
       phone_number: '',
-      mobile_number: '',
+      owner_1_mobile: '',
+      owner_2_mobile: '',
       outcome: '',
       street_name: null,
       street_number: null,
+      suburb: '',
+      status: '',
+      last_sold_date: null,
+      price: null,
     });
     setIsEditMode(false);
+    setSelectedContactIds([]);
     setIsContactModalOpen(true);
+  };
+
+  const closeContactModal = () => {
+    setIsContactModalOpen(false);
+    setIsEditMode(false);
+    setModalView('add');
+    setNewContact({
+      id: '',
+      owner_1: '',
+      owner_2: '',
+      owner_1_email: '',
+      owner_2_email: '',
+      phone_number: '',
+      owner_1_mobile: '',
+      owner_2_mobile: '',
+      outcome: '',
+      street_name: null,
+      street_number: null,
+      suburb: '',
+      status: '',
+      last_sold_date: null,
+      price: null,
+    });
+    setContactError(null);
+    setContactSuccess(null);
+    setSelectedContactIds([]);
+    setShowConfirmDeleteAll(false);
+    setShowConfirmDeleteSelected(false);
   };
 
   const toggleExpandStreet = (streetName: string) => {
@@ -661,7 +878,7 @@ export function StreetSuggestions({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <p className="text-gray-600 text-center text-sm">Select a suburb to view streets</p>
+        <p className="text-gray-600 text-center text-sm sm:text-base">Select a suburb to view streets</p>
       </motion.div>
     );
   }
@@ -678,7 +895,7 @@ export function StreetSuggestions({
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-            className="text-xl"
+            className="text-xl sm:text-2xl"
           >
             🏠
           </motion.div>
@@ -689,35 +906,39 @@ export function StreetSuggestions({
 
   return (
     <motion.div
-      className="bg-white p-4 rounded-xl shadow-lg border border-gray-200 mt-4"
+      className="bg-white p-4 rounded-xl shadow-lg border border-gray-200 mt-4 w-full max-w-full"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-        <span className="mr-2 text-indigo-600 text-xl">🏠</span>
+      <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4 flex items-center">
+        <span className="mr-2 text-indigo-600 text-lg sm:text-xl">🏠</span>
         Streets in {suburb} ({localFilter.replace('_', ' ')})
       </h2>
+      
       {error && (
-        <div className="text-red-600 text-center py-2 bg-red-50 rounded-lg mb-4 text-sm">{error}</div>
+        <div className="text-red-600 text-center py-2 bg-red-50 rounded-lg mb-4 text-sm sm:text-base">{error}</div>
       )}
+      
       {contactSuccess && (
-        <div className="text-green-600 text-center py-2 bg-green-50 rounded-lg mb-4 text-sm flex items-center justify-center">
-          <Check className="w-4 h-4 mr-2" /> {contactSuccess}
+        <div className="text-green-600 text-center py-2 bg-green-50 rounded-lg mb-4 text-sm sm:text-base flex items-center justify-center">
+          <Check className="w-4 h-4 sm:w-5 sm:h-5 mr-2" /> {contactSuccess}
         </div>
       )}
+      
       {streetStats.length === 0 && !error && (
-        <p className="text-gray-600 text-center py-2 text-sm">No streets found for {suburb}</p>
+        <p className="text-gray-600 text-center py-2 text-sm sm:text-base">No streets found for {suburb}</p>
       )}
+      
       {streetStats.length > 0 && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
             <div className="flex-1">
-              <label className="block text-gray-800 font-semibold mb-1 text-sm">Filter Sold</label>
+              <label className="block text-gray-800 font-semibold mb-1 text-sm sm:text-base">Filter Sold</label>
               <select
                 value={localFilter}
                 onChange={(e) => setLocalFilter(e.target.value)}
-                className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50 text-sm"
+                className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50 text-sm sm:text-base"
                 aria-label="Select sold properties filter"
               >
                 <option value="all">All Time</option>
@@ -727,17 +948,18 @@ export function StreetSuggestions({
                 <option value="12_months">Last 12 Months</option>
               </select>
             </div>
+            
             <motion.button
               onClick={() => setIsGlobalImportOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all text-sm sm:text-base"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              <Upload className="w-4 h-4" />
+              <Upload className="w-4 h-4 sm:w-5 sm:h-5" />
               Import Contacts (All Streets)
             </motion.button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3 max-h-96 overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 max-h-96 overflow-y-auto">
             {streetStats.map((street, index) => (
               <motion.div
                 key={street.street_name}
@@ -748,7 +970,7 @@ export function StreetSuggestions({
               >
                 <div className="flex justify-between items-center mb-1">
                   <h3
-                    className="text-sm font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 transition-colors truncate"
+                    className="text-sm sm:text-base font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 transition-colors truncate"
                     onClick={() => toggleExpandStreet(street.street_name)}
                   >
                     {street.street_name}
@@ -760,34 +982,34 @@ export function StreetSuggestions({
                     whileTap={{ scale: 0.9 }}
                   >
                     {expandedStreet === street.street_name ? (
-                      <ChevronUp className="w-4 h-4" />
+                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" />
                     ) : (
-                      <ChevronDown className="w-4 h-4" />
+                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
                     )}
                   </motion.button>
                 </div>
                 <div className="grid grid-cols-2 gap-1 mb-2">
                   <div className="flex items-center">
-                    <span className="text-indigo-600 mr-1 text-sm">🏠</span>
+                    <span className="text-indigo-600 mr-1 text-sm sm:text-base">🏠</span>
                     <div>
-                      <p className="text-xs text-gray-600">Total</p>
-                      <p className="text-xs font-semibold text-gray-900">{street.total_properties}</p>
+                      <p className="text-xs sm:text-sm text-gray-600">Total</p>
+                      <p className="text-xs sm:text-sm font-semibold text-gray-900">{street.total_properties}</p>
                     </div>
                   </div>
                   <div className="flex items-center">
-                    <span className="text-indigo-600 mr-1 text-sm">📋</span>
+                    <span className="text-indigo-600 mr-1 text-sm sm:text-base">📋</span>
                     <div>
-                      <p className="text-xs text-gray-600">List/Sold</p>
-                      <p className="text-xs font-semibold text-gray-900">
+                      <p className="text-xs sm:text-sm text-gray-600">List/Sold</p>
+                      <p className="text-xs sm:text-sm font-semibold text-gray-900">
                         {street.listed_count}/{street.sold_count}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center col-span-2">
-                    <span className="text-indigo-600 mr-1 text-sm">💰</span>
+                    <span className="text-indigo-600 mr-1 text-sm sm:text-base">💰</span>
                     <div>
-                      <p className="text-xs text-gray-600">ASP</p>
-                      <p className="text-xs font-semibold text-gray-900">
+                      <p className="text-xs sm:text-sm text-gray-600">ASP</p>
+                      <p className="text-xs sm:text-sm font-semibold text-gray-900">
                         {street.average_sold_price ? formatCurrency(street.average_sold_price) : 'N/A'}
                       </p>
                     </div>
@@ -800,7 +1022,7 @@ export function StreetSuggestions({
                       addedStreets[street.street_name]?.door_knock > 0
                         ? 'bg-green-300 hover:bg-green-400'
                         : 'bg-blue-300 hover:bg-blue-400'
-                    } transition-all`}
+                    } transition-all text-xs sm:text-sm`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -820,7 +1042,7 @@ export function StreetSuggestions({
                       addedStreets[street.street_name]?.phone_call > 0
                         ? 'bg-green-300 hover:bg-green-400'
                         : 'bg-blue-300 hover:bg-blue-400'
-                    } transition-all`}
+                    } transition-all text-xs sm:text-sm`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -834,12 +1056,12 @@ export function StreetSuggestions({
                     )}
                   </motion.button>
                   <motion.button
-                    onClick={() => openContactModal(street.street_name)}
+                    onClick={() => openContactModal(street.street_name, 'add')}
                     className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
                       addedStreets[street.street_name]?.contacts > 0
                         ? 'bg-purple-300 hover:bg-purple-400'
                         : 'bg-purple-200 hover:bg-purple-300'
-                    } transition-all`}
+                    } transition-all text-xs sm:text-sm`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -849,6 +1071,16 @@ export function StreetSuggestions({
                         {addedStreets[street.street_name].contacts}
                       </span>
                     )}
+                  </motion.button>
+                  <motion.button
+                    onClick={() => openContactModal(street.street_name, 'list')}
+                    className="flex-1 p-1 rounded-md text-white flex items-center justify-center relative bg-green-200 hover:bg-green-300 transition-all text-xs sm:text-sm"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m1 4h1m-6 0h1m1-4h1" />
+                    </svg>
                   </motion.button>
                 </div>
                 <AnimatePresence>
@@ -923,14 +1155,18 @@ export function StreetSuggestions({
                           <table className="w-full border-collapse text-xs">
                             <thead>
                               <tr className="bg-purple-600 text-white text-xs">
-                                <th className="p-1 text-left">Title</th>
-                                <th className="p-1 text-left">First Name</th>
-                                <th className="p-1 text-left">Last Name</th>
-                                <th className="p-1 text-left">Email</th>
+                                <th className="p-1 text-left">Owner 1</th>
+                                <th className="p-1 text-left">Owner 2</th>
+                                <th className="p-1 text-left">Owner 1 Email</th>
+                                <th className="p-1 text-left">Owner 2 Email</th>
                                 <th className="p-1 text-left">Phone Number</th>
-                                <th className="p-1 text-left">Mobile Number</th>
+                                <th className="p-1 text-left">Owner 1 Mobile</th>
+                                <th className="p-1 text-left">Owner 2 Mobile</th>
                                 <th className="p-1 text-left">Outcome</th>
                                 <th className="p-1 text-left">Street Number</th>
+                                <th className="p-1 text-left">Status</th>
+                                <th className="p-1 text-left">Last Sold Date</th>
+                                <th className="p-1 text-left">Price</th>
                                 <th className="p-1 text-left">Actions</th>
                               </tr>
                             </thead>
@@ -943,14 +1179,18 @@ export function StreetSuggestions({
                                   animate={{ opacity: 1 }}
                                   transition={{ duration: 0.3 }}
                                 >
-                                  <td className="p-1">{contact.title || 'N/A'}</td>
-                                  <td className="p-1">{contact.first_name}</td>
-                                  <td className="p-1">{contact.last_name}</td>
-                                  <td className="p-1">{contact.email}</td>
+                                  <td className="p-1">{contact.owner_1}</td>
+                                  <td className="p-1">{contact.owner_2}</td>
+                                  <td className="p-1">{contact.owner_1_email}</td>
+                                  <td className="p-1">{contact.owner_2_email}</td>
                                   <td className="p-1">{contact.phone_number}</td>
-                                  <td className="p-1">{contact.mobile_number || 'N/A'}</td>
+                                  <td className="p-1">{contact.owner_1_mobile || 'N/A'}</td>
+                                  <td className="p-1">{contact.owner_2_mobile || 'N/A'}</td>
                                   <td className="p-1">{contact.outcome || 'N/A'}</td>
                                   <td className="p-1">{contact.street_number || 'N/A'}</td>
+                                  <td className="p-1">{contact.status || 'N/A'}</td>
+                                  <td className="p-1">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
+                                  <td className="p-1">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
                                   <td className="p-1 flex gap-1">
                                     <motion.button
                                       onClick={() => handleEditContact(contact)}
@@ -983,7 +1223,6 @@ export function StreetSuggestions({
           </div>
         </div>
       )}
-      {/* Global Import Modal */}
       <AnimatePresence>
         {isGlobalImportOpen && (
           <motion.div
@@ -1022,7 +1261,7 @@ export function StreetSuggestions({
               )}
               <div className="mb-4">
                 <label className="block text-gray-800 font-semibold mb-2 text-sm">
-                  Upload Excel file with columns: first_name, last_name, street_name (title, email, phone_number optional)
+                  Upload Excel file with columns: owner_1, owner_2, street_name (owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, status, last_sold_date, price optional)
                 </label>
                 <div className="flex items-center">
                   <Upload className="w-5 h-5 mr-2 text-gray-500" />
@@ -1039,43 +1278,31 @@ export function StreetSuggestions({
           </motion.div>
         )}
       </AnimatePresence>
-      {/* Single Street Contact Modal */}
       <AnimatePresence>
         {isContactModalOpen && (
           <motion.div
+            key="contact-modal"
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={closeContactModal}
           >
             <motion.div
-              className="bg-white p-6 rounded-xl shadow-lg max-w-md w-full"
+              key="modal-content"
+              className="bg-white p-6 rounded-xl shadow-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto"
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
               transition={{ duration: 0.3 }}
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-800">
-                  {isEditMode ? 'Edit Contact' : 'Add Contacts'} for {selectedStreet}
+                  Contacts for {selectedStreet} - {modalView === 'add' ? (isEditMode ? 'Edit' : 'Add') : 'List'}
                 </h3>
                 <motion.button
-                  onClick={() => {
-                    setIsContactModalOpen(false);
-                    setIsEditMode(false);
-                    setNewContact({
-                      id: '',
-                      title: '',
-                      first_name: '',
-                      last_name: '',
-                      email: '',
-                      phone_number: '',
-                      mobile_number: '',
-                      outcome: '',
-                      street_name: null,
-                      street_number: null,
-                    });
-                  }}
+                  onClick={closeContactModal}
                   className="text-gray-600 hover:text-gray-800"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
@@ -1093,113 +1320,301 @@ export function StreetSuggestions({
                   {contactError}
                 </motion.div>
               )}
-              {!isEditMode && (
-                <div className="mb-4">
-                  <label className="block text-gray-800 font-semibold mb-2 text-sm">
-                    Import Contacts from Excel (for {selectedStreet})
-                  </label>
-                  <div className="flex items-center">
-                    <Upload className="w-5 h-5 mr-2 text-gray-500" />
+              {modalView === 'list' ? (
+                <div>
+                  <div className="flex justify-between mb-4 gap-2">
+                    <button
+                      onClick={() => setModalView('add')}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      Add New Contact
+                    </button>
+                    {!isEditMode && (
+                      <div className="flex items-center">
+                        <Upload className="w-5 h-5 mr-2 text-gray-500" />
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls"
+                          onChange={handleSingleStreetExcelImport}
+                          className="p-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"
+                          disabled={loading}
+                        />
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setShowConfirmDeleteSelected(true)}
+                      disabled={selectedContactIds.length === 0}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+                    >
+                      Delete Selected ({selectedContactIds.length})
+                    </button>
+                    <button
+                      onClick={() => setShowConfirmDeleteAll(true)}
+                      className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800"
+                    >
+                      Delete All Contacts
+                    </button>
+                  </div>
+                  {showConfirmDeleteSelected && (
+                    <div className="mb-4 p-4 bg-yellow-100 rounded-lg">
+                      <p className="text-base mb-2">Are you sure you want to delete the selected contacts?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDeleteSelectedContacts(selectedStreet!)}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                        >
+                          Yes, Delete
+                        </button>
+                        <button
+                          onClick={() => setShowConfirmDeleteSelected(false)}
+                          className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {showConfirmDeleteAll && (
+                    <div className="mb-4 p-4 bg-yellow-100 rounded-lg">
+                      <p className="text-base mb-2">Are you sure you want to delete all contacts for this street?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDeleteAllContacts(selectedStreet!)}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                        >
+                          Yes, Delete All
+                        </button>
+                        <button
+                          onClick={() => setShowConfirmDeleteAll(false)}
+                          className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {streetStats.find(s => s.street_name === selectedStreet)?.contacts.length === 0 ? (
+                    <p className="text-gray-600 text-base">No contacts found for {selectedStreet}.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-base">
+                        <thead>
+                          <tr className="bg-purple-600 text-white text-base">
+                            <th className="p-2 text-left">
+                              <input
+                                type="checkbox"
+                                checked={selectedContactIds.length === streetStats.find(s => s.street_name === selectedStreet)?.contacts.length}
+                                onChange={() => toggleSelectAllContacts(streetStats.find(s => s.street_name === selectedStreet)?.contacts || [])}
+                              />
+                            </th>
+                            <th className="p-2 text-left">Owner 1</th>
+                            <th className="p-2 text-left">Owner 2</th>
+                            <th className="p-2 text-left">Owner 1 Email</th>
+                            <th className="p-2 text-left">Owner 2 Email</th>
+                            <th className="p-2 text-left">Phone Number</th>
+                            <th className="p-2 text-left">Owner 1 Mobile</th>
+                            <th className="p-2 text-left">Owner 2 Mobile</th>
+                            <th className="p-2 text-left">Outcome</th>
+                            <th className="p-2 text-left">Street Number</th>
+                            <th className="p-2 text-left">Status</th>
+                            <th className="p-2 text-left">Last Sold Date</th>
+                            <th className="p-2 text-left">Price</th>
+                            <th className="p-2 text-left">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {streetStats.find(s => s.street_name === selectedStreet)?.contacts.map((contact) => (
+                            <tr key={contact.id} className="border-b border-gray-200 hover:bg-gray-100">
+                              <td className="p-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedContactIds.includes(contact.id!)}
+                                  onChange={() => toggleSelectContact(contact.id!)}
+                                />
+                              </td>
+                              <td className="p-2">{contact.owner_1}</td>
+                              <td className="p-2">{contact.owner_2}</td>
+                              <td className="p-2">{contact.owner_1_email}</td>
+                              <td className="p-2">{contact.owner_2_email}</td>
+                              <td className="p-2">{contact.phone_number}</td>
+                              <td className="p-2">{contact.owner_1_mobile || 'N/A'}</td>
+                              <td className="p-2">{contact.owner_2_mobile || 'N/A'}</td>
+                              <td className="p-2">{contact.outcome || 'N/A'}</td>
+                              <td className="p-2">{contact.street_number || 'N/A'}</td>
+                              <td className="p-2">{contact.status || 'N/A'}</td>
+                              <td className="p-2">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
+                              <td className="p-2">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
+                              <td className="p-2 flex gap-1">
+                                <button
+                                  onClick={() => handleEditContact(contact)}
+                                  className="text-blue-600 hover:text-blue-800"
+                                >
+                                  <Edit2 className="w-5 h-5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteContact(contact.id!, selectedStreet!)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div className="flex justify-end mb-4">
+                    <button
+                      onClick={() => setModalView('list')}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                    >
+                      View List
+                    </button>
+                  </div>
+                  {!isEditMode && (
+                    <div className="mb-4">
+                      <label className="block text-gray-800 font-semibold mb-2 text-base">
+                        Import Contacts from Excel (for {selectedStreet})
+                      </label>
+                      <div className="flex items-center">
+                        <Upload className="w-5 h-5 mr-2 text-gray-500" />
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls"
+                          onChange={handleSingleStreetExcelImport}
+                          className="p-2 border border-gray-200 rounded-lg bg-gray-50 text-base flex-1"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input
-                      type="file"
-                      accept=".xlsx, .xls"
-                      onChange={handleSingleStreetExcelImport}
-                      className="p-2 border border-gray-200 rounded-lg bg-gray-50 text-sm flex-1"
-                      disabled={loading}
+                      type="text"
+                      name="owner_1"
+                      value={newContact.owner_1}
+                      onChange={handleInputChange}
+                      placeholder="Owner 1"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Owner 1"
+                    />
+                    <input
+                      type="text"
+                      name="owner_2"
+                      value={newContact.owner_2}
+                      onChange={handleInputChange}
+                      placeholder="Owner 2"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Owner 2"
+                    />
+                    <input
+                      type="email"
+                      name="owner_1_email"
+                      value={newContact.owner_1_email}
+                      onChange={handleInputChange}
+                      placeholder="Owner 1 Email"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Owner 1 Email"
+                    />
+                    <input
+                      type="email"
+                      name="owner_2_email"
+                      value={newContact.owner_2_email}
+                      onChange={handleInputChange}
+                      placeholder="Owner 2 Email"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Owner 2 Email"
+                    />
+                    <input
+                      type="tel"
+                      name="phone_number"
+                      value={newContact.phone_number}
+                      onChange={handleInputChange}
+                      placeholder="Phone Number"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Phone Number"
+                    />
+                    <input
+                      type="tel"
+                      name="owner_1_mobile"
+                      value={newContact.owner_1_mobile}
+                      onChange={handleInputChange}
+                      placeholder="Owner 1 Mobile"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Owner 1 Mobile"
+                    />
+                    <input
+                      type="tel"
+                      name="owner_2_mobile"
+                      value={newContact.owner_2_mobile}
+                      onChange={handleInputChange}
+                      placeholder="Owner 2 Mobile"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Owner 2 Mobile"
+                    />
+                    <input
+                      type="text"
+                      name="outcome"
+                      value={newContact.outcome}
+                      onChange={handleInputChange}
+                      placeholder="Outcome"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Outcome"
+                    />
+                    <input
+                      type="text"
+                      name="street_number"
+                      value={newContact.street_number || ''}
+                      onChange={handleInputChange}
+                      placeholder="Street Number (optional)"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Street Number"
+                    />
+                    <input
+                      type="text"
+                      name="status"
+                      value={newContact.status}
+                      onChange={handleInputChange}
+                      placeholder="Status"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Status"
+                    />
+                    <input
+                      type="date"
+                      name="last_sold_date"
+                      value={newContact.last_sold_date || ''}
+                      onChange={handleInputChange}
+                      placeholder="Last Sold Date"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Last Sold Date"
+                    />
+                    <input
+                      type="number"
+                      name="price"
+                      value={newContact.price || ''}
+                      onChange={handleInputChange}
+                      placeholder="Price"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Price"
                     />
                   </div>
+                  <motion.button
+                    onClick={handleAddContact}
+                    disabled={loading}
+                    className={`mt-4 w-full flex items-center justify-center px-4 py-2 rounded-lg text-white ${
+                      loading ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'
+                    } transition-all duration-200`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <UserPlus className="w-5 h-5 mr-2" /> {isEditMode ? 'Update Contact' : 'Add Single Contact'}
+                  </motion.button>
                 </div>
               )}
-              <div className="grid grid-cols-1 gap-4">
-                <select
-                  name="title"
-                  value={newContact.title}
-                  onChange={handleInputChange}
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Title"
-                >
-                  <option value="">Select Title</option>
-                  <option value="Mr">Mr</option>
-                  <option value="Mrs">Mrs</option>
-                  <option value="Ms">Ms</option>
-                  <option value="Dr">Dr</option>
-                  <option value="Other">Other</option>
-                </select>
-                <input
-                  type="text"
-                  name="first_name"
-                  value={newContact.first_name}
-                  onChange={handleInputChange}
-                  placeholder="First Name"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="First Name"
-                />
-                <input
-                  type="text"
-                  name="last_name"
-                  value={newContact.last_name}
-                  onChange={handleInputChange}
-                  placeholder="Last Name"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Last Name"
-                />
-                <input
-                  type="email"
-                  name="email"
-                  value={newContact.email}
-                  onChange={handleInputChange}
-                  placeholder="Email"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Email"
-                />
-                <input
-                  type="tel"
-                  name="phone_number"
-                  value={newContact.phone_number}
-                  onChange={handleInputChange}
-                  placeholder="Phone Number"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Phone Number"
-                />
-                <input
-                  type="tel"
-                  name="mobile_number"
-                  value={newContact.mobile_number}
-                  onChange={handleInputChange}
-                  placeholder="Mobile Number"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Mobile Number"
-                />
-                <input
-                  type="text"
-                  name="outcome"
-                  value={newContact.outcome}
-                  onChange={handleInputChange}
-                  placeholder="Outcome"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Outcome"
-                />
-                <input
-                  type="text"
-                  name="street_number"
-                  value={newContact.street_number || ''}
-                  onChange={handleInputChange}
-                  placeholder="Street Number (optional)"
-                  className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-sm"
-                  aria-label="Street Number"
-                />
-              </div>
-              <motion.button
-                onClick={handleAddContact}
-                disabled={loading}
-                className={`mt-4 w-full flex items-center justify-center px-4 py-2 rounded-lg text-white ${
-                  loading ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'
-                } transition-all duration-200`}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <UserPlus className="w-5 h-5 mr-2" /> {isEditMode ? 'Update Contact' : 'Add Single Contact'}
-              </motion.button>
             </motion.div>
           </motion.div>
         )}

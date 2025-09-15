@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { X, Save, Download } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { Download, Eye, Save, X } from 'lucide-react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 interface Revenue {
   name: string;
@@ -26,6 +28,10 @@ interface EMIPlan {
   ownTenure: number;
   revenues: Revenue[];
   expenses: Expense[];
+  rentalRevenue?: number;
+  perDollarValue?: number;
+  rentRollPurchaseValue?: number;
+  gstPercentage?: number;
 }
 
 interface PeriodData {
@@ -63,14 +69,14 @@ const formatNumberInput = (value: number): string => {
   if (value === 0) return '';
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(value);
 };
 
 const parseNumberInput = (value: string): number => {
   if (value === '') return 0;
-  const cleaned = value.replace(/[^\d]/g, '');
-  return parseInt(cleaned) || 0;
+  const cleaned = value.replace(/[^\d.]/g, '');
+  return parseFloat(cleaned) || 0;
 };
 
 const CurrencyInput: React.FC<{
@@ -87,7 +93,7 @@ const CurrencyInput: React.FC<{
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
-    if (/^[\d,]*$/.test(input)) {
+    if (/^[\d,.]*$/.test(input)) {
       if (input === '') {
         setDisplayValue('');
         onChange(0);
@@ -98,7 +104,6 @@ const CurrencyInput: React.FC<{
         const newDisplayValue = formatNumberInput(numericValue);
         setDisplayValue(newDisplayValue);
         onChange(numericValue);
-
         if (inputRef.current && cursorPosition !== null) {
           const newLength = newDisplayValue.length;
           const diff = newLength - oldLength;
@@ -142,19 +147,20 @@ const formatCurrency = (value: number): string => {
 };
 
 const calculateEMI = (plan: EMIPlan): Calculations => {
-  const bankLoanAmount = plan.loanAmount * plan.bankPercent / 100;
-  const ownFunds = plan.loanAmount * plan.ownPercent / 100;
+  const effectiveLoanAmount = plan.gstPercentage ? plan.loanAmount * (1 + plan.gstPercentage / 100) : plan.loanAmount;
+  const bankLoanAmount = effectiveLoanAmount * plan.bankPercent / 100;
+  const ownFunds = effectiveLoanAmount * plan.ownPercent / 100;
   const loanTenureMonths = plan.loanTenure * 12;
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
   const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
     const amount = rev.period === 'yearly' ? rev.amount : rev.amount * 12;
     return sum + amount;
-  }, 0);
+  }, 0) + (plan.rentalRevenue || 0);
   const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
     const amount = rev.period === 'monthly' ? rev.amount : rev.amount / 12;
     return sum + amount;
-  }, 0);
+  }, 0) + ((plan.rentalRevenue || 0) / 12);
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
     const amount = expense.period === 'yearly' ? expense.amount : expense.amount * 12;
     return sum + amount;
@@ -163,7 +169,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     const amount = expense.period === 'monthly' ? expense.amount : expense.amount / 12;
     return sum + amount;
   }, 0);
-
   let remainingBank = bankLoanAmount;
   let remainingOwn = ownFunds;
   let currentMonth = 1;
@@ -181,7 +186,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   let totalOwnInterest = 0;
   const yearlyAvg: PeriodData[] = [];
   const monthlyAvg: PeriodData[] = [];
-
   while (currentMonth <= maxMonths) {
     let interestBank = 0;
     let principalBank = 0;
@@ -192,7 +196,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       remainingBank = Math.max(remainingBank, 0);
       totalBankInterest += interestBank;
     }
-
     let interestOwn = 0;
     let principalOwn = 0;
     if (currentMonth <= ownTenureMonths) {
@@ -202,13 +205,12 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       remainingOwn = Math.max(remainingOwn, 0);
       totalOwnInterest += interestOwn;
     }
-
     yearInterestBank += interestBank;
     yearPrincipalBank += principalBank;
     yearInterestOwn += interestOwn;
     yearPrincipalOwn += principalOwn;
     yearTotalRepayment += (interestBank + principalBank) + (interestOwn + principalOwn);
-
+    const monthlyRepayment = (principalBank + interestBank) + (principalOwn + interestOwn);
     monthlyAvg.push({
       period: currentMonth,
       revenue: monthlyRevenue,
@@ -219,9 +221,8 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       loanRepayment: principalBank + interestBank,
       ownInterest: interestOwn,
       loanInterest: interestBank,
-      pl: monthlyRevenue - (monthlyExpenses + (principalBank + interestBank + principalOwn + interestOwn)),
+      pl: monthlyRevenue - (monthlyExpenses + monthlyRepayment),
     });
-
     if (currentMonth % 12 === 0 || currentMonth === maxMonths) {
       const monthsInYear = currentMonth % 12 === 0 ? 12 : currentMonth % 12;
       const totalInterestOverTerm = (totalBankInterest + totalOwnInterest) / Math.max(plan.loanTenure, plan.ownTenure);
@@ -237,14 +238,12 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
         loanInterest: yearInterestBank,
         pl: yearlyRevenue - (yearTotalRepayment + totalInterestOverTerm + yearlyExpenses),
       });
-
       if (currentYear === 1) {
         bankYear1Principal = yearPrincipalBank;
         bankYear1Interest = yearInterestBank;
         ownYear1Principal = yearPrincipalOwn;
         ownYear1Interest = yearInterestOwn;
       }
-
       yearPrincipalBank = 0;
       yearInterestBank = 0;
       yearPrincipalOwn = 0;
@@ -254,7 +253,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     }
     currentMonth++;
   }
-
   return {
     bankYear1Principal,
     bankYear1Interest,
@@ -286,6 +284,9 @@ const validateInputs = (plan: EMIPlan): string | null => {
   if (plan.ownFundsInterestRate < 0) return 'Own Funds Interest Rate cannot be negative.';
   if (plan.revenues.some((revenue) => revenue.amount < 0)) return 'Revenues cannot be negative.';
   if (plan.expenses.some((expense) => expense.amount < 0)) return 'Expenses cannot be negative.';
+  if (plan.rentalRevenue && plan.rentalRevenue < 0) return 'Rental Revenue cannot be negative.';
+  if (plan.perDollarValue && plan.perDollarValue < 0) return 'Per $ Value cannot be negative.';
+  if (plan.gstPercentage && (plan.gstPercentage < 0 || plan.gstPercentage > 100)) return 'GST Percentage must be between 0 and 100.';
   if (plan.revenues.length < 2) return 'At least two revenues are required.';
   if (plan.expenses.length < 2) return 'At least two expenses are required.';
   return null;
@@ -310,7 +311,39 @@ export function EMIPlanCalculator() {
       { name: 'Expense 1', amount: 0, period: 'monthly' },
       { name: 'Expense 2', amount: 0, period: 'monthly' },
     ],
+    rentalRevenue: 0,
+    perDollarValue: 0,
+    rentRollPurchaseValue: 0,
+    gstPercentage: 0,
   });
+
+  const createNewPlan = useCallback(() => {
+    setEmiPlan({
+      typeOfLoan: '',
+      customLoanType: '',
+      loanTenure: 0,
+      loanAmount: 0,
+      interestPerAnnum: 0,
+      bankPercent: 70,
+      ownPercent: 30,
+      ownFundsInterestRate: 0,
+      ownTenure: 0,
+      revenues: [
+        { name: 'Revenue 1', amount: 0, period: 'monthly' },
+        { name: 'Revenue 2', amount: 0, period: 'monthly' },
+      ],
+      expenses: [
+        { name: 'Expense 1', amount: 0, period: 'monthly' },
+        { name: 'Expense 2', amount: 0, period: 'monthly' },
+      ],
+      rentalRevenue: 0,
+      perDollarValue: 0,
+      rentRollPurchaseValue: 0,
+      gstPercentage: 0,
+    });
+    setError(null);
+  }, []);
+
   const [error, setError] = useState<string | null>(null);
   const [savedPlans, setSavedPlans] = useState<SavedPlan[]>(() => {
     const saved = localStorage.getItem('emiPlans');
@@ -318,34 +351,58 @@ export function EMIPlanCalculator() {
   });
   const [showAmortizationTable, setShowAmortizationTable] = useState(false);
   const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
-  const [viewPlanModal, setViewPlanModal] = useState<SavedPlan | null>(null);
-
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
 
   const handleInputChange = useCallback(
     (field: keyof EMIPlan, value: string | 'monthly' | 'yearly' | number) => {
       setEmiPlan((prev) => {
-        let updatedPlan = {
-          ...prev,
-          [field]: field === 'typeOfLoan' ? value : typeof value === 'number' ? value : parseFloat(value) || 0,
-        };
-
-        if (field === 'bankPercent') {
+        let updatedPlan = { ...prev };
+        if (field === 'typeOfLoan') {
+          updatedPlan = { ...prev, typeOfLoan: value as string };
+          if (value !== 'Manual Entry') {
+            updatedPlan.customLoanType = '';
+          }
+          if (value !== 'Rent Roll') {
+            updatedPlan.rentalRevenue = 0;
+            updatedPlan.perDollarValue = 0;
+            updatedPlan.rentRollPurchaseValue = 0;
+          }
+        } else if (field === 'rentalRevenue' || field === 'perDollarValue') {
+          const newValue = typeof value === 'number' ? value : parseFloat(value as string) || 0;
           updatedPlan = {
-            ...updatedPlan,
-            ownPercent: 100 - (typeof value === 'number' ? value : parseFloat(value as string) || 0),
+            ...prev,
+            [field]: newValue,
+            rentRollPurchaseValue: (field === 'rentalRevenue' ? newValue : prev.rentalRevenue || 0) * (field === 'perDollarValue' ? newValue : prev.perDollarValue || 0),
+          };
+        } else if (field === 'gstPercentage') {
+          const newGstPercentage = typeof value === 'number' ? value : parseFloat(value as string) || 0;
+          const baseLoanAmount = prev.loanAmount / (1 + (prev.gstPercentage || 0) / 100);
+          const newLoanAmount = baseLoanAmount * (1 + newGstPercentage / 100);
+          updatedPlan = {
+            ...prev,
+            gstPercentage: newGstPercentage,
+            loanAmount: newLoanAmount,
+          };
+        } else if (field === 'bankPercent') {
+          const newBankPercent = typeof value === 'number' ? value : parseFloat(value as string) || 0;
+          updatedPlan = {
+            ...prev,
+            bankPercent: newBankPercent,
+            ownPercent: 100 - newBankPercent,
           };
         } else if (field === 'ownPercent') {
+          const newOwnPercent = typeof value === 'number' ? value : parseFloat(value as string) || 0;
           updatedPlan = {
-            ...updatedPlan,
-            bankPercent: 100 - (typeof value === 'number' ? value : parseFloat(value as string) || 0),
+            ...prev,
+            ownPercent: newOwnPercent,
+            bankPercent: 100 - newOwnPercent,
+          };
+        } else {
+          updatedPlan = {
+            ...prev,
+            [field]: typeof value === 'number' ? value : parseFloat(value as string) || 0,
           };
         }
-
-        if (field === 'typeOfLoan' && value !== 'Manual Entry') {
-          updatedPlan.customLoanType = '';
-        }
-
         const validationError = validateInputs(updatedPlan);
         setError(validationError);
         return updatedPlan;
@@ -461,7 +518,6 @@ export function EMIPlanCalculator() {
     const updatedPlans = [...savedPlans, newPlan];
     setSavedPlans(updatedPlans);
     localStorage.setItem('emiPlans', JSON.stringify(updatedPlans));
-    setViewPlanModal(newPlan);
     setError('Plan saved successfully!');
     setTimeout(() => setError(null), 3000);
   }, [emiPlan, savedPlans]);
@@ -477,115 +533,16 @@ export function EMIPlanCalculator() {
     [savedPlans]
   );
 
-  const generatePDF = useCallback(() => {
-    const validationError = validateInputs(emiPlan);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    const latexContent = `
-\\documentclass{article}
-\\usepackage{geometry}
-\\usepackage{booktabs}
-\\usepackage{array}
-\\geometry{a4paper, margin=1in}
-\\title{EMI Plan: ${planName}}
-\\author{}
-\\date{${new Date().toLocaleDateString()}}
-\\begin{document}
-\\maketitle
-
-\\section*{Loan Details}
-\\begin{tabular}{lr}
-\\toprule
-\\textbf{Field} & \\textbf{Value} \\\\
-\\midrule
-Loan Type & ${planName} \\\\
-Loan Tenure (Years) & ${emiPlan.loanTenure} \\\\
-Loan Amount & \\$${formatNumberInput(emiPlan.loanAmount)} \\\\
-Interest Per Annum & ${emiPlan.interestPerAnnum}\\% \\\\
-Bank Percentage & ${emiPlan.bankPercent}\\% \\\\
-Own Percentage & ${emiPlan.ownPercent}\\% \\\\
-Own Funds Tenure (Years) & ${emiPlan.ownTenure} \\\\
-Own Funds Interest Rate & ${emiPlan.ownFundsInterestRate}\\% \\\\
-\\bottomrule
-\\end{tabular}
-
-\\section*{Revenues}
-\\begin{tabular}{lrr}
-\\toprule
-\\textbf{Name} & \\textbf{Amount} & \\textbf{Period} \\\\
-\\midrule
-${emiPlan.revenues
-  .map((rev) => `${rev.name} & \\$${formatNumberInput(rev.amount)} & ${rev.period} \\\\`)
-  .join('\n')}
-\\bottomrule
-\\end{tabular}
-
-\\section*{Expenses}
-\\begin{tabular}{lrr}
-\\toprule
-\\textbf{Name} & \\textbf{Amount} & \\textbf{Period} \\\\
-\\midrule
-${emiPlan.expenses
-  .map((exp) => `${exp.name} & \\$${formatNumberInput(exp.amount)} & ${exp.period} \\\\`)
-  .join('\n')}
-\\bottomrule
-\\end{tabular}
-
-\\section*{Yearly Profit/Loss Summary}
-\\begin{tabular}{lrrrrr}
-\\toprule
-\\textbf{Year} & \\textbf{Revenue} & \\textbf{Expenses} & \\textbf{Loan Payments} & \\textbf{Total Interest} & \\textbf{P/L} \\\\
-\\midrule
-${calculations.yearlyAvg
-  .map(
-    (year) =>
-      `${year.period} & \\$${formatNumberInput(year.revenue)} & \\$${formatNumberInput(
-        year.expenses
-      )} & \\$${formatNumberInput(year.loanRepayment + year.ownRepayment)} & \\$${formatNumberInput(
-        (calculations.totalBankInterest + calculations.totalOwnInterest) / Math.max(emiPlan.loanTenure, emiPlan.ownTenure)
-      )} & \\$${formatNumberInput(year.pl)} \\\\`
-  )
-  .join('\n')}
-\\bottomrule
-\\end{tabular}
-
-\\end{document}
-`;
-
-    const blob = new Blob([latexContent], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `EMIBreakdown_${planName.replace(/\s+/g, '_')}.tex`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  }, [emiPlan, calculations]);
-
-  const loanTypeOptions = [
-    'Business Loan',
-    'Vehicle Loan',
-    'Electronics Loan',
-    'House Loan',
-    'Personal Loan',
-    'Manual Entry',
-  ];
-
   const amortizationSchedule = useMemo(() => {
-    const schedule = [];
-    const bankLoanAmount = emiPlan.loanAmount * emiPlan.bankPercent / 100;
+    const effectiveLoanAmount = emiPlan.gstPercentage ? emiPlan.loanAmount * (1 + emiPlan.gstPercentage / 100) : emiPlan.loanAmount;
+    const bankLoanAmount = effectiveLoanAmount * emiPlan.bankPercent / 100;
     const bankMonthlyPrincipal = bankLoanAmount / (emiPlan.loanTenure * 12);
     let bankRemainingPrincipal = bankLoanAmount;
-
-    const ownAmount = emiPlan.loanAmount * emiPlan.ownPercent / 100;
+    const ownAmount = effectiveLoanAmount * emiPlan.ownPercent / 100;
     const ownMonthlyPrincipal = ownAmount / (emiPlan.ownTenure * 12);
     let ownRemainingPrincipal = ownAmount;
-
     const maxMonths = Math.max(emiPlan.loanTenure * 12, emiPlan.ownTenure * 12);
-
+    const schedule = [];
     for (let month = 1; month <= maxMonths; month++) {
       let bankMonthlyInterest = 0;
       let bankTotalEMI = 0;
@@ -595,7 +552,6 @@ ${calculations.yearlyAvg
         bankRemainingPrincipal -= bankMonthlyPrincipal;
         if (bankRemainingPrincipal < 0) bankRemainingPrincipal = 0;
       }
-
       let ownMonthlyInterest = 0;
       let ownTotalEMI = 0;
       if (month <= emiPlan.ownTenure * 12) {
@@ -604,7 +560,6 @@ ${calculations.yearlyAvg
         ownRemainingPrincipal -= ownMonthlyPrincipal;
         if (ownRemainingPrincipal < 0) ownRemainingPrincipal = 0;
       }
-
       schedule.push({
         month,
         bankBeginningPrincipal: bankRemainingPrincipal + bankMonthlyPrincipal,
@@ -619,9 +574,328 @@ ${calculations.yearlyAvg
         ownEndingPrincipal: ownRemainingPrincipal,
       });
     }
-
     return schedule;
   }, [emiPlan]);
+
+  const generatePLPDFBlob = useCallback(() => {
+    const validationError = validateInputs(emiPlan);
+    if (validationError) {
+      setError(validationError);
+      return null;
+    }
+    const doc = new jsPDF();
+    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    doc.rect(5, 5, doc.internal.pageSize.width - 10, doc.internal.pageSize.height - 10);
+    doc.setFontSize(40);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Harcourts', 105, 30, { align: 'center' });
+    doc.setDrawColor(0, 191, 255);
+    doc.setLineWidth(1);
+    doc.line(85, 32, 125, 32);
+    doc.setTextColor(0, 191, 255);
+    doc.text('Success', 105, 45, { align: 'center' });
+    doc.setFontSize(20);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Profit/Loss Overview Report', 105, 60, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Date: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, 105, 70, { align: 'center' });
+    const loanData = [
+      ['Type', planName],
+      ['Tenure (Years)', emiPlan.loanTenure.toString()],
+      ['Total Amount', formatCurrency(emiPlan.loanAmount)],
+      ['Interest Rate', `${emiPlan.interestPerAnnum}%`],
+      ['Bank Share', `${emiPlan.bankPercent}%`],
+      ['Own Share', `${emiPlan.ownPercent}%`],
+      ['Own Tenure (Years)', emiPlan.ownTenure.toString()],
+      ['Own Interest', `${emiPlan.ownFundsInterestRate}%`],
+      ['GST %', `${emiPlan.gstPercentage || 0}%`],
+      ['Rental Revenue', formatCurrency(emiPlan.rentalRevenue || 0)],
+      ['Per $ Value', formatCurrency(emiPlan.perDollarValue || 0)],
+      ['Rent Roll Purchase Value', formatCurrency(emiPlan.rentRollPurchaseValue || 0)],
+    ];
+    autoTable(doc, {
+      startY: 80,
+      head: [['Detail', 'Value']],
+      body: loanData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139] },
+    });
+    const plStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 150;
+    const plData = (plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((entry) => [
+      entry.period.toString(),
+      formatCurrency(entry.revenue),
+      formatCurrency(entry.expenses),
+      formatCurrency(entry.ownAmount),
+      formatCurrency(entry.ownRepayment),
+      formatCurrency(entry.loanAmount),
+      formatCurrency(entry.loanRepayment),
+      formatCurrency(entry.ownInterest),
+      formatCurrency(entry.loanInterest),
+      formatCurrency(entry.pl),
+    ]);
+    autoTable(doc, {
+      startY: plStartY,
+      head: [['YR', 'Rev ($)', 'Exp ($)', 'Own Amt ($)', 'Own Pay ($)', 'Loan Amt ($)', 'Loan Pay ($)', 'Own Int ($)', 'Loan Int ($)', 'P/L ($)']],
+      body: plData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139], fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 12 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 18 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 18 },
+        8: { cellWidth: 18 },
+        9: { cellWidth: 18 },
+      },
+    });
+    return doc.output('blob');
+  }, [emiPlan, calculations, plPeriod]);
+
+  const generateAmortizationPDFBlob = useCallback(() => {
+    const validationError = validateInputs(emiPlan);
+    if (validationError) {
+      setError(validationError);
+      return null;
+    }
+    const doc = new jsPDF();
+    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    doc.rect(5, 5, doc.internal.pageSize.width - 10, doc.internal.pageSize.height - 10);
+    doc.setFontSize(40);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Harcourts', 105, 30, { align: 'center' });
+    doc.setDrawColor(0, 191, 255);
+    doc.setLineWidth(1);
+    doc.line(85, 32, 125, 32);
+    doc.setTextColor(0, 191, 255);
+    doc.text('Success', 105, 45, { align: 'center' });
+    doc.setFontSize(20);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Amortization Schedule Report', 105, 60, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Date: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, 105, 70, { align: 'center' });
+    const amortizationData = amortizationSchedule.map((entry) => [
+      entry.month.toString(),
+      formatCurrency(entry.bankBeginningPrincipal),
+      formatCurrency(entry.bankMonthlyPrincipal),
+      formatCurrency(entry.bankMonthlyInterest),
+      formatCurrency(entry.bankTotalEMI),
+      formatCurrency(entry.bankEndingPrincipal),
+      formatCurrency(entry.ownBeginningPrincipal),
+      formatCurrency(entry.ownMonthlyPrincipal),
+      formatCurrency(entry.ownMonthlyInterest),
+      formatCurrency(entry.ownTotalEMI),
+      formatCurrency(entry.ownEndingPrincipal),
+    ]);
+    autoTable(doc, {
+      startY: 80,
+      head: [['Month', 'Bank Start ($)', 'Bank Prin ($)', 'Bank Int ($)', 'Bank Total ($)', 'Bank End ($)', 'Own Start ($)', 'Own Prin ($)', 'Own Int ($)', 'Own Total ($)', 'Own End ($)']],
+      body: amortizationData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139], fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 12 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 18 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 18 },
+        8: { cellWidth: 18 },
+        9: { cellWidth: 18 },
+        10: { cellWidth: 18 },
+      },
+    });
+    return doc.output('blob');
+  }, [emiPlan, amortizationSchedule]);
+
+  const generateCompletePDFBlob = useCallback(() => {
+    const validationError = validateInputs(emiPlan);
+    if (validationError) {
+      setError(validationError);
+      return null;
+    }
+    const doc = new jsPDF();
+    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    doc.rect(5, 5, doc.internal.pageSize.width - 10, doc.internal.pageSize.height - 10);
+    doc.setFontSize(40);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Harcourts', 105, 30, { align: 'center' });
+    doc.setDrawColor(0, 191, 255);
+    doc.setLineWidth(1);
+    doc.line(85, 32, 125, 32);
+    doc.setTextColor(0, 191, 255);
+    doc.text('Success', 105, 45, { align: 'center' });
+    doc.setFontSize(20);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Complete EMI Plan Report', 105, 60, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Date: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, 105, 70, { align: 'center' });
+    const loanData = [
+      ['Type', planName],
+      ['Tenure (Years)', emiPlan.loanTenure.toString()],
+      ['Total Amount', formatCurrency(emiPlan.loanAmount)],
+      ['Interest Rate', `${emiPlan.interestPerAnnum}%`],
+      ['Bank Share', `${emiPlan.bankPercent}%`],
+      ['Own Share', `${emiPlan.ownPercent}%`],
+      ['Own Tenure (Years)', emiPlan.ownTenure.toString()],
+      ['Own Interest', `${emiPlan.ownFundsInterestRate}%`],
+      ['GST %', `${emiPlan.gstPercentage || 0}%`],
+      ['Rental Revenue', formatCurrency(emiPlan.rentalRevenue || 0)],
+      ['Per $ Value', formatCurrency(emiPlan.perDollarValue || 0)],
+      ['Rent Roll Purchase Value', formatCurrency(emiPlan.rentRollPurchaseValue || 0)],
+    ];
+    autoTable(doc, {
+      startY: 80,
+      head: [['Detail', 'Value']],
+      body: loanData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139] },
+    });
+    const revenuesStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 150;
+    const revenuesData = emiPlan.revenues.map((rev) => [rev.name, formatCurrency(rev.amount), rev.period]);
+    autoTable(doc, {
+      startY: revenuesStartY,
+      head: [['Name', 'Amount', 'Period']],
+      body: revenuesData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139] },
+    });
+    const expensesStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : revenuesStartY + 50;
+    const expensesData = emiPlan.expenses.map((exp) => [exp.name, formatCurrency(exp.amount), exp.period]);
+    autoTable(doc, {
+      startY: expensesStartY,
+      head: [['Name', 'Amount', 'Period']],
+      body: expensesData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139] },
+    });
+    const plStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : expensesStartY + 50;
+    const plData = (plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((entry) => [
+      entry.period.toString(),
+      formatCurrency(entry.revenue),
+      formatCurrency(entry.expenses),
+      formatCurrency(entry.ownAmount),
+      formatCurrency(entry.ownRepayment),
+      formatCurrency(entry.loanAmount),
+      formatCurrency(entry.loanRepayment),
+      formatCurrency(entry.ownInterest),
+      formatCurrency(entry.loanInterest),
+      formatCurrency(entry.pl),
+    ]);
+    autoTable(doc, {
+      startY: plStartY,
+      head: [['YR', 'Rev ($)', 'Exp ($)', 'Own Amt ($)', 'Own Pay ($)', 'Loan Amt ($)', 'Loan Pay ($)', 'Own Int ($)', 'Loan Int ($)', 'P/L ($)']],
+      body: plData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 0, 139], fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 12 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 18 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 18 },
+        8: { cellWidth: 18 },
+        9: { cellWidth: 18 },
+      },
+    });
+    return doc.output('blob');
+  }, [emiPlan, calculations, plPeriod]);
+
+  const viewPLPDF = useCallback(() => {
+    const blob = generatePLPDFBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      URL.revokeObjectURL(url);
+    }
+  }, [generatePLPDFBlob]);
+
+  const downloadPLPDF = useCallback(() => {
+    const blob = generatePLPDFBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'ProfitLossReport.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  }, [generatePLPDFBlob]);
+
+  const viewAmortizationPDF = useCallback(() => {
+    const blob = generateAmortizationPDFBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      URL.revokeObjectURL(url);
+    }
+  }, [generateAmortizationPDFBlob]);
+
+  const downloadAmortizationPDF = useCallback(() => {
+    const blob = generateAmortizationPDFBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'AmortizationSchedule.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  }, [generateAmortizationPDFBlob]);
+
+  const viewCompletePDF = useCallback(() => {
+    const blob = generateCompletePDFBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      URL.revokeObjectURL(url);
+    }
+  }, [generateCompletePDFBlob]);
+
+  const downloadCompletePDF = useCallback(() => {
+    const blob = generateCompletePDFBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'CompleteEMIPlanReport.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  }, [generateCompletePDFBlob]);
+
+  const loanTypeOptions = [
+    'Business Loan',
+    'Vehicle Loan',
+    'Electronics Loan',
+    'House Loan',
+    'Personal Loan',
+    'Rent Roll',
+    'Manual Entry',
+  ];
 
   return (
     <div className="max-w-7xl mx-auto p-6 bg-gray-100 min-h-screen">
@@ -642,7 +916,6 @@ ${calculations.yearlyAvg
         className="bg-white p-8 rounded-2xl shadow-2xl"
       >
         <h1 className="text-3xl font-extrabold text-gray-900 mb-6 text-center bg-blue-200">EMI Plan Calculator</h1>
-
         {error && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -654,73 +927,32 @@ ${calculations.yearlyAvg
             <p className="text-center">{error}</p>
           </motion.div>
         )}
-
         {savedPlans.length > 0 && (
           <div className="mb-6 text-center">
             <label className="block text-sm font-medium text-gray-700 mb-1">Load Saved Plan</label>
-            <select
-              onChange={(e) => loadPlan(e.target.value)}
-              className="w-1/3 mx-auto p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select a saved plan</option>
-              {savedPlans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.emiPlan.typeOfLoan === 'Manual Entry' ? plan.emiPlan.customLoanType : plan.emiPlan.typeOfLoan} - {plan.id}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {viewPlanModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <h2 className="text-2xl font-bold mb-4">
-                Plan Details: {viewPlanModal.emiPlan.typeOfLoan === 'Manual Entry' ? viewPlanModal.emiPlan.customLoanType : viewPlanModal.emiPlan.typeOfLoan}
-              </h2>
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold">Loan Details</h3>
-                <p><strong>Type:</strong> {viewPlanModal.emiPlan.typeOfLoan === 'Manual Entry' ? viewPlanModal.emiPlan.customLoanType : viewPlanModal.emiPlan.typeOfLoan}</p>
-                <p><strong>Loan Tenure:</strong> {viewPlanModal.emiPlan.loanTenure} years</p>
-                <p><strong>Loan Amount:</strong> {formatCurrency(viewPlanModal.emiPlan.loanAmount)}</p>
-                <p><strong>Interest Per Annum:</strong> {viewPlanModal.emiPlan.interestPerAnnum}%</p>
-                <p><strong>Bank Percentage:</strong> {viewPlanModal.emiPlan.bankPercent}%</p>
-                <p><strong>Own Percentage:</strong> {viewPlanModal.emiPlan.ownPercent}%</p>
-                <p><strong>Own Funds Tenure:</strong> {viewPlanModal.emiPlan.ownTenure} years</p>
-                <p><strong>Own Funds Interest Rate:</strong> {viewPlanModal.emiPlan.ownFundsInterestRate}%</p>
-              </div>
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold">Revenues</h3>
-                <ul>
-                  {viewPlanModal.emiPlan.revenues.map((rev, index) => (
-                    <li key={index}>
-                      {rev.name}: {formatCurrency(rev.amount)} ({rev.period})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold">Expenses</h3>
-                <ul>
-                  {viewPlanModal.emiPlan.expenses.map((exp, index) => (
-                    <li key={index}>
-                      {exp.name}: {formatCurrency(exp.amount)} ({exp.period})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setViewPlanModal(null)}
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
-                >
-                  Close
-                </button>
-              </div>
+            <div className="flex justify-center items-center gap-2">
+              <select
+                onChange={(e) => loadPlan(e.target.value)}
+                className="w-1/3 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select a saved plan</option>
+                {savedPlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.emiPlan.typeOfLoan === 'Manual Entry' ? plan.emiPlan.customLoanType : plan.emiPlan.typeOfLoan} - {plan.id}
+                  </option>
+                ))}
+              </select>
+              <motion.button
+                onClick={createNewPlan}
+                className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-4 py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                New Plan
+              </motion.button>
             </div>
           </div>
         )}
-
         <div className="mb-8">
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
@@ -732,7 +964,7 @@ ${calculations.yearlyAvg
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan %</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own %</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount ($)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Fund ($)</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Repay Loan ($)</th>
               </tr>
             </thead>
@@ -759,6 +991,45 @@ ${calculations.yearlyAvg
                       className="mt-2 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="Enter custom loan type"
                     />
+                  )}
+                  {emiPlan.typeOfLoan === 'Rent Roll' && (
+                    <>
+                      <div className="mt-2 flex gap-2">
+                        <CurrencyInput
+                          value={emiPlan.rentalRevenue || 0}
+                          onChange={(value) => handleInputChange('rentalRevenue', value)}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Rental Revenue"
+                        />
+                        <CurrencyInput
+                          value={emiPlan.perDollarValue || 0}
+                          onChange={(value) => handleInputChange('perDollarValue', value)}
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Per $ Value"
+                        />
+                        <CurrencyInput
+                          value={emiPlan.rentRollPurchaseValue || 0}
+                          onChange={() => {}} // No-op since it's read-only
+                          className="w-1/3 p-2 border border-gray-300 rounded-lg bg-gray-100"
+                          placeholder="Rent Roll Purchase Value"
+                          disabled
+                        />
+                      </div>
+                    </>
+                  )}
+                  {emiPlan.typeOfLoan && (
+                    <div className="mt-2">
+                      <input
+                        type="number"
+                        value={emiPlan.gstPercentage || ''}
+                        onChange={(e) => handleInputChange('gstPercentage', parseFloat(e.target.value) || 0)}
+                        className="w-1/3 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        placeholder="GST %"
+                      />
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
@@ -823,11 +1094,10 @@ ${calculations.yearlyAvg
               </tr>
             </tbody>
           </table>
-
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount ($)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own fund ($)</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenure (Years)</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest %</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment ($)</th>
@@ -868,7 +1138,6 @@ ${calculations.yearlyAvg
               </tr>
             </tbody>
           </table>
-
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
@@ -975,7 +1244,6 @@ ${calculations.yearlyAvg
               </tr>
             </tbody>
           </table>
-
           <div className="mt-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-center bg-blue-200 w-full py-2">Profit/Loss Overview</h2>
@@ -992,64 +1260,63 @@ ${calculations.yearlyAvg
             </div>
             <div className="flex justify-end gap-4 mb-4">
               <motion.button
-                onClick={savePlan}
+                onClick={viewPLPDF}
+                className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Eye className="w-5 h-5" />
+                View P/L Report
+              </motion.button>
+              <motion.button
+                onClick={downloadPLPDF}
                 className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
-                <Save className="w-5 h-5" />
-                View the Plan
-              </motion.button>
-              <motion.button
-                onClick={generatePDF}
-                className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
                 <Download className="w-5 h-5" />
-                Download the Plan
+                Download P/L Report
               </motion.button>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+              <table className="w-full bg-white border border-gray-200 rounded-lg table-auto">
                 <thead>
                   <tr className="bg-gray-50">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{plPeriod === 'yearly' ? 'Year' : 'Month'}</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Repayment ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Amount Interest ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount Repayment ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Interest ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L ($)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L Progress</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[5%]">{plPeriod === 'yearly' ? 'YR' : 'Month'}</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Rev ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Exp ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Amt ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Pay ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Loan Amt ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Loan Pay ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Int ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Loan Int ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">P/L ($)</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">P/L Progress</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((entry, index) => {
-                    const maxPL = Math.max(...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((e) => Math.abs(e.pl))) || 1;
+                    const maxPL = Math.max(...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map(e => Math.abs(e.pl))) || 1;
                     const progress = (Math.abs(entry.pl) / maxPL) * 100;
-
                     return (
                       <tr key={index}>
-                        <td className="px-4 py-4 text-sm text-gray-700">{entry.period}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.revenue)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.expenses)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownAmount)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownRepayment)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.loanAmount)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.loanRepayment)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownInterest)}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.loanInterest)}</td>
-                        <td className={`px-4 py-4 text-sm font-medium ${entry.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        <td className="px-2 py-2 text-xs text-gray-700">{entry.period}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.revenue)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.expenses)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownAmount)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownRepayment)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.loanAmount)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.loanRepayment)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownInterest)}</td>
+                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.loanInterest)}</td>
+                        <td className={`px-2 py-2 text-xs font-medium ${entry.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {formatCurrency(entry.pl)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-gray-700">
-                          <div className="w-full bg-gray-200 rounded-full h-2.5">
+                        <td className="px-2 py-2 text-xs text-gray-700">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
                             <div
-                              className={`${entry.pl >= 0 ? 'bg-green-600' : 'bg-red-600'} h-2.5 rounded-full`}
+                              className={`${entry.pl >= 0 ? 'bg-green-600' : 'bg-red-600'} h-2 rounded-full`}
                               style={{ width: `${progress}%` }}
                             ></div>
                           </div>
@@ -1062,7 +1329,6 @@ ${calculations.yearlyAvg
               </table>
             </div>
           </div>
-
           <div className="mt-8">
             <div className="mb-4">
               <button
@@ -1072,9 +1338,28 @@ ${calculations.yearlyAvg
                 {showAmortizationTable ? 'Hide Amortization Table' : 'Show Amortization Table'}
               </button>
             </div>
-
             {showAmortizationTable && (
               <div className="overflow-x-auto mb-6">
+                <div className="flex justify-end gap-4 mb-4">
+                  <motion.button
+                    onClick={viewAmortizationPDF}
+                    className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Eye className="w-5 h-5" />
+                    View Amortization
+                  </motion.button>
+                  <motion.button
+                    onClick={downloadAmortizationPDF}
+                    className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Download className="w-5 h-5" />
+                    Download Amortization
+                  </motion.button>
+                </div>
                 <table className="min-w-full bg-white border border-gray-200 rounded-lg mb-8">
                   <thead>
                     <tr className="bg-gray-50">
@@ -1141,7 +1426,6 @@ ${calculations.yearlyAvg
                 </table>
               </div>
             )}
-
             <div className="mb-8">
               <h2 className="text-xl font-bold mb-4 bg-blue-200">Yearly Average Repayment Breakdown</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1170,7 +1454,6 @@ ${calculations.yearlyAvg
                     </table>
                   </div>
                 </div>
-
                 <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="text-lg font-semibold mb-3 bg-blue-200">Yearly Interest Breakdown</h3>
                   <div className="overflow-x-auto">
@@ -1198,29 +1481,10 @@ ${calculations.yearlyAvg
                 </div>
               </div>
             </div>
-
+            {/* Profit/Loss Summary */}
             <div className="mb-8 bg-white p-4 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-3 bg-blue-200">Profit/Loss Summary</h3>
-              <div className="flex justify-end gap-4 mb-4">
-                <motion.button
-                  onClick={savePlan}
-                  className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Save className="w-5 h-5" />
-                  View the Plan
-                </motion.button>
-                <motion.button
-                  onClick={generatePDF}
-                  className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Download className="w-5 h-5" />
-                  Download the Plan
-                </motion.button>
-              </div>
+              
               <div className="overflow-x-auto">
                 <table className="min-w-full">
                   <thead>
@@ -1254,27 +1518,35 @@ ${calculations.yearlyAvg
               </div>
             </div>
           </div>
-
-          <div className="flex justify-end gap-4 mb-8">
-            <motion.button
-              onClick={savePlan}
-              className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Save className="w-5 h-5" />
-              Save Plan
-            </motion.button>
-            <motion.button
-              onClick={generatePDF}
-              className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Download className="w-5 h-5" />
-              Save as PDF
-            </motion.button>
-          </div>
+        </div>
+        <div className="flex justify-end gap-4 mb-8">
+          <motion.button
+            onClick={savePlan}
+            className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Save className="w-5 h-5" />
+            Save Plan
+          </motion.button>
+          <motion.button
+            onClick={viewCompletePDF}
+            className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Eye className="w-5 h-5" />
+            View Full Report
+          </motion.button>
+          <motion.button
+            onClick={downloadCompletePDF}
+            className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Download className="w-5 h-5" />
+            Download Full Report
+          </motion.button>
         </div>
       </motion.div>
     </div>

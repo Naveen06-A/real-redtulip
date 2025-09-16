@@ -3,7 +3,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Download, Eye, Save, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
+import HarcourtsLogo from './assets/Harcourts_Success_LogoSet_Stacked_BLUE_080724.png';
 interface Revenue {
   name: string;
   amount: number;
@@ -591,6 +591,7 @@ export function EMIPlanCalculator() {
     }
     return schedule;
   }, [emiPlan]);
+  
 
   const generatePLPDFBlob = useCallback(() => {
     const validationError = validateInputs(emiPlan);

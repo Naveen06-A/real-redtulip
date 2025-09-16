@@ -21,7 +21,7 @@ interface Activity {
   suburb: string;
   knocks_made?: number;
   knocks_answered?: number;
-  calls_connected?: number;
+  calls_made?: number;
   calls_answered?: number;
   desktop_appraisals?: number;
   face_to_face_appraisals?: number;
@@ -34,6 +34,8 @@ interface StreetProgress {
   targetKnocks?: number;
   completedCalls?: number;
   targetCalls?: number;
+  completedConnects?: number;
+  targetConnects?: number;
   desktopAppraisals: number;
   faceToFaceAppraisals: number;
 }
@@ -57,8 +59,8 @@ interface MarketingPlan {
     target_connects: string;
   }>;
   target_connects: string;
-  target_desktop_appraisals: string;
-  target_face_to_face_appraisals: string;
+  desktop_appraisals: string;
+  face_to_face_appraisals: string;
 }
 
 interface ProgressData {
@@ -114,7 +116,7 @@ export function ProgressReportPage() {
   // Utility functions
   const calculatePercentage = (completed: number, target: number): number => {
     if (target === 0) return 0;
-    return Math.round((completed / target) * 100);
+    return Math.min(Math.round((completed / target) * 100), 100);
   };
 
   const formatDate = (dateString: string): string => {
@@ -139,7 +141,6 @@ export function ProgressReportPage() {
 
       if (error) throw error;
 
-      // Update local state
       setMarketingPlans(prev => prev.filter(plan => plan.id !== selectedPlan.id));
       setSelectedPlan(marketingPlans[0] || null);
       setShowDeleteConfirm(false);
@@ -147,6 +148,7 @@ export function ProgressReportPage() {
       toast.success('Marketing plan deleted successfully');
       setTimeout(() => setNotification(null), 3000);
     } catch (err) {
+      console.error('Error deleting marketing plan:', err);
       toast.error('Failed to delete marketing plan');
     }
   }, [selectedPlan, marketingPlans]);
@@ -158,7 +160,7 @@ export function ProgressReportPage() {
     try {
       let query = supabase
         .from('marketing_plans')
-        .select('*')
+        .select('id, suburb, start_date, end_date, door_knock_streets, phone_call_streets, target_connects, desktop_appraisals, face_to_face_appraisals')
         .order('created_at', { ascending: false });
 
       if (profile?.role === 'agent') {
@@ -167,20 +169,30 @@ export function ProgressReportPage() {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error in loadMarketingPlans:', error);
+        throw error;
+      }
+
+      console.log('Raw marketing plans data:', data); // Debug raw data
 
       const plans = data.map(plan => ({
         ...plan,
         suburb: plan.suburb || 'Unspecified',
         door_knock_streets: plan.door_knock_streets || [],
         phone_call_streets: plan.phone_call_streets || [],
+        target_connects: String(plan.target_connects ?? '0'),
+        desktop_appraisals: String(plan.desktop_appraisals ?? '0'),
+        face_to_face_appraisals: String(plan.face_to_face_appraisals ?? '0'),
       }));
 
+      console.log('Processed marketing plans:', plans); // Debug processed plans
       setMarketingPlans(plans);
       if (plans.length > 0 && !selectedPlan) {
         setSelectedPlan(plans[0]);
       }
     } catch (err) {
+      console.error('Error loading marketing plans:', err);
       toast.error('Failed to load marketing plans');
     }
   }, [user, profile, selectedPlan]);
@@ -191,10 +203,9 @@ export function ProgressReportPage() {
     try {
       let query = supabase
         .from('agent_activities')
-        .select('*')
+        .select('id, activity_type, activity_date, street_name, suburb, knocks_made, knocks_answered, calls_made, calls_answered, desktop_appraisals, face_to_face_appraisals, notes')
         .eq('agent_id', user.id);
 
-      // Apply date filter if set
       if (startDate && endDate) {
         query = query
           .gte('activity_date', startDate.toISOString())
@@ -211,10 +222,15 @@ export function ProgressReportPage() {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error in loadActivities:', error);
+        throw error;
+      }
 
+      console.log('Loaded activities:', data); // Debug activities
       setActivities(data || []);
     } catch (err) {
+      console.error('Error loading activities:', err);
       toast.error('Failed to load activities');
     }
   }, [user, selectedPlan, startDate, endDate, viewMode]);
@@ -228,6 +244,8 @@ export function ProgressReportPage() {
       name: street.name,
       targetKnocks: parseInt(street.target_knocks || '0'),
       completedKnocks: 0,
+      completedConnects: 0,
+      targetConnects: 0,
       desktopAppraisals: 0,
       faceToFaceAppraisals: 0
     }));
@@ -235,7 +253,9 @@ export function ProgressReportPage() {
     const phoneCallStreets: StreetProgress[] = selectedPlan.phone_call_streets.map(street => ({
       name: street.name,
       targetCalls: parseInt(street.target_calls || '0'),
+      targetConnects: parseInt(street.target_connects || '0'),
       completedCalls: 0,
+      completedConnects: 0,
       desktopAppraisals: 0,
       faceToFaceAppraisals: 0
     }));
@@ -250,13 +270,16 @@ export function ProgressReportPage() {
         const street = doorKnockStreets.find(s => s.name === activity.street_name);
         if (street) {
           street.completedKnocks = (street.completedKnocks || 0) + (activity.knocks_made || 0);
+          street.completedConnects = (street.completedConnects || 0) + (activity.knocks_answered || 0);
           street.desktopAppraisals += activity.desktop_appraisals || 0;
           street.faceToFaceAppraisals += activity.face_to_face_appraisals || 0;
         }
+        totalConnects += activity.knocks_answered || 0;
       } else if (activity.activity_type === 'phone_call') {
         const street = phoneCallStreets.find(s => s.name === activity.street_name);
         if (street) {
-          street.completedCalls = (street.completedCalls || 0) + (activity.calls_connected || 0);
+          street.completedCalls = (street.completedCalls || 0) + (activity.calls_made || 0);
+          street.completedConnects = (street.completedConnects || 0) + (activity.calls_answered || 0);
           street.desktopAppraisals += activity.desktop_appraisals || 0;
           street.faceToFaceAppraisals += activity.face_to_face_appraisals || 0;
         }
@@ -274,7 +297,12 @@ export function ProgressReportPage() {
     const totalPhoneCalls = phoneCallStreets.reduce((sum, street) => sum + (street.completedCalls || 0), 0);
     const targetPhoneCalls = phoneCallStreets.reduce((sum, street) => sum + (street.targetCalls || 0), 0);
 
-    setProgressData({
+    const targetConnects = selectedPlan.phone_call_streets.reduce(
+      (sum, street) => sum + parseInt(street.target_connects || '0'),
+      0
+    );
+
+    const newProgressData = {
       doorKnocks: {
         completed: totalDoorKnocks,
         target: targetDoorKnocks,
@@ -287,17 +315,20 @@ export function ProgressReportPage() {
       },
       connects: {
         completed: totalConnects,
-        target: parseInt(selectedPlan.target_connects || '0')
+        target: targetConnects
       },
       desktopAppraisals: {
         completed: totalDesktopAppraisals,
-        target: parseInt(selectedPlan.target_desktop_appraisals || '0')
+        target: parseInt(selectedPlan.desktop_appraisals || '0')
       },
       faceToFaceAppraisals: {
         completed: totalFaceToFaceAppraisals,
-        target: parseInt(selectedPlan.target_face_to_face_appraisals || '0')
+        target: parseInt(selectedPlan.face_to_face_appraisals || '0')
       }
-    });
+    };
+
+    console.log('Calculated progress data:', newProgressData); // Debug progress data
+    setProgressData(newProgressData);
   }, [selectedPlan, activities]);
 
   // Effects
@@ -315,22 +346,36 @@ export function ProgressReportPage() {
 
     initialize();
 
-    // Set up real-time subscription
-    const subscription = supabase
+    // Set up real-time subscriptions
+    const activitySubscription = supabase
       .channel('agent_activities_changes')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'agent_activities' },
+        { event: '*', schema: 'public', table: 'agent_activities', filter: `agent_id=eq.${user.id}` },
         () => {
           loadActivities();
-          setNotification('Data updated in real-time');
+          setNotification('Activities updated in real-time');
+          setTimeout(() => setNotification(null), 3000);
+        }
+      )
+      .subscribe();
+
+    const planSubscription = supabase
+      .channel('marketing_plans_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'marketing_plans', filter: profile?.role === 'agent' ? `agent=eq.${user.id}` : undefined },
+        () => {
+          loadMarketingPlans();
+          setNotification('Marketing plans updated in real-time');
           setTimeout(() => setNotification(null), 3000);
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(subscription);
+      supabase.removeChannel(activitySubscription);
+      supabase.removeChannel(planSubscription);
     };
   }, [user, profile, navigate, loadMarketingPlans, loadActivities]);
 
@@ -338,7 +383,7 @@ export function ProgressReportPage() {
     if (selectedPlan) {
       loadActivities();
     }
-  }, [selectedPlan, loadActivities]);
+  }, [selectedPlan, startDate, endDate, viewMode, loadActivities]);
 
   useEffect(() => {
     calculateProgress();
@@ -438,6 +483,7 @@ export function ProgressReportPage() {
         }
       }
     } catch (err) {
+      console.error('Error generating PDF:', err);
       toast.error('Failed to generate PDF');
     }
   }, [selectedPlan, progressData]);
@@ -516,7 +562,6 @@ export function ProgressReportPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {/* Date Filter */}
           <div className="relative">
             <button
               onClick={() => setShowDateFilter(!showDateFilter)}
@@ -557,7 +602,6 @@ export function ProgressReportPage() {
             )}
           </div>
 
-          {/* View Mode Toggle */}
           <button
             onClick={() => setViewMode(viewMode === 'suburb' ? 'overall' : 'suburb')}
             className="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2 hover:bg-gray-50"
@@ -566,7 +610,6 @@ export function ProgressReportPage() {
             <span>{viewMode === 'suburb' ? 'Overall View' : 'Suburb View'}</span>
           </button>
 
-          {/* Export Buttons */}
           <button
             onClick={() => generatePDF(false)}
             className="flex items-center gap-2 bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700"
@@ -743,6 +786,7 @@ export function ProgressReportPage() {
                   <th className="p-2 text-left">Street</th>
                   <th className="p-2 text-right">Completed</th>
                   <th className="p-2 text-right">Target</th>
+                  <th className="p-2 text-right">Connects</th>
                   <th className="p-2 text-right">Progress</th>
                 </tr>
               </thead>
@@ -750,8 +794,9 @@ export function ProgressReportPage() {
                 {progressData.doorKnocks.streets.map((street, i) => (
                   <tr key={i} className="border-b">
                     <td className="p-2">{street.name}</td>
-                    <td className="p-2 text-right">{street.completedKnocks}</td>
-                    <td className="p-2 text-right">{street.targetKnocks}</td>
+                    <td className="p-2 text-right">{street.completedKnocks || 0}</td>
+                    <td className="p-2 text-right">{street.targetKnocks || 0}</td>
+                    <td className="p-2 text-right">{street.completedConnects || 0}</td>
                     <td className="p-2 text-right">
                       {calculatePercentage(street.completedKnocks || 0, street.targetKnocks || 0)}%
                     </td>
@@ -761,6 +806,7 @@ export function ProgressReportPage() {
                   <td className="p-2">Total</td>
                   <td className="p-2 text-right">{progressData.doorKnocks.completed}</td>
                   <td className="p-2 text-right">{progressData.doorKnocks.target}</td>
+                  <td className="p-2 text-right">{progressData.connects.completed}</td>
                   <td className="p-2 text-right">
                     {calculatePercentage(
                       progressData.doorKnocks.completed,
@@ -783,6 +829,8 @@ export function ProgressReportPage() {
                   <th className="p-2 text-left">Street</th>
                   <th className="p-2 text-right">Completed</th>
                   <th className="p-2 text-right">Target</th>
+                  <th className="p-2 text-right">Connects Completed</th>
+                  <th className="p-2 text-right">Connects Target</th>
                   <th className="p-2 text-right">Progress</th>
                 </tr>
               </thead>
@@ -790,8 +838,10 @@ export function ProgressReportPage() {
                 {progressData.phoneCalls.streets.map((street, i) => (
                   <tr key={i} className="border-b">
                     <td className="p-2">{street.name}</td>
-                    <td className="p-2 text-right">{street.completedCalls}</td>
-                    <td className="p-2 text-right">{street.targetCalls}</td>
+                    <td className="p-2 text-right">{street.completedCalls || 0}</td>
+                    <td className="p-2 text-right">{street.targetCalls || 0}</td>
+                    <td className="p-2 text-right">{street.completedConnects || 0}</td>
+                    <td className="p-2 text-right">{street.targetConnects || 0}</td>
                     <td className="p-2 text-right">
                       {calculatePercentage(street.completedCalls || 0, street.targetCalls || 0)}%
                     </td>
@@ -801,6 +851,8 @@ export function ProgressReportPage() {
                   <td className="p-2">Total</td>
                   <td className="p-2 text-right">{progressData.phoneCalls.completed}</td>
                   <td className="p-2 text-right">{progressData.phoneCalls.target}</td>
+                  <td className="p-2 text-right">{progressData.connects.completed}</td>
+                  <td className="p-2 text-right">{progressData.connects.target}</td>
                   <td className="p-2 text-right">
                     {calculatePercentage(
                       progressData.phoneCalls.completed,
@@ -826,6 +878,7 @@ export function ProgressReportPage() {
                   <th className="p-2 text-left">Type</th>
                   <th className="p-2 text-left">Street</th>
                   <th className="p-2 text-right">Completed</th>
+                  <th className="p-2 text-right">Connects</th>
                   <th className="p-2 text-right">Appraisals</th>
                 </tr>
               </thead>
@@ -837,11 +890,16 @@ export function ProgressReportPage() {
                     <td className="p-2">{activity.street_name}</td>
                     <td className="p-2 text-right">
                       {activity.activity_type === 'door_knock' 
-                        ? `${activity.knocks_made} knocks (${activity.knocks_answered} answered)`
-                        : `${activity.calls_connected} calls (${activity.calls_answered} answered)`}
+                        ? `${activity.knocks_made || 0} knocks`
+                        : `${activity.calls_made || 0} calls`}
                     </td>
                     <td className="p-2 text-right">
-                      {activity.desktop_appraisals} desktop / {activity.face_to_face_appraisals} F2F
+                      {activity.activity_type === 'door_knock' 
+                        ? `${activity.knocks_answered || 0} answered`
+                        : `${activity.calls_answered || 0} answered`}
+                    </td>
+                    <td className="p-2 text-right">
+                      {activity.desktop_appraisals || 0} desktop / {activity.face_to_face_appraisals || 0} F2F
                     </td>
                   </tr>
                 ))}

@@ -43,7 +43,7 @@ interface ActivityLog {
   street_name_phone: string;
   street_name_door: string;
   suburb: string;
-  calls_connected?: string;
+  calls_made?: string;
   calls_answered?: string;
   knocks_made?: string;
   knocks_answered?: string;
@@ -206,7 +206,7 @@ function ActivityLogReport({
                   </div>
                   <div>
                     <p className="text-blue-700 font-semibold text-lg">Calls Connected:</p>
-                    <p className="text-blue-900 text-lg">{log.calls_connected || '0'}</p>
+                    <p className="text-blue-900 text-lg">{log.calls_made || '0'}</p>
                   </div>
                   <div>
                     <p className="text-blue-700 font-semibold text-lg">Calls Answered:</p>
@@ -310,7 +310,7 @@ export function ActivityLogger() {
     street_name_phone: 'Main Street',
     street_name_door: 'Main Street',
     suburb: '',
-    calls_connected: '',
+    calls_made: '',
     calls_answered: '',
     knocks_made: '',
     knocks_answered: '',
@@ -499,9 +499,9 @@ export function ActivityLogger() {
     }
 
     if (activityLog.perform_phone_call) {
-      if (!activityLog.calls_connected || parseInt(activityLog.calls_connected) <= 0) {
+      if (!activityLog.calls_made || parseInt(activityLog.calls_made) <= 0) {
         newErrors.calls_connected = 'Please enter at least 1 call connected';
-      } else if (isNaN(parseInt(activityLog.calls_connected)) || parseInt(activityLog.calls_connected) < 0) {
+      } else if (isNaN(parseInt(activityLog.calls_made)) || parseInt(activityLog.calls_connected) < 0) {
         newErrors.calls_connected = 'Please enter a valid number (e.g., 1 or 5)';
       }
       if (
@@ -511,9 +511,9 @@ export function ActivityLogger() {
         newErrors.calls_answered = 'Please enter a valid number (e.g., 0 or 3)';
       }
       if (
-        activityLog.calls_connected &&
+        activityLog.calls_made &&
         activityLog.calls_answered &&
-        parseInt(activityLog.calls_answered) > parseInt(activityLog.calls_connected)
+        parseInt(activityLog.calls_answered) > parseInt(activityLog.calls_made)
       ) {
         newErrors.calls_answered = 'Cannot be more than calls connected';
       }
@@ -598,7 +598,7 @@ export function ActivityLogger() {
           suburb: activityLog.suburb.trim(),
           notes: activityLog.notes.trim() || null,
           status: 'Completed',
-          calls_connected: parseInt(activityLog.calls_connected || '0'),
+          calls_made: parseInt(activityLog.calls_made || '0'),
           calls_answered: parseInt(activityLog.calls_answered || '0'),
           desktop_appraisals: parseInt(activityLog.desktop_appraisals || '0'),
           face_to_face_appraisals: parseInt(activityLog.face_to_face_appraisals || '0'),
@@ -611,7 +611,7 @@ export function ActivityLogger() {
           street_name_door: '',
           suburb: activityLog.suburb.trim(),
           date: activityLog.date,
-          calls_connected: activityLog.calls_connected,
+          calls_made: activityLog.calls_made,
           calls_answered: activityLog.calls_answered,
           knocks_made: '',
           knocks_answered: '',
@@ -644,7 +644,7 @@ export function ActivityLogger() {
           street_name_door: capitalizeFirstLetter(activityLog.street_name_door.trim()),
           suburb: activityLog.suburb.trim(),
           date: activityLog.date,
-          calls_connected: '',
+          calls_made: '',
           calls_answered: '',
           knocks_made: activityLog.knocks_made,
           knocks_answered: activityLog.knocks_answered,
@@ -706,7 +706,7 @@ export function ActivityLogger() {
         street_name_phone: 'Main Street',
         street_name_door: 'Main Street',
         suburb: marketingPlans.find((plan) => plan.id === selectedPlanId)?.suburb || '',
-        calls_connected: '',
+        calls_made: '',
         calls_answered: '',
         knocks_made: '',
         knocks_answered: '',
@@ -1165,12 +1165,12 @@ export function ActivityLogger() {
                         )}
                       </div>
                       <div>
-                        <label className="block text-blue-800 font-semibold text-lg mb-2">Calls Connected *</label>
+                        <label className="block text-blue-800 font-semibold text-lg mb-2">Calls made *</label>
                         <motion.input
                           type="number"
-                          value={activityLog.calls_connected}
+                          value={activityLog.calls_made}
                           onChange={(e) => {
-                            setActivityLog({ ...activityLog, calls_connected: e.target.value });
+                            setActivityLog({ ...activityLog, calls_made: e.target.value });
                             validateActivityForm();
                           }}
                           className="w-full p-4 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-blue-50 text-lg"

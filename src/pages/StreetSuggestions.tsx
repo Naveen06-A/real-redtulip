@@ -106,6 +106,7 @@ export function StreetSuggestions({
   }, [soldPropertiesFilter]);
 
   // Convert Excel serial date to YYYY-MM-DD
+  // Enhanced date parsing function
   const excelSerialToDate = (serial: number | string | null | undefined): string | null => {
     if (!serial || serial === 'NA' || serial === '' || serial === null || serial === undefined) return null;
 
@@ -116,18 +117,37 @@ export function StreetSuggestions({
       return isNaN(date.getTime()) ? null : datePart;
     }
 
+    // Handle DD-MM-YYYY format (like "25-02-2025")
+    if (typeof serial === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(serial)) {
+      const parts = serial.split('-');
+      const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      const date = new Date(formattedDate);
+      return isNaN(date.getTime()) ? null : formattedDate;
+    }
+
     // Handle YYYY-MM-DD format
     if (typeof serial === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(serial)) {
       const date = new Date(serial);
       return isNaN(date.getTime()) ? null : serial;
     }
 
-    // Handle Excel serial numbers
+    // Handle Excel serial numbers (numeric values)
+    if (typeof serial === 'number') {
+      const excelEpoch = new Date(1900, 0, 1);
+      // Adjust for Excel's leap year bug (Excel considers 1900 a leap year)
+      const days = serial > 59 ? serial - 1 : serial;
+      const date = new Date(excelEpoch.getTime() + (days - 2) * 24 * 60 * 60 * 1000);
+      return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
+    }
+
+    // Handle string representations of numbers
     const serialNum = typeof serial === 'string' ? parseFloat(serial) : serial;
     if (isNaN(serialNum)) return null;
 
     const excelEpoch = new Date(1900, 0, 1);
-    const date = new Date(excelEpoch.getTime() + (serialNum - 2) * 24 * 60 * 60 * 1000);
+    // Adjust for Excel's leap year bug
+    const days = serialNum > 59 ? serialNum - 1 : serialNum;
+    const date = new Date(excelEpoch.getTime() + (days - 2) * 24 * 60 * 60 * 1000);
     return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
   };
 
@@ -135,6 +155,7 @@ export function StreetSuggestions({
     return key.trim().toLowerCase().replace(/\s+/g, '_');
   };
 
+  // Update the normalizeRow function to handle the Excel column names correctly
   const normalizeRow = (row: any, headerMap: { [key: string]: string }): any => {
     const normalized: any = {};
     const standardKeys = [
@@ -155,8 +176,21 @@ export function StreetSuggestions({
     ];
     
     standardKeys.forEach((stdKey) => {
-      const origKey = headerMap[stdKey];
-      let value = origKey ? (row[origKey] ?? null) : null;
+      // Map the standard key to the actual Excel column name
+      let excelKey;
+      if (stdKey === 'last_sold_date') {
+        excelKey = headerMap['last_sold_date'] || 'last_sold_date';
+      } else if (stdKey === 'street_number') {
+        excelKey = headerMap['street_number'] || 'street_no';
+      } else if (stdKey === 'owner_1_mobile') {
+        excelKey = headerMap['owner_1_mobile'] || 'own1_mob';
+      } else if (stdKey === 'owner_2_mobile') {
+        excelKey = headerMap['owner_2_mobile'] || 'own2_mob';
+      } else {
+        excelKey = headerMap[stdKey] || stdKey;
+      }
+      
+      let value = row[excelKey] ?? null;
       
       // Handle special cases for date and price fields
       if (stdKey === 'last_sold_date') {
@@ -168,13 +202,16 @@ export function StreetSuggestions({
         }
         const numValue = parseFloat(value.toString());
         value = isNaN(numValue) ? null : numValue;
-      } else if (value === 'NA' || value === 'Unsure') {
+      } else if (value === 'NA' || value === 'Unsure' || value === 'DNC' || value === 'DNC/unsure') {
         value = stdKey === 'price' ? null : '';
+      } else if (typeof value === 'string') {
+        value = value.trim();
       }
       
       normalized[stdKey] = value;
     });
     
+    // Handle phone number fallback
     if (!normalized.phone_number && normalized.owner_1_mobile) {
       normalized.phone_number = normalized.owner_1_mobile;
       normalized.owner_1_mobile = '';
@@ -586,92 +623,124 @@ export function StreetSuggestions({
 
   const handleSingleStreetExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || !selectedStreet || !suburb) return;
-    
+
     setLoading(true);
     setContactError(null);
-    
+
     try {
+      // Fetch existing contacts and properties for the selected street
+      const { data: existingContacts, error: contactError } = await supabase
+        .from('contacts')
+        .select('id, owner_1, owner_2, street_number, street_name, suburb')
+        .eq('street_name', selectedStreet)
+        .eq('suburb', suburb);
+
+      if (contactError) throw new Error(`Failed to fetch existing contacts: ${contactError.message}`);
+
       const { data: propertiesData, error: propError } = await supabase
         .from('properties')
         .select('street_number')
         .eq('street_name', selectedStreet)
         .eq('suburb', suburb);
-        
+
       if (propError) throw new Error(`Failed to fetch properties: ${propError.message}`);
-      
+
       const availableStreetNumbers = propertiesData
         .map((prop) => prop.street_number)
         .filter((num): num is string => !!num);
-      
+
       const file = event.target.files[0];
       const reader = new FileReader();
-      
+
       reader.onload = async (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         let json = XLSX.utils.sheet_to_json(worksheet) as any[];
-        
-        if (json.length > 0) {
-          const firstRowKeys = Object.keys(json[0]);
-          const headerMap: { [key: string]: string } = {};
-          
-          firstRowKeys.forEach((origKey) => {
-            let normKey = normalizeKey(origKey);
-            if (normKey === 'owner1_email') normKey = 'owner_1_email';
-            if (normKey === 'owner2_email') normKey = 'owner_2_email';
-            if (normKey === 'own1_mob') normKey = 'owner_1_mobile';
-            if (normKey === 'own2_mob') normKey = 'owner_2_mobile';
-            if (normKey === 'street_no') normKey = 'street_number';
-            if (normKey === 'last_sold_date') normKey = 'last_sold_date';
-            headerMap[normKey] = origKey;
-          });
-          
-          json = json.map((row) => normalizeRow(row, headerMap));
-        }
-        
-        const validContacts: Omit<Contact, 'id'>[] = json
-          .filter(
-            (row) =>
-              row.owner_1 &&
-              row.owner_2
-          )
-          .map((row, index) => {
-            const streetNumberFromExcel = row.street_number;
-            const streetNumber = streetNumberFromExcel || (availableStreetNumbers[index % availableStreetNumbers.length] || null);
-            
-            return {
-              owner_1: row.owner_1,
-              owner_2: row.owner_2,
-              owner_1_email: row.owner_1_email || '',
-              owner_2_email: row.owner_2_email || '',
-              phone_number: row.phone_number || '',
-              owner_1_mobile: row.owner_1_mobile || '',
-              owner_2_mobile: row.owner_2_mobile || '',
-              outcome: row.outcome || '',
-              street_name: selectedStreet,
-              street_number: streetNumber,
-              suburb,
-              status: row.status || '',
-              last_sold_date: row.last_sold_date,
-              price: row.price,
-            };
-          });
-          
-        if (validContacts.length === 0) {
-          setContactError('No valid contacts found in the Excel file. Ensure columns include owner_1 and owner_2.');
+
+        if (json.length === 0) {
+          setContactError('No data found in the Excel file.');
           setLoading(false);
           return;
         }
-        
+
+        // Normalize headers
+        const firstRowKeys = Object.keys(json[0]);
+        const headerMap: { [key: string]: string } = {};
+        firstRowKeys.forEach((origKey) => {
+          let normKey = normalizeKey(origKey);
+          if (normKey === 'owner1_email') normKey = 'owner_1_email';
+          if (normKey === 'owner2_email') normKey = 'owner_2_email';
+          if (normKey === 'own1_mob') normKey = 'owner_1_mobile';
+          if (normKey === 'own2_mob') normKey = 'owner_2_mobile';
+          if (normKey === 'street_no') normKey = 'street_number';
+          if (normKey === 'last_sold_date') normKey = 'last_sold_date';
+          headerMap[normKey] = origKey;
+        });
+
+        json = json.map((row) => normalizeRow(row, headerMap));
+
+        // Filter out duplicates and prepare valid contacts
+        const validContacts: Omit<Contact, 'id'>[] = [];
+        const duplicateContacts: string[] = [];
+
+        json.forEach((row, index) => {
+          if (!row.owner_1 || !row.owner_2) return; // Skip if required fields are missing
+
+          const streetNumberFromExcel = row.street_number?.toString().trim();
+          const streetNumber = streetNumberFromExcel || (availableStreetNumbers[index % availableStreetNumbers.length] || null);
+
+          // Check for duplicates based on owner_1, owner_2, street_number, street_name, and suburb
+          const isDuplicate = existingContacts.some(
+            (contact) =>
+              contact.owner_1?.toLowerCase() === row.owner_1?.toLowerCase() &&
+              contact.owner_2?.toLowerCase() === row.owner_2?.toLowerCase() &&
+              contact.street_number === streetNumber &&
+              contact.street_name === selectedStreet &&
+              contact.suburb === suburb
+          );
+
+          if (isDuplicate) {
+            duplicateContacts.push(`${row.owner_1} & ${row.owner_2} at ${streetNumber || 'N/A'} ${selectedStreet}`);
+            return;
+          }
+
+          validContacts.push({
+            owner_1: row.owner_1,
+            owner_2: row.owner_2,
+            owner_1_email: row.owner_1_email || '',
+            owner_2_email: row.owner_2_email || '',
+            phone_number: row.phone_number || '',
+            owner_1_mobile: row.owner_1_mobile || '',
+            owner_2_mobile: row.owner_2_mobile || '',
+            outcome: row.outcome || '',
+            street_name: selectedStreet,
+            street_number: streetNumber,
+            suburb,
+            status: row.status || '',
+            last_sold_date: row.last_sold_date,
+            price: row.price,
+          });
+        });
+
+        if (validContacts.length === 0) {
+          setContactError(
+            `No valid contacts to import. ${duplicateContacts.length > 0 ? `Found ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}` : 'Ensure columns include owner_1 and owner_2.'}`
+          );
+          setLoading(false);
+          return;
+        }
+
+        // Insert valid contacts
         const { data: importedData, error } = await supabase
           .from('contacts')
           .insert(validContacts)
           .select();
-          
+
         if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-        
+
+        // Update state with new contacts
         setStreetStats((prev) =>
           prev.map((street) =>
             street.street_name === selectedStreet
@@ -679,39 +748,25 @@ export function StreetSuggestions({
               : street
           )
         );
-        
+
         setAddedStreets((prev) => ({
           ...prev,
-          [selectedStreet!]: {
-            ...prev[selectedStreet!],
-            contacts: (prev[selectedStreet!]?.contacts || 0) + validContacts.length,
+          [selectedStreet]: {
+            ...prev[selectedStreet],
+            contacts: (prev[selectedStreet]?.contacts || 0) + validContacts.length,
           },
         }));
-        
-        setContactSuccess(`Successfully imported ${validContacts.length} contacts for ${selectedStreet}`);
-        setTimeout(() => setContactSuccess(null), 3000);
-        
-        setNewContact({
-          id: '',
-          owner_1: '',
-          owner_2: '',
-          owner_1_email: '',
-          owner_2_email: '',
-          phone_number: '',
-          owner_1_mobile: '',
-          owner_2_mobile: '',
-          outcome: '',
-          street_name: null,
-          street_number: null,
-          suburb: '',
-          status: '',
-          last_sold_date: null,
-          price: null,
-        });
-        
+
+        let successMessage = `Successfully imported ${validContacts.length} contacts for ${selectedStreet}.`;
+        if (duplicateContacts.length > 0) {
+          successMessage += ` Skipped ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}.`;
+        }
+        setContactSuccess(successMessage);
+        setTimeout(() => setContactSuccess(null), 5000);
+
         event.target.value = '';
       };
-      
+
       reader.readAsArrayBuffer(file);
     } catch (err: any) {
       setContactError(`Error importing contacts: ${err.message}`);
@@ -722,46 +777,121 @@ export function StreetSuggestions({
 
   const handleGlobalExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || !suburb) return;
-    
+
     setLoading(true);
     setContactError(null);
-    
+
     try {
+      // Fetch all existing contacts and street names for the suburb
+      const { data: existingContacts, error: contactError } = await supabase
+        .from('contacts')
+        .select('id, owner_1, owner_2, street_number, street_name, suburb')
+        .ilike('suburb', `%${suburb.toLowerCase().split(' qld')[0]}%`);
+
+      if (contactError) throw new Error(`Failed to fetch existing contacts: ${contactError.message}`);
+
+      const { data: propertiesData, error: propError } = await supabase
+        .from('properties')
+        .select('street_name, street_number')
+        .ilike('suburb', `%${suburb.toLowerCase().split(' qld')[0]}%`);
+
+      if (propError) throw new Error(`Failed to fetch street names: ${propError.message}`);
+
+      const availableStreetNames = [...new Set(propertiesData
+        .map((prop) => prop.street_name?.trim())
+        .filter((name): name is string => !!name))];
+
+      const streetNumberMap = new Map<string, string[]>();
+      propertiesData.forEach((prop) => {
+        if (prop.street_name && prop.street_number) {
+          const streetNumbers = streetNumberMap.get(prop.street_name) || [];
+          streetNumbers.push(prop.street_number);
+          streetNumberMap.set(prop.street_name, streetNumbers);
+        }
+      });
+
       const file = event.target.files[0];
       const reader = new FileReader();
-      
+
       reader.onload = async (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         let json = XLSX.utils.sheet_to_json(worksheet) as any[];
-        
-        if (json.length > 0) {
-          const firstRowKeys = Object.keys(json[0]);
-          const headerMap: { [key: string]: string } = {};
-          
-          firstRowKeys.forEach((origKey) => {
-            let normKey = normalizeKey(origKey);
-            if (normKey === 'owner1_email') normKey = 'owner_1_email';
-            if (normKey === 'owner2_email') normKey = 'owner_2_email';
-            if (normKey === 'own1_mob') normKey = 'owner_1_mobile';
-            if (normKey === 'own2_mob') normKey = 'owner_2_mobile';
-            if (normKey === 'street_no') normKey = 'street_number';
-            if (normKey === 'last_sold_date') normKey = 'last_sold_date';
-            headerMap[normKey] = origKey;
-          });
-          
-          json = json.map((row) => normalizeRow(row, headerMap));
+
+        if (json.length === 0) {
+          setContactError('No data found in the Excel file.');
+          setLoading(false);
+          return;
         }
-        
-        const validContacts: Omit<Contact, 'id'>[] = json
-          .filter(
-            (row) =>
-              row.owner_1 &&
-              row.owner_2
-          )
-          .map((row) => ({
+
+        // Normalize headers
+        const firstRowKeys = Object.keys(json[0]);
+        const headerMap: { [key: string]: string } = {};
+        firstRowKeys.forEach((origKey) => {
+          let normKey = normalizeKey(origKey);
+          if (normKey === 'owner1_email') normKey = 'owner_1_email';
+          if (normKey === 'owner2_email') normKey = 'owner_2_email';
+          if (normKey === 'own1_mob') normKey = 'owner_1_mobile';
+          if (normKey === 'own2_mob') normKey = 'owner_2_mobile';
+          if (normKey === 'street_no') normKey = 'street_number';
+          if (normKey === 'last_sold_date') normKey = 'last_sold_date';
+          headerMap[normKey] = origKey;
+        });
+
+        json = json.map((row) => normalizeRow(row, headerMap));
+
+        // Filter out duplicates and prepare valid contacts
+        const validContacts: Omit<Contact, 'id'>[] = [];
+        const duplicateContacts: string[] = [];
+        const unmatchedStreets: string[] = [];
+
+        json.forEach((row, index) => {
+          if (!row.owner_1 || !row.owner_2) return; // Skip if required fields are missing
+
+          let streetName = row.street_name ? row.street_name.trim() : '';
+          let streetNumber = row.street_number?.toString().trim() || null;
+
+          // Match street name
+          if (!streetName || !availableStreetNames.includes(streetName)) {
+            const matchedStreet = availableStreetNames.find(
+              (availableStreet) => availableStreet.toLowerCase().includes(streetName.toLowerCase()) ||
+                streetName.toLowerCase().includes(availableStreet.toLowerCase())
+            );
+            if (matchedStreet) {
+              streetName = matchedStreet;
+            } else if (availableStreetNames.length > 0) {
+              streetName = availableStreetNames[0];
+              unmatchedStreets.push(row.street_name || 'Unknown');
+            } else {
+              unmatchedStreets.push(row.street_name || 'Unknown');
+              return; // Skip if no streets available
+            }
+          }
+
+          // Assign street number if not provided
+          if (!streetNumber) {
+            const availableStreetNumbers = streetNumberMap.get(streetName) || [];
+            streetNumber = availableStreetNumbers[index % availableStreetNumbers.length] || null;
+          }
+
+          // Check for duplicates
+          const isDuplicate = existingContacts.some(
+            (contact) =>
+              contact.owner_1?.toLowerCase() === row.owner_1?.toLowerCase() &&
+              contact.owner_2?.toLowerCase() === row.owner_2?.toLowerCase() &&
+              contact.street_number === streetNumber &&
+              contact.street_name === streetName &&
+              contact.suburb === suburb
+          );
+
+          if (isDuplicate) {
+            duplicateContacts.push(`${row.owner_1} & ${row.owner_2} at ${streetNumber || 'N/A'} ${streetName}`);
+            return;
+          }
+
+          validContacts.push({
             owner_1: row.owner_1,
             owner_2: row.owner_2,
             owner_1_email: row.owner_1_email || '',
@@ -770,36 +900,53 @@ export function StreetSuggestions({
             owner_1_mobile: row.owner_1_mobile || '',
             owner_2_mobile: row.owner_2_mobile || '',
             outcome: row.outcome || '',
-            street_name: row.street_name ? row.street_name.trim() : '',
-            street_number: row.street_number || null,
+            street_name: streetName,
+            street_number: streetNumber,
             suburb: row.suburb || suburb,
             status: row.status || '',
             last_sold_date: row.last_sold_date,
             price: row.price,
-          }));
-          
+          });
+        });
+
         if (validContacts.length === 0) {
-          setContactError('No valid contacts found in the Excel file. Ensure columns include owner_1 and owner_2.');
+          let errorMessage = 'No valid contacts to import. Ensure columns include owner_1 and owner_2.';
+          if (duplicateContacts.length > 0) {
+            errorMessage += ` Found ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}.`;
+          }
+          if (unmatchedStreets.length > 0) {
+            errorMessage += ` Unmatched street names: ${[...new Set(unmatchedStreets)].join(', ')}.`;
+          }
+          setContactError(errorMessage);
           setLoading(false);
           return;
         }
-        
+
+        // Insert valid contacts
         const { data: importedData, error } = await supabase
           .from('contacts')
           .insert(validContacts)
           .select();
-          
+
         if (error) throw new Error(`Failed to import contacts: ${error.message}`);
-        
+
+        // Refresh data to update UI
         await fetchData();
-        
-        setContactSuccess(`Successfully imported ${validContacts.length} contacts across all streets`);
-        setTimeout(() => setContactSuccess(null), 3000);
-        
+
+        let successMessage = `Successfully imported ${validContacts.length} contacts across all streets.`;
+        if (duplicateContacts.length > 0) {
+          successMessage += ` Skipped ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}.`;
+        }
+        if (unmatchedStreets.length > 0) {
+          successMessage += ` Assigned ${unmatchedStreets.length} unmatched streets to ${availableStreetNames[0] || 'Unknown'}.`;
+        }
+        setContactSuccess(successMessage);
+        setTimeout(() => setContactSuccess(null), 5000);
+
         event.target.value = '';
         setIsGlobalImportOpen(false);
       };
-      
+
       reader.readAsArrayBuffer(file);
     } catch (err: any) {
       setContactError(`Error importing contacts: ${err.message}`);

@@ -25,6 +25,7 @@ import { ProgressReportPage } from './pages/ProgressReportPage';
 import { PropertyReportPage } from './pages/PropertyReportPage';
 import CommissionByAgency from './pages/CommissionByAgency';
 import Comparisons from './pages/Comparisons';
+import { VaultToDoList } from './pages/VaultToDoList';
 import AdminCommissionByAgency from './pages/AdminCommissionByAgency';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminDashboard } from './pages/AdminDashboard';
@@ -140,6 +141,7 @@ const routes = [
   { path: '/enquiryjob', element: <Enquiryjob /> },
   {path: '/emi-calculator', element: <EMIPlanCalculator />},
   {path: '/nurturing-list', element: <NurturingList />},
+  { path: '/vault-to-do-list', element: <VaultToDoList /> },
   // { path: '/enquiry-form', element: <EnquiryForm />},
   { path: '/enquiry-form', element: <EnquiryForm /> }, // Uncommented and fixed
   {

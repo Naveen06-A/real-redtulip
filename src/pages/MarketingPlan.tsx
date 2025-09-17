@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { Loader2, Plus, Trash2, Phone, DoorClosed, Eye } from 'lucide-react';
@@ -1177,6 +1176,18 @@ export function MarketingPlanPage() {
                   </svg>
                 )}
                 {isSaving ? 'Saving...' : 'Save Marketing Plan'}
+              </motion.button>
+              <motion.button
+                onClick={() => navigate('/vault-to-do-list')}
+                className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-full hover:from-purple-700 hover:to-purple-800 transition-all shadow-md"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                title="View to-do list"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                View To-Do List
               </motion.button>
               <motion.button
                 onClick={() => navigate('/progress-report')}

@@ -1,22 +1,22 @@
 import { motion } from 'framer-motion';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { Download, Eye, Save, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HarcourtsLogo from './assets/Harcourts_Success_LogoSet_Stacked_BLUE_080724.png';
-interface Revenue {
+import { generatePLPDFBlob, generateAmortizationPDFBlob, generateCompletePDFBlob } from './PDFGenerator'; // Import from separate file
+
+ export interface Revenue {
   name: string;
   amount: number;
   period: 'monthly' | 'yearly';
 }
 
-interface Expense {
+ export interface Expense {
   name: string;
   amount: number;
   period: 'monthly' | 'yearly';
 }
 
-interface EMIPlan {
+export interface EMIPlan {
   typeOfLoan: string;
   customLoanType: string;
   loanTenure: number;
@@ -34,7 +34,7 @@ interface EMIPlan {
   gstPercentage?: number;
 }
 
-interface PeriodData {
+export interface PeriodData {
   period: number;
   revenue: number;
   expenses: number;
@@ -47,7 +47,7 @@ interface PeriodData {
   pl: number;
 }
 
-interface Calculations {
+export interface Calculations {
   bankYear1Principal: number;
   bankYear1Interest: number;
   bankYear1Total: number;
@@ -76,7 +76,6 @@ const formatNumberInput = (value: number): string => {
 const parseNumberInput = (value: string): number => {
   if (value === '') return 0;
   const cleaned = value.replace(/[^\d.]/g, '');
-  // Allow only one decimal point
   const parts = cleaned.split('.');
   if (parts.length > 2) {
     return parseFloat(parts[0] + '.' + parts.slice(1).join(''));
@@ -93,7 +92,7 @@ const CurrencyInput: React.FC<{
   step?: string;
   disabled?: boolean;
 }> = ({ value, onChange, placeholder, className, min, step, disabled }) => {
-  const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
+  const [displayValue, setDisplayValue] = useState<string>(formatNumberInput(value));
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -162,22 +161,27 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const loanTenureMonths = plan.loanTenure * 12;
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
+
   const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
     const amount = rev.period === 'yearly' ? rev.amount : rev.amount * 12;
     return sum + amount;
   }, 0) + (plan.rentalRevenue || 0);
+
   const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
     const amount = rev.period === 'monthly' ? rev.amount : rev.amount / 12;
     return sum + amount;
   }, 0) + ((plan.rentalRevenue || 0) / 12);
+
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
     const amount = expense.period === 'yearly' ? expense.amount : expense.amount * 12;
     return sum + amount;
   }, 0);
+
   const monthlyExpenses = plan.expenses.reduce((sum, expense) => {
     const amount = expense.period === 'monthly' ? expense.amount : expense.amount / 12;
     return sum + amount;
   }, 0);
+
   let remainingBank = bankLoanAmount;
   let remainingOwn = ownFunds;
   let currentMonth = 1;
@@ -206,6 +210,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       remainingBank = Math.max(remainingBank, 0);
       totalBankInterest += interestBank;
     }
+
     let interestOwn = 0;
     let principalOwn = 0;
     if (currentMonth <= ownTenureMonths) {
@@ -215,11 +220,13 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       remainingOwn = Math.max(remainingOwn, 0);
       totalOwnInterest += interestOwn;
     }
+
     yearInterestBank += interestBank;
     yearPrincipalBank += principalBank;
     yearInterestOwn += interestOwn;
     yearPrincipalOwn += principalOwn;
     yearTotalRepayment += (interestBank + principalBank) + (interestOwn + principalOwn);
+
     const monthlyRepayment = (principalBank + interestBank) + (principalOwn + interestOwn);
     monthlyAvg.push({
       period: currentMonth,
@@ -233,27 +240,29 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       loanInterest: interestBank,
       pl: monthlyRevenue - (monthlyExpenses + monthlyRepayment),
     });
+
     if (currentMonth % 12 === 0 || currentMonth === maxMonths) {
       const monthsInYear = currentMonth % 12 === 0 ? 12 : currentMonth % 12;
-      const totalInterestOverTerm = (totalBankInterest + totalOwnInterest) / Math.max(plan.loanTenure, plan.ownTenure);
       yearlyAvg.push({
         period: currentYear,
         revenue: yearlyRevenue,
         expenses: yearlyExpenses,
         ownAmount: ownFunds,
-        ownRepayment: (yearPrincipalOwn + yearInterestOwn) * monthsInYear,
+        ownRepayment: yearPrincipalOwn + yearInterestOwn,
         loanAmount: bankLoanAmount,
-        loanRepayment: (yearPrincipalBank + yearInterestBank) * monthsInYear,
+        loanRepayment: yearPrincipalBank + yearInterestBank,
         ownInterest: yearInterestOwn,
         loanInterest: yearInterestBank,
-        pl: yearlyRevenue - (yearTotalRepayment + totalInterestOverTerm + yearlyExpenses),
+        pl: yearlyRevenue - (yearTotalRepayment + yearlyExpenses),
       });
+
       if (currentYear === 1) {
         bankYear1Principal = yearPrincipalBank;
         bankYear1Interest = yearInterestBank;
         ownYear1Principal = yearPrincipalOwn;
         ownYear1Interest = yearInterestOwn;
       }
+
       yearPrincipalBank = 0;
       yearInterestBank = 0;
       yearPrincipalOwn = 0;
@@ -263,6 +272,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     }
     currentMonth++;
   }
+
   return {
     bankYear1Principal,
     bankYear1Interest,
@@ -359,8 +369,9 @@ export function EMIPlanCalculator() {
     const saved = localStorage.getItem('emiPlans');
     return saved ? JSON.parse(saved) : [];
   });
-  const [showAmortizationTable, setShowAmortizationTable] = useState(false);
+  const [showAmortizationTable, setShowAmortizationTable] = useState<boolean>(false);
   const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
+
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
 
   const handleInputChange = useCallback(
@@ -382,7 +393,7 @@ export function EMIPlanCalculator() {
           const rentalRevenue = field === 'rentalRevenue' ? newValue : (prev.rentalRevenue || 0);
           const perDollarValue = field === 'perDollarValue' ? newValue : (prev.perDollarValue || 0);
           const rentRollPurchaseValue = Math.round(rentalRevenue * perDollarValue * 100) / 100;
-          
+
           updatedPlan = {
             ...prev,
             [field]: newValue,
@@ -556,7 +567,19 @@ export function EMIPlanCalculator() {
     const ownMonthlyPrincipal = ownAmount / (emiPlan.ownTenure * 12);
     let ownRemainingPrincipal = ownAmount;
     const maxMonths = Math.max(emiPlan.loanTenure * 12, emiPlan.ownTenure * 12);
-    const schedule = [];
+    const schedule: Array<{
+      month: number;
+      bankBeginningPrincipal: number;
+      bankMonthlyPrincipal: number;
+      bankMonthlyInterest: number;
+      bankTotalEMI: number;
+      bankEndingPrincipal: number;
+      ownBeginningPrincipal: number;
+      ownMonthlyPrincipal: number;
+      ownMonthlyInterest: number;
+      ownTotalEMI: number;
+      ownEndingPrincipal: number;
+    }> = [];
 
     for (let month = 1; month <= maxMonths; month++) {
       let bankMonthlyInterest = 0;
@@ -567,6 +590,7 @@ export function EMIPlanCalculator() {
         bankRemainingPrincipal -= bankMonthlyPrincipal;
         if (bankRemainingPrincipal < 0) bankRemainingPrincipal = 0;
       }
+
       let ownMonthlyInterest = 0;
       let ownTotalEMI = 0;
       if (month <= emiPlan.ownTenure * 12) {
@@ -575,6 +599,7 @@ export function EMIPlanCalculator() {
         ownRemainingPrincipal -= ownMonthlyPrincipal;
         if (ownRemainingPrincipal < 0) ownRemainingPrincipal = 0;
       }
+
       schedule.push({
         month,
         bankBeginningPrincipal: bankRemainingPrincipal + bankMonthlyPrincipal,
@@ -591,288 +616,31 @@ export function EMIPlanCalculator() {
     }
     return schedule;
   }, [emiPlan]);
-  
 
-  const generatePLPDFBlob = useCallback(() => {
-    const validationError = validateInputs(emiPlan);
-    if (validationError) {
-      setError(validationError);
-      return null;
-    }
-    const doc = new jsPDF();
-    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
-    doc.rect(5, 5, doc.internal.pageSize.width - 10, doc.internal.pageSize.height - 10);
-    doc.setFontSize(20);
-    doc.setTextColor(0, 0, 139);
-    doc.text('Harcourts', 105, 15, { align: 'center' });
-    doc.setDrawColor(0, 191, 255);
-    doc.setLineWidth(0.5);
-    doc.line(90, 17, 120, 17);
-    doc.setTextColor(0, 191, 255);
-    doc.text('Success', 105, 25, { align: 'center' });
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Profit/Loss Overview Report', 105, 35, { align: 'center' });
-    doc.setFontSize(8);
-    const loanData = [
-      ['Type', planName],
-      ['Tenure (Yrs)', emiPlan.loanTenure.toString()],
-      ['Amount', formatCurrency(emiPlan.loanAmount)],
-      ['Int. Rate', `${emiPlan.interestPerAnnum}%`],
-      ['Bank %', `${emiPlan.bankPercent}%`],
-      ['Own %', `${emiPlan.ownPercent}%`],
-      ['Own Tenure', emiPlan.ownTenure.toString()],
-      ['Own Int.', `${emiPlan.ownFundsInterestRate}%`],
-      ['GST %', `${emiPlan.gstPercentage || 0}%`],
-      ['Rent Rev.', formatCurrency(emiPlan.rentalRevenue || 0)],
-      ['Per $', formatCurrency(emiPlan.perDollarValue || 0)],
-      ['Rent Value', formatCurrency(emiPlan.rentRollPurchaseValue || 0)],
-    ];
-    autoTable(doc, {
-      startY: 50,
-      head: [['Detail', 'Value']],
-      body: loanData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 160 },
-      },
-    });
-    const plStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 5 : 120;
-    const plData = calculations.yearlyAvg.slice(0, 5).map((entry) => [
-      entry.period.toString(),
-      formatCurrency(entry.revenue),
-      formatCurrency(entry.expenses),
-      formatCurrency(entry.ownAmount),
-      formatCurrency(entry.ownRepayment),
-      formatCurrency(entry.loanAmount),
-      formatCurrency(entry.loanRepayment),
-      formatCurrency(entry.ownInterest),
-      formatCurrency(entry.loanInterest),
-      formatCurrency(entry.pl),
-    ]);
-    autoTable(doc, {
-      startY: plStartY,
-      head: [['YR', 'Rev ($)', 'Exp ($)', 'Own Amt ($)', 'Own Pay ($)', 'Loan Amt ($)', 'Loan Pay ($)', 'Own Int ($)', 'Loan Int ($)', 'P/L ($)']],
-      body: plData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 5, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 5, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
-      columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 20 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 20 },
-        4: { cellWidth: 20 },
-        5: { cellWidth: 20 },
-        6: { cellWidth: 20 },
-        7: { cellWidth: 20 },
-        8: { cellWidth: 20 },
-        9: { cellWidth: 20 },
-      },
-    });
-    return doc.output('blob');
-  }, [emiPlan, calculations]);
+  const generatePLPDFBlobLocal = useCallback(() => generatePLPDFBlob(emiPlan, calculations), [emiPlan, calculations]);
+const generateAmortizationPDFBlobLocal = useCallback(() => generateAmortizationPDFBlob(emiPlan, amortizationSchedule), [emiPlan, amortizationSchedule]);
+const generateCompletePDFBlobLocal = useCallback(() => generateCompletePDFBlob(emiPlan, calculations), [emiPlan, calculations]);
 
-  const generateAmortizationPDFBlob = useCallback(() => {
-    const validationError = validateInputs(emiPlan);
-    if (validationError) {
-      setError(validationError);
-      return null;
-    }
-    const doc = new jsPDF();
-    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
-    doc.rect(5, 5, doc.internal.pageSize.width - 10, doc.internal.pageSize.height - 10);
-    doc.setFontSize(20);
-    doc.setTextColor(0, 0, 139);
-    doc.text('Harcourts', 105, 15, { align: 'center' });
-    doc.setDrawColor(0, 191, 255);
-    doc.setLineWidth(0.5);
-    doc.line(90, 17, 120, 17);
-    doc.setTextColor(0, 191, 255);
-    doc.text('Success', 105, 25, { align: 'center' });
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Amortization Schedule Report', 105, 35, { align: 'center' });
-    doc.setFontSize(8);
-    const amortizationData = amortizationSchedule.slice(0, 10).map((entry) => [
-      entry.month.toString(),
-      formatCurrency(entry.bankBeginningPrincipal),
-      formatCurrency(entry.bankMonthlyPrincipal),
-      formatCurrency(entry.bankMonthlyInterest),
-      formatCurrency(entry.bankTotalEMI),
-      formatCurrency(entry.bankEndingPrincipal),
-      formatCurrency(entry.ownBeginningPrincipal),
-      formatCurrency(entry.ownMonthlyPrincipal),
-      formatCurrency(entry.ownMonthlyInterest),
-      formatCurrency(entry.ownTotalEMI),
-      formatCurrency(entry.ownEndingPrincipal),
-    ]);
-    autoTable(doc, {
-      startY: 50,
-      head: [['Month', 'Bank Start ($)', 'Bank Prin ($)', 'Bank Int ($)', 'Bank Total ($)', 'Bank End ($)', 'Own Start ($)', 'Own Prin ($)', 'Own Int ($)', 'Own Total ($)', 'Own End ($)']],
-      body: amortizationData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 5, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 5, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
-      columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 18 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 18 },
-        5: { cellWidth: 18 },
-        6: { cellWidth: 18 },
-        7: { cellWidth: 18 },
-        8: { cellWidth: 18 },
-        9: { cellWidth: 18 },
-        10: { cellWidth: 18 },
-      },
-    });
-    return doc.output('blob');
-  }, [emiPlan, amortizationSchedule]);
-
-  const generateCompletePDFBlob = useCallback(() => {
-    const validationError = validateInputs(emiPlan);
-    if (validationError) {
-      setError(validationError);
-      return null;
-    }
-    const doc = new jsPDF();
-    const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
-    doc.rect(5, 5, doc.internal.pageSize.width - 10, doc.internal.pageSize.height - 10);
-    doc.setFontSize(20);
-    doc.setTextColor(0, 0, 139);
-    doc.text('Harcourts', 105, 15, { align: 'center' });
-    doc.setDrawColor(0, 191, 255);
-    doc.setLineWidth(0.5);
-    doc.line(90, 17, 120, 17);
-    doc.setTextColor(0, 191, 255);
-    doc.text('Success', 105, 25, { align: 'center' });
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Complete EMI Plan Report', 105, 35, { align: 'center' });
-    doc.setFontSize(8);
-   
-    const loanData = [
-      ['Type', planName],
-      ['Tenure (Yrs)', emiPlan.loanTenure.toString()],
-      ['Amount', formatCurrency(emiPlan.loanAmount)],
-      ['Int. Rate', `${emiPlan.interestPerAnnum}%`],
-      ['Bank %', `${emiPlan.bankPercent}%`],
-      ['Own %', `${emiPlan.ownPercent}%`],
-      ['Own Tenure', emiPlan.ownTenure.toString()],
-      ['Own Int.', `${emiPlan.ownFundsInterestRate}%`],
-      ['GST %', `${emiPlan.gstPercentage || 0}%`],
-      ['Rent Rev.', formatCurrency(emiPlan.rentalRevenue || 0)],
-      ['Per $', formatCurrency(emiPlan.perDollarValue || 0)],
-      ['Rent Value', formatCurrency(emiPlan.rentRollPurchaseValue || 0)],
-    ];
-    autoTable(doc, {
-      startY: 50,
-      head: [['Detail', 'Value']],
-      body: loanData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 110 },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 60 },
-      },
-    });
-    const revenuesStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 5 : 120;
-    const revenuesData = emiPlan.revenues.map((rev) => [rev.name, formatCurrency(rev.amount), rev.period]);
-    autoTable(doc, {
-      startY: revenuesStartY,
-      head: [['Name', 'Amount', 'Period']],
-      body: revenuesData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 110 },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 40 },
-        2: { cellWidth: 20 },
-      },
-    });
-    const expensesStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 5 : revenuesStartY + 30;
-    const expensesData = emiPlan.expenses.map((exp) => [exp.name, formatCurrency(exp.amount), exp.period]);
-    autoTable(doc, {
-      startY: expensesStartY,
-      head: [['Name', 'Amount', 'Period']],
-      body: expensesData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 6, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 110 },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 40 },
-        2: { cellWidth: 20 },
-      },
-    });
-    const plStartY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 5 : 120;
-    const plData = calculations.yearlyAvg.slice(0, 5).map((entry) => [
-      entry.period.toString(),
-      formatCurrency(entry.revenue),
-      formatCurrency(entry.expenses),
-      formatCurrency(entry.ownAmount),
-      formatCurrency(entry.ownRepayment),
-      formatCurrency(entry.loanAmount),
-      formatCurrency(entry.loanRepayment),
-      formatCurrency(entry.ownInterest),
-      formatCurrency(entry.loanInterest),
-      formatCurrency(entry.pl),
-    ]);
-    autoTable(doc, {
-      startY: plStartY,
-      head: [['YR', 'Rev ($)', 'Exp ($)', 'Own Amt ($)', 'Own Pay ($)', 'Loan Amt ($)', 'Loan Pay ($)', 'Own Int ($)', 'Loan Int ($)', 'P/L ($)']],
-      body: plData,
-      theme: 'grid',
-      headStyles: { fillColor: [0, 0, 139], fontSize: 5, halign: 'center', lineWidth: 0.1 },
-      bodyStyles: { fontSize: 5, halign: 'center', lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
-      columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 14 },
-        2: { cellWidth: 14 },
-        3: { cellWidth: 14 },
-        4: { cellWidth: 14 },
-        5: { cellWidth: 14 },
-        6: { cellWidth: 14 },
-        7: { cellWidth: 14 },
-        8: { cellWidth: 14 },
-        9: { cellWidth: 14 },
-      },
-    });
-    return doc.output('blob');
-  }, [emiPlan, calculations]);
-
-  const viewPLPDF = useCallback(() => {
-    const blob = generatePLPDFBlob();
-    if (blob) {
+const viewPLPDF = useCallback(async () => {
+  try {
+    const blob = await generatePLPDFBlobLocal();
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
       URL.revokeObjectURL(url);
+    } else {
+      throw new Error('Generated P/L PDF is not a valid Blob');
     }
-  }, [generatePLPDFBlob]);
+  } catch (error) {
+    console.error('Error generating P/L PDF:', error);
+    setError('Failed to generate P/L PDF');
+  }
+}, [generatePLPDFBlobLocal]);
 
-  const downloadPLPDF = useCallback(() => {
-    const blob = generatePLPDFBlob();
-    if (blob) {
+const downloadPLPDF = useCallback(async () => {
+  try {
+    const blob = await generatePLPDFBlobLocal();
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -881,21 +649,35 @@ export function EMIPlanCalculator() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    } else {
+      throw new Error('Generated P/L PDF is not a valid Blob');
     }
-  }, [generatePLPDFBlob]);
+  } catch (error) {
+    console.error('Error downloading P/L PDF:', error);
+    setError('Failed to download P/L PDF');
+  }
+}, [generatePLPDFBlobLocal]);
 
-  const viewAmortizationPDF = useCallback(() => {
-    const blob = generateAmortizationPDFBlob();
-    if (blob) {
+const viewAmortizationPDF = useCallback(async () => {
+  try {
+    const blob = await generateAmortizationPDFBlobLocal();
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
       URL.revokeObjectURL(url);
+    } else {
+      throw new Error('Generated Amortization PDF is not a valid Blob');
     }
-  }, [generateAmortizationPDFBlob]);
+  } catch (error) {
+    console.error('Error generating Amortization PDF:', error);
+    setError('Failed to generate Amortization PDF');
+  }
+}, [generateAmortizationPDFBlobLocal]);
 
-  const downloadAmortizationPDF = useCallback(() => {
-    const blob = generateAmortizationPDFBlob();
-    if (blob) {
+const downloadAmortizationPDF = useCallback(async () => {
+  try {
+    const blob = await generateAmortizationPDFBlobLocal();
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -904,21 +686,35 @@ export function EMIPlanCalculator() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    } else {
+      throw new Error('Generated Amortization PDF is not a valid Blob');
     }
-  }, [generateAmortizationPDFBlob]);
+  } catch (error) {
+    console.error('Error downloading Amortization PDF:', error);
+    setError('Failed to download Amortization PDF');
+  }
+}, [generateAmortizationPDFBlobLocal]);
 
-  const viewCompletePDF = useCallback(() => {
-    const blob = generateCompletePDFBlob();
-    if (blob) {
+const viewCompletePDF = useCallback(async () => {
+  try {
+    const blob = await generateCompletePDFBlobLocal();
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
       URL.revokeObjectURL(url);
+    } else {
+      throw new Error('Generated Complete PDF is not a valid Blob');
     }
-  }, [generateCompletePDFBlob]);
+  } catch (error) {
+    console.error('Error generating Complete PDF:', error);
+    setError('Failed to generate Complete PDF');
+  }
+}, [generateCompletePDFBlobLocal]);
 
-  const downloadCompletePDF = useCallback(() => {
-    const blob = generateCompletePDFBlob();
-    if (blob) {
+const downloadCompletePDF = useCallback(async () => {
+  try {
+    const blob = await generateCompletePDFBlobLocal();
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -927,10 +723,15 @@ export function EMIPlanCalculator() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    } else {
+      throw new Error('Generated Complete PDF is not a valid Blob');
     }
-  }, [generateCompletePDFBlob]);
-
-  const loanTypeOptions = [
+  } catch (error) {
+    console.error('Error downloading Complete PDF:', error);
+    setError('Failed to download Complete PDF');
+  }
+}, [generateCompletePDFBlobLocal]);
+  const loanTypeOptions: string[] = [
     'Business Loan',
     'Vehicle Loan',
     'Electronics Loan',
@@ -1528,10 +1329,8 @@ export function EMIPlanCalculator() {
                 </div>
               </div>
             </div>
-            {/* Profit/Loss Summary */}
             <div className="mb-8 bg-white p-4 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-3 bg-blue-200">Profit/Loss Summary</h3>
-             
               <div className="overflow-x-auto">
                 <table className="min-w-full">
                   <thead>
@@ -1545,21 +1344,18 @@ export function EMIPlanCalculator() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {calculations.yearlyAvg.map((year, index) => {
-                      const totalInterestOverTerm = (calculations.totalBankInterest + calculations.totalOwnInterest) / Math.max(emiPlan.loanTenure, emiPlan.ownTenure);
-                      return (
-                        <tr key={index}>
-                          <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.revenue)}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.expenses)}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanRepayment + year.ownRepayment)}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(totalInterestOverTerm)}</td>
-                          <td className={`px-4 py-2 text-sm font-medium ${year.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatCurrency(year.pl)}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {calculations.yearlyAvg.map((year, index) => (
+                      <tr key={index}>
+                        <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.revenue)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.expenses)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanRepayment + year.ownRepayment)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.ownInterest + year.loanInterest)}</td>
+                        <td className={`px-4 py-2 text-sm font-medium ${year.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(year.pl)}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

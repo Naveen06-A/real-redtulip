@@ -24,89 +24,103 @@ const formatCurrency = (value: number): string => {
   }).format(value);
 };
 
+// Helper function to create the Harcourts Success header
+const createHeader = (doc: jsPDF, pageWidth: number, margin: number, title: string) => {
+  // Draw the H with a thin light blue line underneath
+  doc.setFontSize(24);
+  doc.setTextColor(0, 0, 139); // Dark blue for H
+  doc.text('H', pageWidth / 2 - 22, margin + 12, { align: 'center' });
+  
+  // Thin light blue line under H
+  doc.setDrawColor(173, 216, 230); // Light blue
+  doc.setLineWidth(0.5);
+  doc.line(pageWidth / 2 - 25, margin + 14, pageWidth / 2 - 19, margin + 14);
+  
+  // Harcourts in blue
+  doc.setTextColor(0, 0, 139); // Blue color
+  doc.setFontSize(18);
+  doc.text('ARCOURTS', pageWidth / 2+9, margin + 12, { align: 'center' });
+  
+  // Success in light blue
+  doc.setTextColor(173, 216, 230); // Light blue color
+  doc.setFontSize(14);
+  doc.text('SUCCESS', pageWidth / 2+10, margin + 20, { align: 'right' });
+  
+  // Report title
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(10);
+  doc.text(title, pageWidth / 2, margin + 28, { align: 'center' });
+};
+
 export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations): Promise<Blob> => {
   return new Promise((resolve) => {
     const doc = new jsPDF({
-      orientation: 'landscape',
+      orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
+      compress: true
     });
 
-    const pageWidth = doc.internal.pageSize.getWidth(); // 297mm
-    const pageHeight = doc.internal.pageSize.getHeight(); // 210mm
-    const margin = 6;
+    doc.internal.scaleFactor = 1.78;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
     const contentWidth = pageWidth - 2 * margin;
 
     // Set background and border
-    doc.setFillColor(245, 245, 250);
+    doc.setFillColor(240, 245, 255);
     doc.rect(0, 0, pageWidth, pageHeight, 'F');
-    doc.setDrawColor(0, 51, 102);
-    doc.setLineWidth(0.2);
+    doc.setDrawColor(0, 0, 139);
+    doc.setLineWidth(0.5);
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin);
 
-    // Header
-    doc.setFontSize(12);
-    doc.setTextColor(0, 51, 102);
-    doc.text('HARCOURTS', pageWidth / 2, margin + 4, { align: 'center' });
-    doc.setDrawColor(0, 153, 204);
-    doc.setLineWidth(0.2);
-    doc.line(pageWidth / 2 - 6, margin + 5, pageWidth / 2 + 6, margin + 5);
-    doc.setTextColor(0, 153, 204);
-    doc.setFontSize(9);
-    doc.text('SUCCESS', pageWidth / 2, margin + 9, { align: 'center' });
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(7);
-    doc.text('Profit/Loss Overview Report', pageWidth / 2, margin + 13, { align: 'center' });
+    // Header with new Harcourts Success branding
+    createHeader(doc, pageWidth, margin, 'Profit/Loss Overview Report');
 
     // Plan details
-    doc.setFontSize(6);
-    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
     const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    doc.text(`Plan: ${planName}`, margin + 1, margin + 17);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin - 1, margin + 17, { align: 'right' });
+    doc.text(`Plan: ${planName}`, margin + 4, margin + 34);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin - 4, margin + 34, { align: 'right' });
 
-    let currentY = margin + 20;
-
-    // Loan details table (redesigned as single-column key-value pairs)
+    // Loan details table
     const loanData = [
-      ['Loan Type', planName],
-      ['Tenure (Years)', emiPlan.loanTenure.toString()],
-      ['Loan Amount', formatCurrency(emiPlan.loanAmount)],
-      ['Interest Rate', `${emiPlan.interestPerAnnum}%`],
-      ['Bank Contribution', `${emiPlan.bankPercent}%`],
+      ['Type', planName],
+      ['Tenure (Yrs)', emiPlan.loanTenure.toString()],
+      ['Amount', formatCurrency(emiPlan.loanAmount)],
+      ['Int. Rate', `${emiPlan.interestPerAnnum}%`],
+      ['Bank %', `${emiPlan.bankPercent}%`],
+      ['Own %', `${emiPlan.ownPercent}%`],
+      ['Own Tenure', emiPlan.ownTenure.toString()],
+      ['Own Int.', `${emiPlan.ownFundsInterestRate}%`],
+      ['GST %', `${emiPlan.gstPercentage || 0}%`],
     ];
 
     autoTable(doc, {
-      startY: currentY,
-      head: [['Loan Details']],
+      startY: margin + 40,
+      head: [['Loan Details', 'Values']],
       body: loanData,
-      theme: 'striped',
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
-        fontSize: 7,
-        halign: 'left',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontSize: 8,
+        halign: 'center',
+        fontStyle: 'bold'
       },
       bodyStyles: {
-        fontSize: 6,
-        halign: 'left',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
-        fillColor: [230, 240, 255],
+        fontSize: 7,
+        halign: 'center',
+        cellPadding: 1.5,
       },
-      alternateRowStyles: {
-        fillColor: [255, 255, 255],
-      },
-      margin: { left: margin, right: pageWidth / 2 + margin / 2 },
-      tableWidth: contentWidth / 2 - margin / 2,
-      pageBreak: 'avoid',
+      margin: { left: margin + 2, right: pageWidth / 2 + 2 },
+      tableWidth: contentWidth / 2 - 4,
       columnStyles: {
-        0: { cellWidth: 20 },
-        1: { cellWidth: 20 },
+        0: { cellWidth: 25, fontStyle: 'bold' },
+        1: { cellWidth: 25 },
       },
     });
-
-    const loanTableFinalY = (doc as any).lastAutoTable.finalY;
 
     // Revenue & Expenses table
     const revenueExpenseData = [
@@ -115,40 +129,39 @@ export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations):
     ];
 
     autoTable(doc, {
-      startY: currentY,
+      startY: margin + 40,
       head: [['Name', 'Amount', 'Period', 'Type']],
-      body: revenueExpenseData.slice(0, 3),
-      theme: 'striped',
+      body: revenueExpenseData,
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
-        fontSize: 7,
+        fontSize: 8,
         halign: 'center',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontStyle: 'bold'
       },
       bodyStyles: {
-        fontSize: 6,
+        fontSize: 7,
         halign: 'center',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
+        cellPadding: 1.5,
       },
-      margin: { left: pageWidth / 2 + margin / 2, right: margin },
-      tableWidth: contentWidth / 2 - margin / 2,
-      pageBreak: 'avoid',
+      margin: { left: pageWidth / 2 + 2, right: margin + 2 },
+      tableWidth: contentWidth / 2 - 4,
       columnStyles: {
-        0: { cellWidth: 12 },
-        1: { cellWidth: 14 },
-        2: { cellWidth: 9 },
-        3: { cellWidth: 9 },
+        0: { cellWidth: 25 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 15 },
       },
     });
 
-    const revExpTableFinalY = (doc as any).lastAutoTable.finalY;
-
-    currentY = Math.max(loanTableFinalY, revExpTableFinalY) + 5;
-
-    // P/L data table
-    const plData = calculations.yearlyAvg.slice(0, 2).map(entry => [
-      `Year ${entry.period}`,
+    // P/L data table - Add table name above
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Profit/Loss Yearly Summary', margin + 4, margin + 140);
+    
+    const plData = calculations.yearlyAvg.map(entry => [
+      entry.period.toString(),
       formatCurrency(entry.revenue),
       formatCurrency(entry.expenses),
       formatCurrency(entry.ownAmount),
@@ -161,69 +174,60 @@ export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations):
       entry.pl >= 0 ? 'Profit' : 'Loss',
     ]);
 
-    const totalPL = calculations.yearlyAvg.reduce((sum, entry) => sum + entry.pl, 0);
-    plData.push([
-      'Total', '', '', '', '', '', '', '', '', formatCurrency(totalPL), totalPL >= 0 ? 'Profit' : 'Loss'
-    ]);
-
     autoTable(doc, {
-      startY: currentY,
-      head: [['Period', 'Revenue', 'Exp', 'Own Amt', 'Own Pay', 'Loan Amt', 'Loan Pay', 'Own Int', 'Loan Int', 'P/L', 'Status']],
+      startY: margin + 145,
+      head: [['YR', 'Rev', 'Exps', 'Own Amt', 'Own Pay', 'Loan Amt', 'Loan Pay', 'Own Int', 'Loan Int', 'P/L', 'Sta']],
       body: plData,
-      theme: 'striped',
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
         fontSize: 7,
         halign: 'center',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontStyle: 'bold'
       },
       bodyStyles: {
-        fontSize: 6,
+        fontSize: 5,
         halign: 'center',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
+        cellPadding: 0.8,
       },
       margin: { left: margin, right: margin },
       tableWidth: contentWidth,
-      pageBreak: 'avoid',
       columnStyles: {
-        0: { cellWidth: 12 },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 18 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 18 },
-        5: { cellWidth: 18 },
-        6: { cellWidth: 18 },
-        7: { cellWidth: 18 },
-        8: { cellWidth: 18 },
-        9: { cellWidth: 20 },
+        0: { cellWidth: 8 },
+        1: { cellWidth: 16.5, overflow: 'linebreak' },
+        2: { cellWidth: 16.5, overflow: 'linebreak' },
+        3: { cellWidth: 16.5, overflow: 'linebreak' },
+        4: { cellWidth: 16.5, overflow: 'linebreak' },
+        5: { cellWidth: 16.5, overflow: 'linebreak' },
+        6: { cellWidth: 16.5, overflow: 'linebreak' },
+        7: { cellWidth: 16.5, overflow: 'linebreak' },
+        8: { cellWidth: 16.5, overflow: 'linebreak' },
+        9: { cellWidth: 16.5, overflow: 'linebreak' },
         10: { cellWidth: 12 },
       },
-      didDrawCell: (data) => {
-        if (data.section === 'body' && (data.column.index === 9 || data.column.index === 10)) {
-          const cellValue = data.cell.raw as string;
+      pageBreak: 'auto',
+      willDrawCell: (data) => {
+        if (data.section === 'body') {
           if (data.column.index === 10) {
+            const cellValue = data.cell.raw as string;
             doc.setFillColor(...(cellValue === 'Profit' ? [220, 255, 220] : [255, 220, 220]) as [number, number, number]);
-            doc.setTextColor(...(cellValue === 'Profit' ? [0, 100, 0] : [150, 0, 0]) as [number, number, number]);
             doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
-          } else if (data.column.index === 9) {
-            const numericValue = parseFloat(cellValue.replace(/[^\d.-]/g, ''));
-            doc.setTextColor(...(numericValue >= 0 ? [0, 100, 0] : [150, 0, 0]) as [number, number, number]);
           }
-          doc.text(cellValue, data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2, {
-            align: 'center',
-            baseline: 'middle',
-          });
+          if (data.column.index === 9) {
+            const cellValue = data.cell.raw as string;
+            const numericValue = parseFloat(cellValue.replace(/[^\d.-]/g, ''));
+            doc.setTextColor(...(numericValue >= 0 ? [0, 128, 0] : [200, 0, 0]) as [number, number, number]);
+          }
         }
       },
     });
 
     // Footer
-    doc.setFontSize(6);
-    doc.setTextColor(100, 100, 100);
-    doc.text('Generated by Harcourts Success EMI Calculator', pageWidth / 2, pageHeight - margin + 1, { align: 'center' });
+    doc.setFontSize(7);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Generated by Harcourts Success EMI Calculator', pageWidth / 2, pageHeight - margin - 4, { align: 'center' });
 
-    // Return PDF as Blob
     const pdfBlob = doc.output('blob');
     resolve(pdfBlob);
   });
@@ -235,45 +239,39 @@ export const generateAmortizationPDFBlob = (emiPlan: EMIPlan, amortizationSchedu
       orientation: 'landscape',
       unit: 'mm',
       format: 'a4',
+      compress: true
     });
 
-    const pageWidth = doc.internal.pageSize.getWidth(); // 297mm
-    const pageHeight = doc.internal.pageSize.getHeight(); // 210mm
-    const margin = 6;
+    doc.internal.scaleFactor = 1.78;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
     const contentWidth = pageWidth - 2 * margin;
 
     // Set background and border
-    doc.setFillColor(245, 245, 250);
+    doc.setFillColor(240, 245, 255);
     doc.rect(0, 0, pageWidth, pageHeight, 'F');
-    doc.setDrawColor(0, 51, 102);
-    doc.setLineWidth(0.2);
+    doc.setDrawColor(0, 0, 139);
+    doc.setLineWidth(0.5);
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin);
 
-    // Header
-    doc.setFontSize(12);
-    doc.setTextColor(0, 51, 102);
-    doc.text('HARCOURTS', pageWidth / 2, margin + 4, { align: 'center' });
-    doc.setDrawColor(0, 153, 204);
-    doc.setLineWidth(0.2);
-    doc.line(pageWidth / 2 - 6, margin + 5, pageWidth / 2 + 6, margin + 5);
-    doc.setTextColor(0, 153, 204);
-    doc.setFontSize(9);
-    doc.text('SUCCESS', pageWidth / 2, margin + 9, { align: 'center' });
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(7);
-    doc.text('Amortization Schedule Report', pageWidth / 2, margin + 13, { align: 'center' });
+    // Header with new Harcourts Success branding
+    createHeader(doc, pageWidth, margin, 'Amortization Schedule Report');
 
     // Plan details
-    doc.setFontSize(6);
-    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
     const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    doc.text(`Plan: ${planName}`, margin + 1, margin + 17);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin - 1, margin + 17, { align: 'right' });
+    doc.text(`Plan: ${planName}`, margin + 4, margin + 34);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin - 4, margin + 34, { align: 'right' });
 
-    let currentY = margin + 20;
-
-    // Amortization table (limited to 6 months to fit on one page)
-    const amortizationData = amortizationSchedule.slice(0, 6).map(entry => [
+    // Add table name above
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Amortization Schedule Details', margin + 4, margin + 40);
+    
+    // Amortization table
+    const amortizationData = amortizationSchedule.map(entry => [
       entry.month.toString(),
       formatCurrency(entry.bankBeginningPrincipal),
       formatCurrency(entry.bankMonthlyPrincipal),
@@ -288,7 +286,7 @@ export const generateAmortizationPDFBlob = (emiPlan: EMIPlan, amortizationSchedu
     ]);
 
     autoTable(doc, {
-      startY: currentY,
+      startY: margin + 45,
       head: [
         [
           { content: 'Month', rowSpan: 2 },
@@ -309,43 +307,42 @@ export const generateAmortizationPDFBlob = (emiPlan: EMIPlan, amortizationSchedu
         ],
       ],
       body: amortizationData,
-      theme: 'striped',
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
         fontSize: 7,
         halign: 'center',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontStyle: 'bold'
       },
       bodyStyles: {
         fontSize: 6,
         halign: 'center',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
+        cellPadding: 1.5,
       },
-      margin: { left: margin, right: margin },
-      tableWidth: contentWidth,
-      pageBreak: 'avoid',
+      margin: { left: margin + 2, right: margin + 2 },
+      tableWidth: contentWidth - 4,
       columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 20 },
-        2: { cellWidth: 15 },
-        3: { cellWidth: 15 },
-        4: { cellWidth: 15 },
-        5: { cellWidth: 20 },
-        6: { cellWidth: 20 },
-        7: { cellWidth: 15 },
-        8: { cellWidth: 15 },
-        9: { cellWidth: 15 },
-        10: { cellWidth: 20 },
+        0: { cellWidth: 12 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 16 },
+        3: { cellWidth: 16 },
+        4: { cellWidth: 16 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 16 },
+        8: { cellWidth: 16 },
+        9: { cellWidth: 16 },
+        10: { cellWidth: 18 },
       },
+      pageBreak: 'avoid',
     });
 
     // Footer
-    doc.setFontSize(6);
-    doc.setTextColor(100, 100, 100);
-    doc.text('Generated by Harcourts Success EMI Calculator', pageWidth / 2, pageHeight - margin + 1, { align: 'center' });
+    doc.setFontSize(7);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Generated by Harcourts Success EMI Calculator', pageWidth / 2, pageHeight - margin - 4, { align: 'center' });
 
-    // Return PDF as Blob
     const pdfBlob = doc.output('blob');
     resolve(pdfBlob);
   });
@@ -354,128 +351,121 @@ export const generateAmortizationPDFBlob = (emiPlan: EMIPlan, amortizationSchedu
 export const generateCompletePDFBlob = (emiPlan: EMIPlan, calculations: Calculations): Promise<Blob> => {
   return new Promise((resolve) => {
     const doc = new jsPDF({
-      orientation: 'landscape',
+      orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
+      compress: true
     });
 
-    const pageWidth = doc.internal.pageSize.getWidth(); // 297mm
-    const pageHeight = doc.internal.pageSize.getHeight(); // 210mm
-    const margin = 6;
+    doc.internal.scaleFactor = 1.78;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
     const contentWidth = pageWidth - 2 * margin;
 
     // Set background and border
-    doc.setFillColor(245, 245, 250);
+    doc.setFillColor(240, 245, 255);
     doc.rect(0, 0, pageWidth, pageHeight, 'F');
-    doc.setDrawColor(0, 51, 102);
-    doc.setLineWidth(0.2);
+    doc.setDrawColor(0, 0, 139);
+    doc.setLineWidth(0.5);
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin);
 
-    // Header
-    doc.setFontSize(12);
-    doc.setTextColor(0, 51, 102);
-    doc.text('HARCOURTS', pageWidth / 2, margin + 4, { align: 'center' });
-    doc.setDrawColor(0, 153, 204);
-    doc.setLineWidth(0.2);
-    doc.line(pageWidth / 2 - 6, margin + 5, pageWidth / 2 + 6, margin + 5);
-    doc.setTextColor(0, 153, 204);
-    doc.setFontSize(9);
-    doc.text('SUCCESS', pageWidth / 2, margin + 9, { align: 'center' });
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(7);
-    doc.text('Complete EMI Plan Report', pageWidth / 2, margin + 13, { align: 'center' });
+    // Header with new Harcourts Success branding
+    createHeader(doc, pageWidth, margin, 'Complete EMI Plan Report');
 
     // Plan details
-    doc.setFontSize(6);
-    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
     const planName = emiPlan.typeOfLoan === 'Manual Entry' ? emiPlan.customLoanType : emiPlan.typeOfLoan;
-    doc.text(`Plan: ${planName}`, margin + 1, margin + 17);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin - 1, margin + 17, { align: 'right' });
+    doc.text(`Plan: ${planName}`, margin + 4, margin + 34);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin - 4, margin + 34, { align: 'right' });
 
-    let currentY = margin + 20;
-
-    // Loan details table (redesigned as single-column key-value pairs)
+    // Loan details table - Add table name above
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Loan Details', margin + 4, margin + 40);
+    
     const loanData = [
-      ['Loan Type', planName],
-      ['Tenure (Years)', emiPlan.loanTenure.toString()],
-      ['Loan Amount', formatCurrency(emiPlan.loanAmount)],
-      ['Interest Rate', `${emiPlan.interestPerAnnum}%`],
-      ['Bank Contribution', `${emiPlan.bankPercent}%`],
+      ['Type', planName],
+      ['Tenure (Yrs)', emiPlan.loanTenure.toString()],
+      ['Amount', formatCurrency(emiPlan.loanAmount)],
+      ['Int. Rate', `${emiPlan.interestPerAnnum}%`],
+      ['Bank %', `${emiPlan.bankPercent}%`],
+      ['Own %', `${emiPlan.ownPercent}%`],
+      ['Own Tenure', emiPlan.ownTenure.toString()],
+      ['Own Int.', `${emiPlan.ownFundsInterestRate}%`],
+      ['GST %', `${emiPlan.gstPercentage || 0}%`],
     ];
 
     autoTable(doc, {
-      startY: currentY,
-      head: [['Loan Details']],
+      startY: margin + 45,
+      head: [['Loan Details', 'Values']],
       body: loanData,
-      theme: 'striped',
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
-        fontSize: 7,
-        halign: 'left',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontSize: 8,
+        halign: 'center',
+        fontStyle: 'bold'
       },
       bodyStyles: {
-        fontSize: 6,
-        halign: 'left',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
-        fillColor: [230, 240, 255],
+        fontSize: 7,
+        halign: 'center',
+        cellPadding: 1.5,
       },
-      alternateRowStyles: {
-        fillColor: [255, 255, 255],
-      },
-      margin: { left: margin, right: pageWidth / 2 + margin / 2 },
-      tableWidth: contentWidth / 2 - margin / 2,
-      pageBreak: 'avoid',
+      margin: { left: margin + 2, right: pageWidth / 2 + 2 },
+      tableWidth: contentWidth / 2 - 4,
       columnStyles: {
-        0: { cellWidth: 20 },
-        1: { cellWidth: 20 },
+        0: { cellWidth: 25, fontStyle: 'bold' },
+        1: { cellWidth: 25 },
       },
     });
 
-    const loanTableFinalY = (doc as any).lastAutoTable.finalY;
-
-    // Revenue & Expenses table
+    // Revenue & Expenses table - Add table name above
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Revenue & Expenses', pageWidth / 2 + 4, margin + 40);
+    
     const revenueExpenseData = [
-      ...emiPlan.revenues.map(rev => [rev.name, formatCurrency(rev.amount), rev.period, 'Revenue']),
-      ...emiPlan.expenses.map(exp => [exp.name, formatCurrency(exp.amount), exp.period, 'Expense']),
+      ...emiPlan.revenues.map(rev => [rev.name, formatCurrency(rev.amount), rev.period, 'Rev']),
+      ...emiPlan.expenses.map(exp => [exp.name, formatCurrency(exp.amount), exp.period, 'Exps']),
     ];
 
     autoTable(doc, {
-      startY: currentY,
+      startY: margin + 45,
       head: [['Name', 'Amount', 'Period', 'Type']],
-      body: revenueExpenseData.slice(0, 3),
-      theme: 'striped',
+      body: revenueExpenseData,
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
-        fontSize: 7,
+        fontSize: 8,
         halign: 'center',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontStyle: 'bold'
       },
       bodyStyles: {
-        fontSize: 6,
+        fontSize: 7,
         halign: 'center',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
+        cellPadding: 1.5,
       },
-      margin: { left: pageWidth / 2 + margin / 2, right: margin },
-      tableWidth: contentWidth / 2 - margin / 2,
-      pageBreak: 'avoid',
+      margin: { left: pageWidth / 2 + 2, right: margin + 2 },
+      tableWidth: contentWidth / 2 - 4,
       columnStyles: {
-        0: { cellWidth: 12 },
-        1: { cellWidth: 14 },
-        2: { cellWidth: 9 },
-        3: { cellWidth: 9 },
+        0: { cellWidth: 25 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 15 },
       },
     });
 
-    const revExpTableFinalY = (doc as any).lastAutoTable.finalY;
-
-    currentY = Math.max(loanTableFinalY, revExpTableFinalY) + 5;
-
-    // P/L data table
-    const plData = calculations.yearlyAvg.slice(0, 2).map(entry => [
-      `Year ${entry.period}`,
+    // P/L data table - Add table name above
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 139);
+    doc.text('Profit/Loss Yearly Summary', margin + 4, margin + 110);
+    
+    const plData = calculations.yearlyAvg.map(entry => [
+      entry.period.toString(),
       formatCurrency(entry.revenue),
       formatCurrency(entry.expenses),
       formatCurrency(entry.ownAmount),
@@ -488,69 +478,60 @@ export const generateCompletePDFBlob = (emiPlan: EMIPlan, calculations: Calculat
       entry.pl >= 0 ? 'Profit' : 'Loss',
     ]);
 
-    const totalPL = calculations.yearlyAvg.reduce((sum, entry) => sum + entry.pl, 0);
-    plData.push([
-      'Total', '', '', '', '', '', '', '', '', formatCurrency(totalPL), totalPL >= 0 ? 'Profit' : 'Loss'
-    ]);
-
     autoTable(doc, {
-      startY: currentY,
-      head: [['Period', 'Revenue', 'Exp', 'Own Amt', 'Own Pay', 'Loan Amt', 'Loan Pay', 'Own Int', 'Loan Int', 'P/L', 'Status']],
+      startY: margin + 115,
+      head: [['YR', 'Rev', 'Exps', 'Own Amt', 'Own Pay', 'Loan Amt', 'Loan Pay', 'Own Int', 'Loan Int', 'P/L', 'Sta']],
       body: plData,
-      theme: 'striped',
+      theme: 'grid',
       headStyles: {
-        fillColor: [0, 51, 102],
+        fillColor: [0, 0, 139],
         textColor: [255, 255, 255],
         fontSize: 7,
         halign: 'center',
-        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        fontStyle: 'bold'
       },
       bodyStyles: {
-        fontSize: 6,
+        fontSize: 5,
         halign: 'center',
-        cellPadding: { top: 1, bottom: 1, left: 2, right: 2 },
+        cellPadding: 0.8,
       },
       margin: { left: margin, right: margin },
       tableWidth: contentWidth,
-      pageBreak: 'avoid',
       columnStyles: {
-        0: { cellWidth: 12 },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 18 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 18 },
-        5: { cellWidth: 18 },
-        6: { cellWidth: 18 },
-        7: { cellWidth: 18 },
-        8: { cellWidth: 18 },
-        9: { cellWidth: 20 },
+        0: { cellWidth: 8 },
+        1: { cellWidth: 16.5, overflow: 'linebreak' },
+        2: { cellWidth: 16.5, overflow: 'linebreak' },
+        3: { cellWidth: 16.5, overflow: 'linebreak' },
+        4: { cellWidth: 16.5, overflow: 'linebreak' },
+        5: { cellWidth: 16.5, overflow: 'linebreak' },
+        6: { cellWidth: 16.5, overflow: 'linebreak' },
+        7: { cellWidth: 16.5, overflow: 'linebreak' },
+        8: { cellWidth: 16.5, overflow: 'linebreak' },
+        9: { cellWidth: 16.5, overflow: 'linebreak' },
         10: { cellWidth: 12 },
       },
-      didDrawCell: (data) => {
-        if (data.section === 'body' && (data.column.index === 9 || data.column.index === 10)) {
-          const cellValue = data.cell.raw as string;
+      pageBreak: 'auto',
+      willDrawCell: (data) => {
+        if (data.section === 'body') {
           if (data.column.index === 10) {
+            const cellValue = data.cell.raw as string;
             doc.setFillColor(...(cellValue === 'Profit' ? [220, 255, 220] : [255, 220, 220]) as [number, number, number]);
-            doc.setTextColor(...(cellValue === 'Profit' ? [0, 100, 0] : [150, 0, 0]) as [number, number, number]);
             doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
-          } else if (data.column.index === 9) {
-            const numericValue = parseFloat(cellValue.replace(/[^\d.-]/g, ''));
-            doc.setTextColor(...(numericValue >= 0 ? [0, 100, 0] : [150, 0, 0]) as [number, number, number]);
           }
-          doc.text(cellValue, data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2, {
-            align: 'center',
-            baseline: 'middle',
-          });
+          if (data.column.index === 9) {
+            const cellValue = data.cell.raw as string;
+            const numericValue = parseFloat(cellValue.replace(/[^\d.-]/g, ''));
+            doc.setTextColor(...(numericValue >= 0 ? [0, 128, 0] : [200, 0, 0]) as [number, number, number]);
+          }
         }
       },
     });
 
     // Footer
-    doc.setFontSize(6);
-    doc.setTextColor(100, 100, 100);
-    doc.text('Generated by Harcourts Success EMI Calculator', pageWidth / 2, pageHeight - margin + 1, { align: 'center' });
+    doc.setFontSize(7);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Generated by Harcourts Success EMI Calculator', pageWidth / 2, pageHeight - margin - 4, { align: 'center' });
 
-    // Return PDF as Blob
     const pdfBlob = doc.output('blob');
     resolve(pdfBlob);
   });

@@ -631,7 +631,35 @@ export function MarketingPlanPage() {
       setMarketingPlan({ ...marketingPlan, suburb: value });
     }
   };
-
+  // Add this function inside the MarketingPlanPage component
+  const addAllStreets = () => {
+    // Add a street for door knocks
+    setMarketingPlan((prev) => ({
+      ...prev,
+      door_knock_streets: [
+        ...prev.door_knock_streets,
+        {
+          id: uuidv4(),
+          name: '',
+          why: '',
+          house_count: '',
+          target_knocks: '',
+        },
+      ],
+      phone_call_streets: [
+        ...prev.phone_call_streets,
+        {
+          id: uuidv4(),
+          name: '',
+          why: '',
+          target_calls: '',
+          target_connects: '',
+        },
+      ],
+    }));
+  };
+  
+   
   const totalKnocks = marketingPlan.door_knock_streets.reduce(
     (sum, street) => sum + (parseInt(street.target_knocks || '0') || 0),
     0
@@ -1036,6 +1064,7 @@ export function MarketingPlanPage() {
                 >
                   Vault To-Do
                 </motion.button>
+                
               </div>
               <div className="flex justify-between mb-4">
                 <p className="text-gray-700 font-medium">Total Knocks: {totalKnocks}</p>

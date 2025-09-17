@@ -57,7 +57,6 @@ import {
 } from '../reportsUtils';
 import { generatePdf } from '../utils/pdfUtils1';
 import { Filters, PropertyDetails } from '../types/types';
-
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -70,11 +69,8 @@ ChartJS.register(
   Legend,
   ChartDataLabels
 );
-
 const ITEMS_PER_PAGE = 10;
-
 interface PropertyReportPageProps {}
-
 interface PropertyFormData {
   id: string;
   street_number: string;
@@ -116,7 +112,6 @@ const ALLOWED_SUBURBS = [
   'Springfield QLD 4300',
   'Spring Mountain QLD 4300',
 ].map(suburb => normalizeSuburb(suburb));
-
 export function PropertyReportPage(props: PropertyReportPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -129,7 +124,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     filterPreviewCount,
     currentPage,
   } = location.state || {};
-
+  const [allProperties, setAllProperties] = useState<PropertyDetails[]>([]);
   const [localFilters, setLocalFilters] = useState<Filters>(filters || {
     suburbs: [],
     streetNames: [],
@@ -139,7 +134,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     propertyTypes: [],
     categories: [],
   });
-
   const [localManualInputs, setLocalManualInputs] = useState({
     suburbs: '',
     streetNames: '',
@@ -149,7 +143,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     propertyTypes: '',
     categories: '',
   });
-
   const [localFilterPreviewCount, setLocalFilterPreviewCount] = useState(filterPreviewCount || 0);
   const [localCurrentPage, setLocalCurrentPage] = useState(currentPage || 1);
   const [exportLoading, setExportLoading] = useState(false);
@@ -179,9 +172,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     propertyTypes: filterSuggestions?.propertyTypes || [],
     categories: ['Listed', 'Sold'],
   });
-
   const propertiesTableRef = useRef<HTMLDivElement>(null);
-
   // Cleanup PDF URL to prevent memory leaks
   useEffect(() => {
     return () => {
@@ -190,54 +181,135 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       }
     };
   }, [pdfUrl]);
-
   useEffect(() => {
-  if (filteredProperties.length === 0 && initialFilteredProperties.length > 0) {
-    const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
-      prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
-    );
-    setFilteredProperties(filtered);
-    setLocalFilterPreviewCount(filtered.length);
-    setDynamicFilterSuggestions((prev) => ({
-      ...prev,
-      suburbs: ALLOWED_SUBURBS, // Restrict to allowed suburbs
-      streetNames: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
-      streetNumbers: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
-      agents: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
-      agency_names: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
-      propertyTypes: [...new Set(filtered.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
-      categories: ['Listed', 'Sold'],
-    }));
-  }
-}, [initialFilteredProperties]);
+    if (initialFilteredProperties.length > 0) {
+      const allowed = initialFilteredProperties.filter((prop: PropertyDetails) =>
+        prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
+      );
+      setAllProperties(allowed);
+      applyFilters(localFilters);
+      setDynamicFilterSuggestions((prev) => ({
+        ...prev,
+        suburbs: ALLOWED_SUBURBS, // Restrict to allowed suburbs
+        streetNames: [...new Set(allowed.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
+        streetNumbers: [...new Set(allowed.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
+        agents: [...new Set(allowed.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
+        agency_names: [...new Set(allowed.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
+        propertyTypes: [...new Set(allowed.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
+        categories: ['Listed', 'Sold'],
+      }));
+    }
+  }, [initialFilteredProperties]);
   useEffect(() => {
     console.log('filteredProperties updated:', filteredProperties);
   }, [filteredProperties]);
-
   useEffect(() => {
     console.log('localFilters updated:', localFilters);
   }, [localFilters]);
-
   useEffect(() => {
     console.log('dynamicFilterSuggestions updated:', dynamicFilterSuggestions);
   }, [dynamicFilterSuggestions]);
-
   useEffect(() => {
     const subscription = supabase
       .channel('properties-changes')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'properties' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'properties',
+        },
         (payload) => {
-          const updatedProperty = payload.new as PropertyDetails;
-          console.log('Real-time update received:', updatedProperty);
-          setFilteredProperties((prev) =>
-            prev.map((prop) =>
-              prop.id === updatedProperty.id
-                ? { ...prop, ...updatedProperty, commission_earned: calculateCommission(updatedProperty).commissionEarned }
-                : prop
-            )
-          );
+          console.log('Real-time update received:', payload);
+
+          if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setAllProperties((prev) => prev.filter((prop) => prop.id !== deletedId));
+            setFilteredProperties((prev) => prev.filter((prop) => prop.id !== deletedId));
+          } else if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const updatedProperty = payload.new as PropertyDetails;
+
+            // Update allProperties
+            setAllProperties((prev) => {
+              const exists = prev.some((prop) => prop.id === updatedProperty.id);
+              if (exists) {
+                return prev.map((prop) =>
+                  prop.id === updatedProperty.id ? { ...prop, ...updatedProperty } : prop
+                );
+              } else {
+                return [...prev, updatedProperty];
+              }
+            });
+
+            // Update filteredProperties only if it matches current filters
+            setFilteredProperties((prev) => {
+              const matchesFilters = (prop: PropertyDetails) => {
+                const suburbMatch =
+                  localFilters.suburbs.length === 0 ||
+                  localFilters.suburbs.some((suburb) =>
+                    normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb)
+                  );
+                const streetNameMatch =
+                  localFilters.streetNames.length === 0 ||
+                  localFilters.streetNames.some((name) =>
+                    (prop.street_name || '').toLowerCase() === name.toLowerCase()
+                  );
+                const streetNumberMatch =
+                  localFilters.streetNumbers.length === 0 ||
+                  localFilters.streetNumbers.some((num) =>
+                    (prop.street_number || '').toLowerCase() === num.toLowerCase()
+                  );
+                const agentMatch =
+                  localFilters.agents.length === 0 ||
+                  localFilters.agents.some((agent) =>
+                    (prop.agent_name || '').toLowerCase() === agent.toLowerCase()
+                  );
+                const agencyMatch =
+                  localFilters.agency_names.length === 0 ||
+                  localFilters.agency_names.some((agency) =>
+                    (prop.agency_name || 'Unknown').toLowerCase() === agency.toLowerCase()
+                  );
+                const propertyTypeMatch =
+                  localFilters.propertyTypes.length === 0 ||
+                  localFilters.propertyTypes.some((type) =>
+                    (prop.property_type || '').toLowerCase() === type.toLowerCase()
+                  );
+                const categoryMatch =
+                  localFilters.categories.length === 0 ||
+                  localFilters.categories.some((category) =>
+                    (prop.category || '').toLowerCase() === category.toLowerCase()
+                  );
+                return (
+                  suburbMatch &&
+                  streetNameMatch &&
+                  streetNumberMatch &&
+                  agentMatch &&
+                  agencyMatch &&
+                  propertyTypeMatch &&
+                  categoryMatch
+                );
+              };
+
+              if (payload.eventType === 'INSERT') {
+                if (matchesFilters(updatedProperty)) {
+                  return [
+                    ...prev,
+                    { ...updatedProperty, commission_earned: calculateCommission(updatedProperty).commissionEarned },
+                  ];
+                }
+                return prev;
+              } else {
+                return prev.map((prop) =>
+                  prop.id === updatedProperty.id
+                    ? { ...prop, ...updatedProperty, commission_earned: calculateCommission(updatedProperty).commissionEarned }
+                    : prop
+                );
+              }
+            });
+
+            // Update filter suggestions
+            updateFilterSuggestions(localFilters.suburbs);
+          }
         }
       )
       .subscribe();
@@ -245,26 +317,22 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
-
+  }, [localFilters]); // Add localFilters as a dependency to reapply filters when they change
   const paginatedProperties = useMemo(() => {
     const start = (localCurrentPage - 1) * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
     return filteredProperties?.slice(start, end) || [];
   }, [filteredProperties, localCurrentPage]);
-
   const totalPages = Math.ceil((filteredProperties?.length || 0) / ITEMS_PER_PAGE);
-
   const updateFilterSuggestions = (selectedSuburbs: string[]) => {
   try {
     // Only include allowed suburbs in the suggestions
     const validSelectedSuburbs = selectedSuburbs.filter(suburb => ALLOWED_SUBURBS.includes(normalizeSuburb(suburb)));
     const baseProperties = validSelectedSuburbs.length === 0
-      ? filteredProperties.filter((prop: PropertyDetails) => ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || '')))
-      : filteredProperties.filter((prop: PropertyDetails) =>
+      ? allProperties.filter((prop: PropertyDetails) => ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || '')))
+      : allProperties.filter((prop: PropertyDetails) =>
           prop && validSelectedSuburbs.some((suburb) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb))
         );
-
     const newSuggestions = {
       suburbs: ALLOWED_SUBURBS, // Only allowed suburbs
       streetNames: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
@@ -274,11 +342,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       propertyTypes: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))],
       categories: ['Listed', 'Sold'],
     };
-
     console.log('New filter suggestions:', newSuggestions);
-
     setDynamicFilterSuggestions(newSuggestions);
-
     setLocalFilters((prev: Filters) => ({
       ...prev,
       suburbs: prev.suburbs.filter((suburb) => ALLOWED_SUBURBS.includes(normalizeSuburb(suburb))),
@@ -290,11 +355,10 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       categories: (prev.categories || []).filter((category) => newSuggestions.categories.includes(category)),
     }));
   } catch (err) {
-    console.error('Error updating filter suggestions:', err, { selectedSuburbs, filteredProperties });
+    console.error('Error updating filter suggestions:', err, { selectedSuburbs, allProperties });
     toast.error('Failed to update filter suggestions');
   }
  };
-
   const handleEditClick = (property: PropertyDetails) => {
     setEditingProperty({
       id: property.id,
@@ -325,12 +389,11 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     });
     setIsEditModalOpen(true);
   };
-
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProperty || isUpdating) return;
-
     setIsUpdating(true);
+
     try {
       const errors: Partial<PropertyFormData> = {};
       if (!editingProperty.street_name) errors.street_name = 'Street name is required';
@@ -338,7 +401,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       if (editingProperty.price <= 0) errors.price = 'Price must be greater than 0';
       if (!editingProperty.property_type) errors.property_type = 'Property type is required';
       if (!editingProperty.category) errors.category = 'Category is required';
-
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
         setIsUpdating(false);
@@ -386,7 +448,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         console.error('Supabase update error:', updateError);
         throw new Error(`Failed to update property: ${updateError.message}`);
       }
-
       if (!updateData) {
         console.error('No data returned from update operation');
         throw new Error('Update operation did not return updated property');
@@ -394,6 +455,14 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
 
       console.log('Updated property from Supabase:', updateData);
 
+      // Update local state immediately
+      setAllProperties((prev) =>
+        prev.map((prop) =>
+          prop.id === editingProperty.id ? { ...prop, ...updateData } : prop
+        )
+      );
+
+      // Update filtered properties and recalculate commission
       setFilteredProperties((prev) =>
         prev.map((prop) =>
           prop.id === editingProperty.id
@@ -401,6 +470,15 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
             : prop
         )
       );
+
+      // Reapply filters to ensure the filtered list reflects the update
+      applyFilters(localFilters);
+
+      // Update filter suggestions based on the updated data
+      const updatedAllProperties = allProperties.map((prop) =>
+        prop.id === editingProperty.id ? { ...prop, ...updateData } : prop
+      );
+      updateFilterSuggestions(localFilters.suburbs);
 
       toast.success('Property updated successfully');
       setIsEditModalOpen(false);
@@ -413,24 +491,22 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       setIsUpdating(false);
     }
   };
-
+ 
   if (!Array.isArray(filteredProperties)) {
     console.error('filteredProperties is not an array');
     return <p className="text-red-600 text-center">Invalid property data</p>;
   }
-
-  const applyFilters = useCallback((newFilters: Filters, properties: PropertyDetails[]) => {
+  const applyFilters = useCallback((newFilters: Filters) => {
       try {
         console.log('Applying filters:', newFilters);
-        console.log('Properties count before filtering:', properties.length);
-        
-        // Always use initialFilteredProperties as the base for filtering
-        const baseProperties = initialFilteredProperties.filter((prop: PropertyDetails) => 
+        console.log('All properties count before filtering:', allProperties.length);
+       
+        // Always use allProperties as the base for filtering
+        const baseProperties = allProperties.filter((prop: PropertyDetails) =>
           prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
         );
-        
+       
         const filtered = baseProperties.filter((prop: PropertyDetails) => {
-
         const suburbMatch = ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || '')) &&
         (newFilters.suburbs.length === 0 ||
         newFilters.suburbs.some((suburb: string) => normalizeSuburb(prop.suburb || '') === normalizeSuburb(suburb)));
@@ -469,7 +545,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
             }
             return propCategory === filterCategory;
           });
-
         return suburbMatch && streetNameMatch && streetNumberMatch && agentMatch && agencyMatch && propertyTypeMatch && categoryMatch;
       });
       console.log('Filtered properties count:', filtered.length);
@@ -479,24 +554,23 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     } catch (err) {
       console.error('Error applying filters:', err, {
         newFilters,
-        propertiesCount: properties.length,
-        sampleProperties: properties.slice(0, 2),
+        allPropertiesCount: allProperties.length,
+        sampleProperties: allProperties.slice(0, 2),
       });
       toast.error('Failed to apply filters');
     }
-  }, []);
-
+  }, [allProperties]);
   const handleFilterChange = (filterType: keyof Filters, selected: Array<{ value: string; label: string }>) => {
     try {
       const newValues = selected.map((option) => option.value);
       console.log(`Filter changed: ${filterType} =`, newValues);
-      
+     
       setLocalFilters((prev: Filters) => {
         const newFilters = { ...prev, [filterType]: newValues };
-        
-        // Apply ALL current filters to the original dataset, not the already filtered properties
-        applyFilters(newFilters, initialFilteredProperties); // Changed this line
-        
+       
+        // Apply ALL current filters to the original dataset
+        applyFilters(newFilters);
+       
         if (filterType === 'suburbs') {
           updateFilterSuggestions(newValues);
         }
@@ -508,11 +582,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       toast.error('Failed to update filters');
     }
   };
-
   const handleManualInputChange = (filterType: keyof typeof localManualInputs, value: string) => {
     setLocalManualInputs((prev) => ({ ...prev, [filterType]: value }));
   };
-
   const handleManualInputKeyDown = (
     filterType: keyof Filters,
     e: React.KeyboardEvent<HTMLInputElement>
@@ -527,7 +599,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           if (filterType === 'suburbs') {
             updateFilterSuggestions(newValues);
           }
-          applyFilters(newFilters, filteredProperties);
+          applyFilters(newFilters);
           localStorage.setItem('reportFilters', JSON.stringify(newFilters));
           return newFilters;
         });
@@ -538,7 +610,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       }
     }
   };
-
   const resetFilters = () => {
     try {
       const emptyFilters: Filters = {
@@ -550,7 +621,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         propertyTypes: [],
         categories: [],
       };
-      
+     
       console.log('Resetting filters');
       setLocalFilters(emptyFilters);
       setLocalManualInputs({
@@ -562,26 +633,24 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         propertyTypes: '',
         categories: '',
       });
-      
+     
       // Reset to the original filtered properties (only allowed suburbs)
-      const filtered = initialFilteredProperties.filter((prop: PropertyDetails) =>
-        prop && ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
-      );
-      
-      setFilteredProperties(filtered);
-      setLocalFilterPreviewCount(filtered.length);
-      
+      applyFilters(emptyFilters);
+     
       // Update suggestions based on the reset data
+      const baseProperties = allProperties.filter((prop: PropertyDetails) =>
+        ALLOWED_SUBURBS.includes(normalizeSuburb(prop.suburb || ''))
+      );
       setDynamicFilterSuggestions({
         suburbs: ALLOWED_SUBURBS,
-        streetNames: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
-        streetNumbers: [...new Set(filtered.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
-        agents: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
-        agency_names: [...new Set(filtered.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
-        propertyTypes: [...new Set(filtered.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))] || [],
+        streetNames: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_name || '').filter(Boolean))],
+        streetNumbers: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.street_number || '').filter(Boolean))],
+        agents: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agent_name || '').filter(Boolean))],
+        agency_names: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.agency_name || 'Unknown').filter(Boolean))],
+        propertyTypes: [...new Set(baseProperties.map((prop: PropertyDetails) => prop?.property_type || '').filter(Boolean))] || [],
         categories: ['Listed', 'Sold'],
       });
-      
+     
       localStorage.removeItem('reportFilters');
       toast.success('Filters reset successfully');
       setLocalCurrentPage(1);
@@ -590,25 +659,21 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       toast.error('Failed to reset filters');
     }
   };
-
   const toggleFilterSection = (section: keyof typeof expandedFilters) => {
     setExpandedFilters((prev) => ({ ...prev, [section]: !prev[section] }));
   };
-
   const handleDeleteProperty = async (propertyId: string) => {
     try {
       if (!confirm('Are you sure you want to delete this property?')) return;
-
       const { error } = await supabase
         .from('properties')
         .delete()
         .eq('id', propertyId);
-
       if (error) {
         console.error('Error deleting property:', error);
         throw new Error(`Failed to delete property: ${error.message}`);
       }
-
+      setAllProperties((prev) => prev.filter((prop) => prop.id !== propertyId));
       setFilteredProperties((prev) => prev.filter((prop) => prop.id !== propertyId));
       toast.success('Property deleted successfully');
     } catch (err: any) {
@@ -616,7 +681,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       toast.error(err.message || 'Failed to delete property');
     }
   };
-
   const exportPropertyReportPDF = async () => {
     if (!propertyMetrics) {
       toast.error('No property metrics available for export');
@@ -680,10 +744,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         prop.contract_status || 'N/A',
         formatArray(prop.features || []),
       ]);
-
       console.log('Export PDF - Head:', head);
       console.log('Export PDF - Body sample (first 2 rows):', body.slice(0, 2));
-
       const pdfBlob = await generatePdf({
         title: 'Property Report',
         head,
@@ -691,7 +753,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         fileName: 'property_report.pdf',
         outputType: 'blob',
       });
-
       if (pdfBlob instanceof Blob) {
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
@@ -710,7 +771,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       setExportLoading(false);
     }
   };
-
   const previewPropertyReportPDF = async () => {
   if (!propertyMetrics) {
     toast.error('No property metrics available for preview');
@@ -774,10 +834,8 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       prop.contract_status || 'N/A',
       formatArray(prop.features || []),
     ]);
-
     console.log('Preview PDF - Head:', head);
     console.log('Preview PDF - Body sample (first 2 rows):', body.slice(0, 2));
-
     // Generate PDF as Blob instead of data URI
     const pdfBlob = await generatePdf({
       title: 'Property Report',
@@ -786,11 +844,9 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       fileName: 'property_report.pdf',
       outputType: 'blob', // Changed to blob
     });
-
     if (!(pdfBlob instanceof Blob)) {
       throw new Error('PDF generation did not return a Blob');
     }
-
     const url = URL.createObjectURL(pdfBlob);
     console.log('Generated PDF Blob URL:', url);
     setPdfUrl(url);
@@ -803,7 +859,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
     setExportLoading(false);
   }
 };
-
   const exportPropertyReportCSV = async () => {
     if (!propertyMetrics) {
       toast.error('No property metrics available for export');
@@ -872,7 +927,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           formatArray(prop.features || []),
         ]),
       ];
-
       const ws = XLSX.utils.aoa_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Property Report');
@@ -885,7 +939,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       setExportLoading(false);
     }
   };
-
   const exportPropertyReportHTML = async () => {
     if (!propertyMetrics) {
       toast.error('No property metrics available for export');
@@ -974,7 +1027,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       setExportLoading(false);
     }
   };
-
   const renderPropertyHeatmap = () => {
     try {
       const heatmapData = generateHeatmapData(propertyMetrics);
@@ -982,7 +1034,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         console.warn('No heatmap data available');
         return <p className="text-gray-500 text-center">No heatmap data available</p>;
       }
-
       const options: ChartOptions<'bar'> = {
         plugins: {
           legend: { display: false },
@@ -998,14 +1049,12 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           x: { ticks: { font: { size: 12 } } },
         },
       };
-
       return <Bar data={{ ...heatmapData, datasets: [{ ...heatmapData.datasets[0], backgroundColor: '#60A5FA' }] }} options={options} />;
     } catch (err) {
       console.error('Error rendering heatmap:', err);
       return <p className="text-red-600 text-center">Failed to render heatmap</p>;
     }
   };
-
   const renderPriceTrends = () => {
     try {
       const priceTrendsData = generatePriceTrendsData(propertyMetrics);
@@ -1013,7 +1062,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         console.warn('No price trends data available');
         return <p className="text-gray-500 text-center">No price trends data available</p>;
       }
-
       const options: ChartOptions<'bar'> = {
         plugins: {
           legend: { position: 'top', labels: { font: { size: 14 } } },
@@ -1027,23 +1075,19 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           x: { ticks: { font: { size: 12 } } },
         },
       };
-
       return <Bar data={{ ...priceTrendsData, datasets: priceTrendsData.datasets.map(ds => ({ ...ds, backgroundColor: '#60A5FA' })) }} options={options} />;
     } catch (err) {
       console.error('Error rendering price trends:', err);
       return <p className="text-red-600 text-center">Failed to render price trends</p>;
     }
   };
-
   const calculateAveragePricesBySuburb = (properties: PropertyDetails[]) => {
     const listedPriceBySuburb: { [key: string]: { total: number; count: number } } = {};
     const soldPriceBySuburb: { [key: string]: { total: number; count: number } } = {};
-
     properties.forEach((prop) => {
       if (!prop || !prop.suburb) return;
-
       const suburb = normalizeSuburb(prop.suburb);
-      
+     
       // Listed price
       if (typeof prop.price === 'number' && prop.price > 0) {
         if (!listedPriceBySuburb[suburb]) {
@@ -1052,7 +1096,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         listedPriceBySuburb[suburb].total += prop.price;
         listedPriceBySuburb[suburb].count += 1;
       }
-
       // Sold price
       if (typeof prop.sold_price === 'number' && prop.sold_price > 0) {
         if (!soldPriceBySuburb[suburb]) {
@@ -1062,7 +1105,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         soldPriceBySuburb[suburb].count += 1;
       }
     });
-
     const avgListedPriceBySuburb = Object.keys(listedPriceBySuburb).reduce(
       (acc, suburb) => {
         acc[suburb] = listedPriceBySuburb[suburb].total / listedPriceBySuburb[suburb].count;
@@ -1070,7 +1112,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       },
       {} as { [key: string]: number }
     );
-
     const avgSoldPriceBySuburb = Object.keys(soldPriceBySuburb).reduce(
       (acc, suburb) => {
         acc[suburb] = soldPriceBySuburb[suburb].total / soldPriceBySuburb[suburb].count;
@@ -1078,19 +1119,15 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       },
       {} as { [key: string]: number }
     );
-
     return { avgListedPriceBySuburb, avgSoldPriceBySuburb };
   };
-
   const renderGeneralCharts = () => {
     if (!filteredProperties || filteredProperties.length === 0) {
       console.warn('No properties available for general charts');
       return <p className="text-gray-500 text-center">No chart data available</p>;
     }
-
     try {
       const { avgListedPriceBySuburb, avgSoldPriceBySuburb } = calculateAveragePricesBySuburb(filteredProperties);
-
       const listedPriceData = {
         labels: Object.keys(avgListedPriceBySuburb),
         datasets: [
@@ -1101,7 +1138,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           },
         ],
       };
-
       const soldPriceData = {
         labels: Object.keys(avgSoldPriceBySuburb),
         datasets: [
@@ -1112,7 +1148,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
           },
         ],
       };
-
       const chartOptions: ChartOptions<'bar'> = {
         plugins: {
           legend: { position: 'top', labels: { font: { size: 14 } } },
@@ -1142,7 +1177,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         },
       },
     };
-
     const soldPriceOptions: ChartOptions<'bar'> = {
       ...chartOptions,
       plugins: {
@@ -1153,7 +1187,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
         },
       },
     };
-
     return (
         <div className="space-y-8">
           <motion.div
@@ -1187,7 +1220,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
               Average Sold Price by Suburb
             </h2>
             {soldPriceData.labels.length > 0 ? (
-              <Bar data={soldPriceData} options={soldPriceOptions }  />
+              <Bar data={soldPriceData} options={soldPriceOptions } />
             ) : (
               <p className="text-gray-500 text-center">No sold price data available</p>
             )}
@@ -1199,7 +1232,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
       return <p className="text-red-600 text-center">Failed to render charts</p>;
     }
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
@@ -1223,7 +1255,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
             <X className="w-6 h-6" />
           </motion.button>
         </motion.div>
-
         <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-100 mb-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-semibold text-blue-800 flex items-center">
@@ -1311,7 +1342,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                     />
                   </motion.div>
                 )}
-                
+               
               </motion.div>
             ))}
           </div>
@@ -1375,7 +1406,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
             </motion.button>
           </div>
         </div>
-
         <AnimatePresence>
           {isPdfPreviewOpen && (
             <motion.div
@@ -1430,7 +1460,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
             </motion.div>
           )}
         </AnimatePresence>
-
         {propertyMetrics ? (
           <>
             <motion.div
@@ -1570,7 +1599,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                 <p className="text-gray-500 text-center">No properties found matching the current filters.</p>
               )}
             </motion.div>
-
             <AnimatePresence>
               {isEditModalOpen && (
                 <motion.div
@@ -1700,7 +1728,7 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                           >
                             <option value="">Select Category</option>
-                            <option value="Listing">Listing</option>
+                            <option value="Listed">Listed</option>
                             <option value="Sold">Sold</option>
                             <option value="Under Offer">Under Offer</option>
                           </select>
@@ -1900,7 +1928,6 @@ export function PropertyReportPage(props: PropertyReportPageProps) {
                 </motion.div>
               )}
             </AnimatePresence>
-
             <motion.div
               className="bg-white p-6 rounded-xl shadow-lg border border-blue-100 mb-6"
               initial={{ opacity: 0, y: 20 }}

@@ -5,7 +5,7 @@ import { UserPlus, FileText, X, Check, Edit, Download, Search, Eye, Trash, Uploa
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-toastify';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 interface NurturingContact {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Loader2, Plus, Trash2, Phone, DoorClosed, Eye } from 'lucide-react';
+import { Loader2, Plus, Trash2, Phone, DoorClosed, Eye, List } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -53,6 +53,13 @@ interface PhoneCallStreet {
   target_connects: string;
 }
 
+interface VaultToDoStreet {
+  id: string;
+  name: string;
+  why: string;
+  target_actions: string;
+}
+
 interface MarketingPlan {
   id: string;
   agent: string;
@@ -61,6 +68,7 @@ interface MarketingPlan {
   end_date: string;
   door_knock_streets: DoorKnockStreet[];
   phone_call_streets: PhoneCallStreet[];
+  vault_to_do_streets: VaultToDoStreet[];
   desktop_appraisals: string;
   face_to_face_appraisals: string;
   created_at?: string;
@@ -81,13 +89,14 @@ export function MarketingPlanPage() {
     end_date: '',
     door_knock_streets: [],
     phone_call_streets: [],
+    vault_to_do_streets: [],
     desktop_appraisals: '',
     face_to_face_appraisals: '',
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isCustomSuburb, setIsCustomSuburb] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [selectedActivity, setSelectedActivity] = useState<'all' | 'door_knock' | 'phone_call'>('all');
+  const [selectedActivity, setSelectedActivity] = useState<'all' | 'door_knock' | 'phone_call' | 'vault_to_do'>('all');
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [savedPlans, setSavedPlans] = useState<MarketingPlan[]>([]);
   const [soldPropertiesFilter, setSoldPropertiesFilter] = useState<string>('30_days');
@@ -199,6 +208,13 @@ export function MarketingPlanPage() {
             target_calls: street.target_calls || '',
             target_connects: street.target_connects || '',
           })),
+          vault_to_do_streets: (data.vault_to_do_streets || []).map((street: any) => ({
+            ...street,
+            id: street.id || uuidv4(),
+            name: toTitleCase(street.name || ''),
+            why: street.why || '',
+            target_actions: street.target_actions || '',
+          })),
           desktop_appraisals: data.desktop_appraisals || '',
           face_to_face_appraisals: data.face_to_face_appraisals || '',
           created_at: data.created_at || undefined,
@@ -213,6 +229,7 @@ export function MarketingPlanPage() {
           end_date: '',
           door_knock_streets: [],
           phone_call_streets: [],
+          vault_to_do_streets: [],
           desktop_appraisals: '',
           face_to_face_appraisals: '',
         });
@@ -227,6 +244,7 @@ export function MarketingPlanPage() {
         end_date: '',
         door_knock_streets: [],
         phone_call_streets: [],
+        vault_to_do_streets: [],
         desktop_appraisals: '',
         face_to_face_appraisals: '',
       });
@@ -265,6 +283,13 @@ export function MarketingPlanPage() {
             target_calls: street.target_calls || '',
             target_connects: street.target_connects || '',
           })),
+          vault_to_do_streets: (plan.vault_to_do_streets || []).map((street: any) => ({
+            ...street,
+            id: street.id || uuidv4(),
+            name: toTitleCase(street.name || ''),
+            why: street.why || '',
+            target_actions: street.target_actions || '',
+          })),
           desktop_appraisals: plan.desktop_appraisals || '',
           face_to_face_appraisals: plan.face_to_face_appraisals || '',
           created_at: plan.created_at || undefined,
@@ -300,6 +325,11 @@ export function MarketingPlanPage() {
         newErrors[`phone_call_street_${index}_target_calls`] = `Please enter a valid number of target calls for phone call ${index + 1}`;
       if (!street.target_connects || parseInt(street.target_connects) < 0)
         newErrors[`phone_call_street_${index}_target_connects`] = `Please enter a valid number of target connects for phone call ${index + 1}`;
+    });
+    marketingPlan.vault_to_do_streets.forEach((street, index) => {
+      if (!street.name) newErrors[`vault_to_do_street_${index}_name`] = `Please enter a street name for vault to-do ${index + 1}`;
+      if (!street.target_actions || parseInt(street.target_actions) <= 0)
+        newErrors[`vault_to_do_street_${index}_target_actions`] = `Please enter a valid number of target actions for vault to-do ${index + 1}`;
     });
     if (!marketingPlan.desktop_appraisals || parseInt(marketingPlan.desktop_appraisals) < 0)
       newErrors.desktop_appraisals = 'Please enter a valid number of desktop appraisals';
@@ -346,6 +376,12 @@ export function MarketingPlanPage() {
           why: street.why || '',
           target_calls: street.target_calls,
           target_connects: street.target_connects,
+        })),
+        vault_to_do_streets: marketingPlan.vault_to_do_streets.map((street) => ({
+          id: street.id,
+          name: street.name,
+          why: street.why || '',
+          target_actions: street.target_actions,
         })),
         desktop_appraisals: marketingPlan.desktop_appraisals,
         face_to_face_appraisals: marketingPlan.face_to_face_appraisals,
@@ -398,6 +434,7 @@ export function MarketingPlanPage() {
       end_date: '',
       door_knock_streets: [],
       phone_call_streets: [],
+      vault_to_do_streets: [],
       desktop_appraisals: '',
       face_to_face_appraisals: '',
     });
@@ -414,6 +451,7 @@ export function MarketingPlanPage() {
       ...plan,
       door_knock_streets: Array.isArray(plan.door_knock_streets) ? plan.door_knock_streets : [],
       phone_call_streets: Array.isArray(plan.phone_call_streets) ? plan.phone_call_streets : [],
+      vault_to_do_streets: Array.isArray(plan.vault_to_do_streets) ? plan.vault_to_do_streets : [],
       desktop_appraisals: plan.desktop_appraisals || '',
       face_to_face_appraisals: plan.face_to_face_appraisals || '',
       created_at: plan.created_at || undefined,
@@ -423,7 +461,7 @@ export function MarketingPlanPage() {
     setShowPlansModal(false);
   };
 
-  const addStreet = (type: 'door_knock' | 'phone_call') => {
+  const addStreet = (type: 'door_knock' | 'phone_call' | 'vault_to_do') => {
     if (type === 'door_knock') {
       setMarketingPlan({
         ...marketingPlan,
@@ -438,7 +476,7 @@ export function MarketingPlanPage() {
           },
         ],
       });
-    } else {
+    } else if (type === 'phone_call') {
       setMarketingPlan({
         ...marketingPlan,
         phone_call_streets: [
@@ -452,25 +490,43 @@ export function MarketingPlanPage() {
           },
         ],
       });
+    } else {
+      setMarketingPlan({
+        ...marketingPlan,
+        vault_to_do_streets: [
+          ...marketingPlan.vault_to_do_streets,
+          {
+            id: uuidv4(),
+            name: '',
+            why: '',
+            target_actions: '',
+          },
+        ],
+      });
     }
   };
 
-  const removeStreet = (type: 'door_knock' | 'phone_call', id: string) => {
+  const removeStreet = (type: 'door_knock' | 'phone_call' | 'vault_to_do', id: string) => {
     if (type === 'door_knock') {
       setMarketingPlan({
         ...marketingPlan,
         door_knock_streets: marketingPlan.door_knock_streets.filter((street) => street.id !== id),
       });
-    } else {
+    } else if (type === 'phone_call') {
       setMarketingPlan({
         ...marketingPlan,
         phone_call_streets: marketingPlan.phone_call_streets.filter((street) => street.id !== id),
+      });
+    } else {
+      setMarketingPlan({
+        ...marketingPlan,
+        vault_to_do_streets: marketingPlan.vault_to_do_streets.filter((street) => street.id !== id),
       });
     }
   };
 
   const updateStreet = (
-    type: 'door_knock' | 'phone_call',
+    type: 'door_knock' | 'phone_call' | 'vault_to_do',
     id: string,
     field: string,
     value: string
@@ -487,7 +543,7 @@ export function MarketingPlanPage() {
             : street
         ),
       });
-    } else {
+    } else if (type === 'phone_call') {
       setMarketingPlan({
         ...marketingPlan,
         phone_call_streets: marketingPlan.phone_call_streets.map((street) =>
@@ -499,12 +555,22 @@ export function MarketingPlanPage() {
             : street
         ),
       });
+    } else {
+      setMarketingPlan({
+        ...marketingPlan,
+        vault_to_do_streets: marketingPlan.vault_to_do_streets.map((street) =>
+          street.id === id
+            ? {
+                ...street,
+                [field]: field === 'name' || field === 'why' ? toTitleCase(value) : value,
+              }
+            : street
+        ),
+      });
     }
   };
 
-  const handleSelectStreet = (street: { name: string }, type: 'door_knock' | 'phone_call') => {
-    console.log(`handleSelectStreet: street=${street.name}, type=${type}`);
-    console.log(`Current phone_call_streets:`, marketingPlan.phone_call_streets);
+  const handleSelectStreet = (street: { name: string }, type: 'door_knock' | 'phone_call' | 'vault_to_do') => {
     if (type === 'door_knock') {
       if (!marketingPlan.door_knock_streets.some((s) => s.name === street.name)) {
         setMarketingPlan({
@@ -520,7 +586,6 @@ export function MarketingPlanPage() {
             },
           ],
         });
-        console.log(`Added to door_knock_streets: ${street.name}`);
       }
     } else if (type === 'phone_call') {
       if (!marketingPlan.phone_call_streets.some((s) => s.name === street.name)) {
@@ -537,10 +602,23 @@ export function MarketingPlanPage() {
             },
           ],
         });
-        console.log(`Added to phone_call_streets: ${street.name}`);
+      }
+    } else if (type === 'vault_to_do') {
+      if (!marketingPlan.vault_to_do_streets.some((s) => s.name === street.name)) {
+        setMarketingPlan({
+          ...marketingPlan,
+          vault_to_do_streets: [
+            ...marketingPlan.vault_to_do_streets,
+            {
+              id: uuidv4(),
+              name: street.name,
+              why: '',
+              target_actions: '',
+            },
+          ],
+        });
       }
     }
-    console.log(`Updated phone_call_streets:`, marketingPlan.phone_call_streets);
   };
 
   const handleSuburbChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -560,6 +638,10 @@ export function MarketingPlanPage() {
   );
   const totalCalls = marketingPlan.phone_call_streets.reduce(
     (sum, street) => sum + (parseInt(street.target_calls || '0') || 0),
+    0
+  );
+  const totalVaultActions = marketingPlan.vault_to_do_streets.reduce(
+    (sum, street) => sum + (parseInt(street.target_actions || '0') || 0),
     0
   );
 
@@ -686,6 +768,13 @@ export function MarketingPlanPage() {
                           0
                         )}
                       </p>
+                      <p>
+                        <strong>Total Vault To-Do Actions:</strong>{' '}
+                        {(plan.vault_to_do_streets || []).reduce(
+                          (sum, s) => sum + (parseInt(s.target_actions || '0') || 0),
+                          0
+                        )}
+                      </p>
                       <p><strong>Desktop Appraisals:</strong> {plan.desktop_appraisals || '0'}</p>
                       <p><strong>Face-to-Face Appraisals:</strong> {plan.face_to_face_appraisals || '0'}</p>
                       <h4 className="text-lg font-semibold mt-4 mb-2">Door Knock Streets</h4>
@@ -736,6 +825,31 @@ export function MarketingPlanPage() {
                                   <td className="p-2">{street.why || 'N/A'}</td>
                                   <td className="p-2">{street.target_calls || 'N/A'}</td>
                                   <td className="p-2">{street.target_connects || 'N/A'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      <h4 className="text-lg font-semibold mt-4 mb-2">Vault To-Do Streets</h4>
+                      {plan.vault_to_do_streets.length === 0 ? (
+                        <p className="text-gray-600">No vault to-do streets added.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-indigo-600 text-white text-sm">
+                                <th className="p-2 text-left">Street Name</th>
+                                <th className="p-2 text-left">Why This Street</th>
+                                <th className="p-2 text-left">Target Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {plan.vault_to_do_streets.map((street, index) => (
+                                <tr key={street.id} className="border-b border-gray-200 hover:bg-gray-100">
+                                  <td className="p-2">{street.name || 'N/A'}</td>
+                                  <td className="p-2">{street.why || 'N/A'}</td>
+                                  <td className="p-2">{street.target_actions || 'N/A'}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -867,6 +981,7 @@ export function MarketingPlanPage() {
                 onSelectStreet={handleSelectStreet}
                 existingDoorKnocks={marketingPlan.door_knock_streets}
                 existingPhoneCalls={marketingPlan.phone_call_streets}
+                existingVaultToDo={marketingPlan.vault_to_do_streets}
               />
             )}
 
@@ -909,10 +1024,23 @@ export function MarketingPlanPage() {
                 >
                   Phone Calls
                 </motion.button>
+                <motion.button
+                  onClick={() => setSelectedActivity('vault_to_do')}
+                  className={`px-4 py-2 rounded-full ${
+                    selectedActivity === 'vault_to_do'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-200 text-gray-800'
+                  } hover:bg-indigo-700 hover:text-white transition-all`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Vault To-Do
+                </motion.button>
               </div>
               <div className="flex justify-between mb-4">
                 <p className="text-gray-700 font-medium">Total Knocks: {totalKnocks}</p>
                 <p className="text-gray-700 font-medium">Total Calls: {totalCalls}</p>
+                <p className="text-gray-700 font-medium">Total Vault Actions: {totalVaultActions}</p>
               </div>
               {errors.streets && <p className="text-red-600 text-sm mb-4 font-medium">{errors.streets}</p>}
 
@@ -1096,6 +1224,88 @@ export function MarketingPlanPage() {
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         title={`Remove phone call street ${index + 1}`}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Remove Street
+                      </motion.button>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
+              {(selectedActivity === 'all' || selectedActivity === 'vault_to_do') && (
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                      <List className="w-5 h-5 mr-2 text-indigo-600" />
+                      Vault To-Do List
+                    </h3>
+                    <motion.button
+                      onClick={() => addStreet('vault_to_do')}
+                      className="flex items-center px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-full hover:from-indigo-700 hover:to-indigo-800 transition-all shadow-md"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      title="Add vault to-do street"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Street
+                    </motion.button>
+                  </div>
+                  {(marketingPlan.vault_to_do_streets || []).map((street, index) => (
+                    <motion.div
+                      key={street.id}
+                      className="border border-gray-200 p-4 mb-4 rounded-lg bg-gray-50 hover:shadow-md transition-shadow duration-200"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <input
+                            type="text"
+                            value={street.name}
+                            onChange={(e) => updateStreet('vault_to_do', street.id, 'name', e.target.value)}
+                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+                            placeholder="Street Name *"
+                            aria-label={`Vault to-do street ${index + 1} name`}
+                          />
+                          {errors[`vault_to_do_street_${index}_name`] && (
+                            <p className="text-red-600 text-sm mt-1 font-medium">
+                              {errors[`vault_to_do_street_${index}_name`]}
+                            </p>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          value={street.why}
+                          onChange={(e) => updateStreet('vault_to_do', street.id, 'why', e.target.value)}
+                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+                          placeholder="Why this street?"
+                          aria-label={`Vault to-do street ${index + 1} reason`}
+                        />
+                        <div>
+                          <input
+                            type="number"
+                            value={street.target_actions}
+                            onChange={(e) => updateStreet('vault_to_do', street.id, 'target_actions', e.target.value)}
+                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+                            placeholder="Target Actions *"
+                            min="1"
+                            aria-label={`Vault to-do street ${index + 1} target actions`}
+                          />
+                          {errors[`vault_to_do_street_${index}_target_actions`] && (
+                            <p className="text-red-600 text-sm mt-1 font-medium">
+                              {errors[`vault_to_do_street_${index}_target_actions`]}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <motion.button
+                        onClick={() => removeStreet('vault_to_do', street.id)}
+                        className="mt-4 flex items-center text-red-600 hover:text-red-800 font-medium transition-colors duration-200"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        title={`Remove vault to-do street ${index + 1}`}
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
                         Remove Street

@@ -216,7 +216,6 @@ export function StreetSuggestions({
           contacts: contactCount,
         };
       });
-      // Clean up entries for streets no longer in streetStats
       Object.keys(newAdded).forEach((key) => {
         if (!streetStats.find((s) => s.street_name === key)) {
           delete newAdded[key];
@@ -388,7 +387,6 @@ export function StreetSuggestions({
           ...prev[street.street_name],
           [type]: newCount,
         };
-        // If both counts are 0 and no contacts, remove the street entry
         if (updatedStreet.door_knock === 0 && updatedStreet.phone_call === 0 && updatedStreet.contacts === 0) {
           const { [street.street_name]: _, ...rest } = prev;
           return rest;
@@ -443,15 +441,15 @@ export function StreetSuggestions({
   };
 
   const handleAddContact = async () => {
-    if (!newContact.owner_1 || !newContact.owner_2) {
-      setContactError('Owner 1 and Owner 2 are required');
+    if (!newContact.owner_1 && !newContact.owner_2) {
+      setContactError('At least one of Owner 1 or Owner 2 is required');
       return;
     }
     setLoading(true);
     try {
       const contactData = {
-        owner_1: newContact.owner_1,
-        owner_2: newContact.owner_2,
+        owner_1: newContact.owner_1 || '',
+        owner_2: newContact.owner_2 || '',
         owner_1_email: newContact.owner_1_email || '',
         owner_2_email: newContact.owner_2_email || '',
         phone_number: newContact.phone_number || '',
@@ -695,7 +693,7 @@ export function StreetSuggestions({
         const validContacts: Omit<Contact, 'id'>[] = [];
         const duplicateContacts: string[] = [];
         json.forEach((row, index) => {
-          if (!row.owner_1 || !row.owner_2) return;
+          if (!row.owner_1 && !row.owner_2) return;
           const streetNumberFromExcel = row.street_number?.toString().trim();
           const streetNumber = streetNumberFromExcel || (availableStreetNumbers[index % availableStreetNumbers.length] || null);
           const isDuplicate = existingContacts.some(
@@ -707,12 +705,13 @@ export function StreetSuggestions({
               contact.suburb === suburb
           );
           if (isDuplicate) {
-            duplicateContacts.push(`${row.owner_1} & ${row.owner_2} at ${streetNumber || 'N/A'} ${selectedStreet}`);
+            const ownerName = row.owner_1 && row.owner_2 ? `${row.owner_1} & ${row.owner_2}` : row.owner_1 || row.owner_2;
+            duplicateContacts.push(`${ownerName} at ${streetNumber || 'N/A'} ${selectedStreet}`);
             return;
           }
           validContacts.push({
-            owner_1: row.owner_1,
-            owner_2: row.owner_2,
+            owner_1: row.owner_1 || '',
+            owner_2: row.owner_2 || '',
             owner_1_email: row.owner_1_email || '',
             owner_2_email: row.owner_2_email || '',
             phone_number: row.phone_number || '',
@@ -729,7 +728,7 @@ export function StreetSuggestions({
         });
         if (validContacts.length === 0) {
           setContactError(
-            `No valid contacts to import. ${duplicateContacts.length > 0 ? `Found ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}` : 'Ensure columns include owner_1 and owner_2.'}`
+            `No valid contacts to import. ${duplicateContacts.length > 0 ? `Found ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}` : 'Ensure at least one of owner_1 or owner_2 is provided.'}`
           );
           setLoading(false);
           return;
@@ -825,7 +824,7 @@ export function StreetSuggestions({
         const duplicateContacts: string[] = [];
         const unmatchedStreets: string[] = [];
         json.forEach((row, index) => {
-          if (!row.owner_1 || !row.owner_2) return;
+          if (!row.owner_1 && !row.owner_2) return;
           let streetName = row.street_name ? row.street_name.trim() : '';
           let streetNumber = row.street_number?.toString().trim() || null;
           if (!streetName || !availableStreetNames.includes(streetName)) {
@@ -856,12 +855,13 @@ export function StreetSuggestions({
               contact.suburb === suburb
           );
           if (isDuplicate) {
-            duplicateContacts.push(`${row.owner_1} & ${row.owner_2} at ${streetNumber || 'N/A'} ${streetName}`);
+            const ownerName = row.owner_1 && row.owner_2 ? `${row.owner_1} & ${row.owner_2}` : row.owner_1 || row.owner_2;
+            duplicateContacts.push(`${ownerName} at ${streetNumber || 'N/A'} ${streetName}`);
             return;
           }
           validContacts.push({
-            owner_1: row.owner_1,
-            owner_2: row.owner_2,
+            owner_1: row.owner_1 || '',
+            owner_2: row.owner_2 || '',
             owner_1_email: row.owner_1_email || '',
             owner_2_email: row.owner_2_email || '',
             phone_number: row.phone_number || '',
@@ -877,7 +877,7 @@ export function StreetSuggestions({
           });
         });
         if (validContacts.length === 0) {
-          let errorMessage = 'No valid contacts to import. Ensure columns include owner_1 and owner_2.';
+          let errorMessage = 'No valid contacts to import. Ensure at least one of owner_1 or owner_2 is provided.';
           if (duplicateContacts.length > 0) {
             errorMessage += ` Found ${duplicateContacts.length} duplicates: ${duplicateContacts.join(', ')}.`;
           }
@@ -1316,8 +1316,8 @@ export function StreetSuggestions({
                                     animate={{ opacity: 1 }}
                                     transition={{ duration: 0.3 }}
                                   >
-                                    <td className="p-1">{contact.owner_1}</td>
-                                    <td className="p-1">{contact.owner_2}</td>
+                                    <td className="p-1">{contact.owner_1 || 'N/A'}</td>
+                                    <td className="p-1">{contact.owner_2 || 'N/A'}</td>
                                     <td className="p-1">{contact.owner_1_email}</td>
                                     <td className="p-1">{contact.owner_2_email}</td>
                                     <td className="p-1">{contact.phone_number}</td>
@@ -1399,7 +1399,7 @@ export function StreetSuggestions({
               )}
               <div className="mb-4">
                 <label className="block text-gray-800 font-semibold mb-2 text-sm">
-                  Upload Excel file with columns: owner_1, owner_2, street_name (owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, status, last_sold_date, price optional)
+                  Upload Excel file with columns: owner_1 or owner_2, street_name (owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, status, last_sold_date, price optional)
                 </label>
                 <div className="flex items-center">
                   <Upload className="w-5 h-5 mr-2 text-gray-500" />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, UserPlus, X, Check, Edit2, Trash2, Upload } from 'lucide-react';
@@ -54,6 +54,7 @@ interface StreetSuggestionsProps {
   suburb: string | null;
   soldPropertiesFilter: string;
   onSelectStreet: (street: { name: string }, type: 'door_knock' | 'phone_call') => void;
+  onRemoveStreet?: (street: { name: string }, type: 'door_knock' | 'phone_call') => void;
   existingDoorKnocks?: { name: string }[];
   existingPhoneCalls?: { name: string }[];
 }
@@ -62,6 +63,7 @@ export function StreetSuggestions({
   suburb,
   soldPropertiesFilter,
   onSelectStreet,
+  onRemoveStreet,
   existingDoorKnocks = [],
   existingPhoneCalls = [],
 }: StreetSuggestionsProps) {
@@ -159,7 +161,6 @@ export function StreetSuggestions({
       'last_sold_date',
       'price',
     ];
-
     standardKeys.forEach((stdKey) => {
       let excelKey;
       if (stdKey === 'last_sold_date') {
@@ -173,9 +174,7 @@ export function StreetSuggestions({
       } else {
         excelKey = headerMap[stdKey] || stdKey;
       }
-
       let value = row[excelKey] ?? null;
-
       if (stdKey === 'last_sold_date') {
         value = excelSerialToDate(value);
       } else if (stdKey === 'price' && value) {
@@ -189,17 +188,47 @@ export function StreetSuggestions({
       } else if (typeof value === 'string') {
         value = value.trim();
       }
-
       normalized[stdKey] = value;
     });
-
     if (!normalized.phone_number && normalized.owner_1_mobile) {
       normalized.phone_number = normalized.owner_1_mobile;
       normalized.owner_1_mobile = '';
     }
-
     return normalized;
   };
+
+  const syncAddedStreetsFromProps = useCallback(() => {
+    if (streetStats.length === 0) return;
+    setAddedStreets((prev) => {
+      const newAdded: typeof prev = { ...prev };
+      streetStats.forEach((street) => {
+        const streetName = street.street_name;
+        const doorKnockCount = Array.isArray(existingDoorKnocks)
+          ? existingDoorKnocks.filter((s) => s.name === streetName).length
+          : 0;
+        const phoneCallCount = Array.isArray(existingPhoneCalls)
+          ? existingPhoneCalls.filter((s) => s.name === streetName).length
+          : 0;
+        const contactCount = street.contacts.length;
+        newAdded[streetName] = {
+          door_knock: doorKnockCount,
+          phone_call: phoneCallCount,
+          contacts: contactCount,
+        };
+      });
+      // Clean up entries for streets no longer in streetStats
+      Object.keys(newAdded).forEach((key) => {
+        if (!streetStats.find((s) => s.street_name === key)) {
+          delete newAdded[key];
+        }
+      });
+      return newAdded;
+    });
+  }, [streetStats, existingDoorKnocks, existingPhoneCalls]);
+
+  useEffect(() => {
+    syncAddedStreetsFromProps();
+  }, [syncAddedStreetsFromProps]);
 
   const fetchData = async () => {
     if (!suburb) {
@@ -208,40 +237,31 @@ export function StreetSuggestions({
       setLoading(false);
       return;
     }
-
     setLoading(true);
     setError(null);
     setStreetStats([]);
-    setAddedStreets({});
-
     try {
       const normalizedInput = normalizeSuburb(suburb);
       const queryString = `%${normalizedInput.toLowerCase().split(' qld')[0]}%`;
-
       const { data: propertiesData, error: propError } = await supabase
         .from('properties')
         .select(
           'id, street_name, street_number, suburb, price, sold_price, sold_date, property_type, bedrooms, bathrooms, car_garage, sqm, landsize'
         )
         .ilike('suburb', queryString);
-
       if (propError) throw new Error(`Failed to fetch properties: ${propError.message}`);
-
       if (!propertiesData || propertiesData.length === 0) {
         setError(`No properties found for ${suburb}. Please add properties to the database or check the suburb name format.`);
         setLoading(false);
         return;
       }
-
       const { data: contactsData, error: contactError } = await supabase
         .from('contacts')
         .select(
           'id, owner_1, owner_2, owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, street_name, street_number, suburb, status, last_sold_date, price'
         )
         .ilike('suburb', queryString);
-
       if (contactError) throw new Error(`Failed to fetch contacts: ${contactError.message}`);
-
       let filteredProperties = propertiesData;
       if (localFilter !== 'all') {
         const now = new Date();
@@ -266,7 +286,6 @@ export function StreetSuggestions({
           (prop) => !prop.sold_date || new Date(prop.sold_date) >= startDate
         );
       }
-
       if (filteredProperties.length === 0) {
         setError(
           `No properties found for ${suburb} with filter "${localFilter.replace('_', ' ')}". Try a broader filter or ensure sold_date is populated.`
@@ -274,7 +293,6 @@ export function StreetSuggestions({
         setLoading(false);
         return;
       }
-
       const combinedProperties: Property[] = filteredProperties.map((prop) => ({
         id: prop.id,
         street_name: prop.street_name,
@@ -291,12 +309,10 @@ export function StreetSuggestions({
         landsize: prop.landsize,
         status: prop.sold_price || prop.sold_date ? 'Sold' : 'Listed',
       }));
-
       const streetMap = new Map<
         string,
         { listed: number; sold: number; total: number; totalSoldPrice: number; properties: Property[]; contacts: Contact[] }
       >();
-
       combinedProperties.forEach((prop) => {
         const streetName = prop.street_name?.trim() || 'Unknown Street';
         const stats =
@@ -310,7 +326,6 @@ export function StreetSuggestions({
         stats.properties.push(prop);
         streetMap.set(streetName, stats);
       });
-
       (contactsData || []).forEach((contact) => {
         const streetName = contact.street_name?.trim() || 'Unknown Street';
         const stats =
@@ -321,7 +336,6 @@ export function StreetSuggestions({
         });
         streetMap.set(streetName, stats);
       });
-
       const statsArray: StreetStats[] = Array.from(streetMap.entries()).map(([street_name, stats]) => ({
         street_name,
         listed_count: stats.listed,
@@ -331,29 +345,14 @@ export function StreetSuggestions({
         properties: stats.properties,
         contacts: stats.contacts,
       }));
-
       statsArray.sort(
         (a, b) =>
           b.sold_count - a.sold_count ||
           b.total_properties - a.total_properties ||
           b.listed_count - a.listed_count
       );
-
-      const newAddedStreets: { [key: string]: { door_knock: number; phone_call: number; contacts: number } } = {};
-      statsArray.forEach((street) => {
-        const streetName = street.street_name;
-        const doorKnockCount = Array.isArray(existingDoorKnocks)
-          ? existingDoorKnocks.filter((s) => s.name === streetName).length
-          : 0;
-        const phoneCallCount = Array.isArray(existingPhoneCalls)
-          ? existingPhoneCalls.filter((s) => s.name === streetName).length
-          : 0;
-        const contactCount = street.contacts.length;
-        newAddedStreets[streetName] = { door_knock: doorKnockCount, phone_call: phoneCallCount, contacts: contactCount };
-      });
-
-      setAddedStreets(newAddedStreets);
       setStreetStats(statsArray);
+      syncAddedStreetsFromProps();
     } catch (err: any) {
       setError(`Error fetching street suggestions for ${suburb}: ${err.message}`);
       console.error('Fetch error:', err);
@@ -366,32 +365,80 @@ export function StreetSuggestions({
     fetchData();
   }, [suburb, localFilter]);
 
-  const handleSelectStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
+  const handleAddStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
     onSelectStreet({ name: street.street_name }, type);
     setAddedStreets((prev) => ({
       ...prev,
       [street.street_name]: {
-        ...prev[street.street_name],
+        ...prev[street.street_name] || { door_knock: 0, phone_call: 0, contacts: street.contacts.length },
         [type]: (prev[street.street_name]?.[type] || 0) + 1,
       },
     }));
   };
 
-  const handleAddAllStreets = () => {
-    streetStats.forEach((street) => {
-      onSelectStreet({ name: street.street_name }, 'door_knock');
-      onSelectStreet({ name: street.street_name }, 'phone_call');
-    });
+  const handleRemoveStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
+    if (onRemoveStreet) {
+      onRemoveStreet({ name: street.street_name }, type);
+    }
     setAddedStreets((prev) => {
-      const newAddedStreets = { ...prev };
-      streetStats.forEach((street) => {
-        newAddedStreets[street.street_name] = {
+      const currentCount = prev[street.street_name]?.[type] || 0;
+      if (currentCount > 0) {
+        const newCount = currentCount - 1;
+        const updatedStreet = {
           ...prev[street.street_name],
-          door_knock: (prev[street.street_name]?.door_knock || 0) + 1,
-          phone_call: (prev[street.street_name]?.phone_call || 0) + 1,
+          [type]: newCount,
         };
-      });
-      return newAddedStreets;
+        // If both counts are 0 and no contacts, remove the street entry
+        if (updatedStreet.door_knock === 0 && updatedStreet.phone_call === 0 && updatedStreet.contacts === 0) {
+          const { [street.street_name]: _, ...rest } = prev;
+          return rest;
+        }
+        return {
+          ...prev,
+          [street.street_name]: updatedStreet,
+        };
+      }
+      return prev;
+    });
+  };
+
+  const handleToggleStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
+    const currentCount = addedStreets[street.street_name]?.[type] || 0;
+    if (currentCount > 0) {
+      handleRemoveStreet(street, type);
+    } else {
+      handleAddStreet(street, type);
+    }
+  };
+
+  const handleAddAllDoorKnocks = () => {
+    streetStats.forEach((street) => {
+      const currentDoorKnockCount = addedStreets[street.street_name]?.door_knock || 0;
+      if (currentDoorKnockCount === 0) {
+        handleAddStreet(street, 'door_knock');
+      }
+    });
+  };
+
+  const handleAddAllPhoneCalls = () => {
+    streetStats.forEach((street) => {
+      const currentPhoneCallCount = addedStreets[street.street_name]?.phone_call || 0;
+      if (currentPhoneCallCount === 0) {
+        handleAddStreet(street, 'phone_call');
+      }
+    });
+  };
+
+  const handleAddAllToBoth = () => {
+    streetStats.forEach((street) => {
+      const currentDoorKnockCount = addedStreets[street.street_name]?.door_knock || 0;
+      const currentPhoneCallCount = addedStreets[street.street_name]?.phone_call || 0;
+      if (currentDoorKnockCount === 0) {
+        handleAddStreet(street, 'door_knock');
+      }
+      if (currentPhoneCallCount === 0) {
+        handleAddStreet(street, 'phone_call');
+      }
     });
   };
 
@@ -400,7 +447,6 @@ export function StreetSuggestions({
       setContactError('Owner 1 and Owner 2 are required');
       return;
     }
-
     setLoading(true);
     try {
       const contactData = {
@@ -419,15 +465,12 @@ export function StreetSuggestions({
         last_sold_date: newContact.last_sold_date ? excelSerialToDate(newContact.last_sold_date) : null,
         price: newContact.price ? parseFloat(newContact.price.toString()) : null,
       };
-
       if (isEditMode && newContact.id) {
         const { error } = await supabase
           .from('contacts')
           .update(contactData)
           .eq('id', newContact.id);
-
         if (error) throw new Error(`Failed to update contact: ${error.message}`);
-
         setStreetStats((prev) =>
           prev.map((street) =>
             street.street_name === selectedStreet
@@ -442,16 +485,13 @@ export function StreetSuggestions({
               : street
           )
         );
-
         setContactSuccess('Contact updated successfully');
       } else {
         const { data: insertData, error } = await supabase
           .from('contacts')
           .insert([contactData])
           .select();
-
         if (error) throw new Error(`Failed to add contact: ${error.message}`);
-
         setStreetStats((prev) =>
           prev.map((street) =>
             street.street_name === selectedStreet
@@ -459,18 +499,15 @@ export function StreetSuggestions({
               : street
           )
         );
-
         setAddedStreets((prev) => ({
           ...prev,
           [selectedStreet!]: {
-            ...prev[selectedStreet!],
+            ...prev[selectedStreet!] || { door_knock: 0, phone_call: 0, contacts: 0 },
             contacts: (prev[selectedStreet!]?.contacts || 0) + 1,
           },
         }));
-
         setContactSuccess('Contact added successfully');
       }
-
       setNewContact({
         id: '',
         owner_1: '',
@@ -488,7 +525,6 @@ export function StreetSuggestions({
         last_sold_date: null,
         price: null,
       });
-
       setContactError(null);
       setTimeout(() => setContactSuccess(null), 3000);
     } catch (err: any) {
@@ -513,7 +549,6 @@ export function StreetSuggestions({
     try {
       const { error } = await supabase.from('contacts').delete().eq('id', contactId);
       if (error) throw new Error(`Failed to delete contact: ${error.message}`);
-
       setStreetStats((prev) =>
         prev.map((street) =>
           street.street_name === streetName
@@ -521,15 +556,13 @@ export function StreetSuggestions({
             : street
         )
       );
-
       setAddedStreets((prev) => ({
         ...prev,
         [streetName]: {
-          ...prev[streetName],
-          contacts: (prev[streetName]?.contacts || 1) - 1,
+          ...prev[streetName] || { door_knock: 0, phone_call: 0, contacts: 0 },
+          contacts: Math.max(0, (prev[streetName]?.contacts || 1) - 1),
         },
       }));
-
       setContactSuccess('Contact deleted successfully');
       setTimeout(() => setContactSuccess(null), 3000);
     } catch (err: any) {
@@ -544,7 +577,6 @@ export function StreetSuggestions({
     try {
       const { error } = await supabase.from('contacts').delete().eq('street_name', streetName);
       if (error) throw new Error(`Failed to delete all contacts: ${error.message}`);
-
       setStreetStats((prev) =>
         prev.map((street) =>
           street.street_name === streetName
@@ -552,15 +584,13 @@ export function StreetSuggestions({
             : street
         )
       );
-
       setAddedStreets((prev) => ({
         ...prev,
         [streetName]: {
-          ...prev[streetName],
+          ...prev[streetName] || { door_knock: 0, phone_call: 0, contacts: 0 },
           contacts: 0,
         },
       }));
-
       setContactSuccess('All contacts deleted successfully');
       setTimeout(() => setContactSuccess(null), 3000);
     } catch (err: any) {
@@ -573,12 +603,10 @@ export function StreetSuggestions({
 
   const handleDeleteSelectedContacts = async (streetName: string) => {
     if (selectedContactIds.length === 0) return;
-
     setLoading(true);
     try {
       const { error } = await supabase.from('contacts').delete().in('id', selectedContactIds);
       if (error) throw new Error(`Failed to delete selected contacts: ${error.message}`);
-
       setStreetStats((prev) =>
         prev.map((street) =>
           street.street_name === streetName
@@ -586,15 +614,13 @@ export function StreetSuggestions({
             : street
         )
       );
-
       setAddedStreets((prev) => ({
         ...prev,
         [streetName]: {
-          ...prev[streetName],
-          contacts: (prev[streetName]?.contacts || 0) - selectedContactIds.length,
+          ...prev[streetName] || { door_knock: 0, phone_call: 0, contacts: 0 },
+          contacts: Math.max(0, (prev[streetName]?.contacts || 0) - selectedContactIds.length),
         },
       }));
-
       setSelectedContactIds([]);
       setContactSuccess('Selected contacts deleted successfully');
       setTimeout(() => setContactSuccess(null), 3000);
@@ -723,7 +749,7 @@ export function StreetSuggestions({
         setAddedStreets((prev) => ({
           ...prev,
           [selectedStreet]: {
-            ...prev[selectedStreet],
+            ...prev[selectedStreet] || { door_knock: 0, phone_call: 0, contacts: 0 },
             contacts: (prev[selectedStreet]?.contacts || 0) + validContacts.length,
           },
         }));
@@ -995,25 +1021,21 @@ export function StreetSuggestions({
         <span className="mr-2 text-indigo-600 text-lg sm:text-xl">🏠</span>
         Streets in {suburb} ({localFilter.replace('_', ' ')})
       </h2>
-
       {error && (
         <div className="text-red-600 text-center py-2 bg-red-50 rounded-lg mb-4 text-sm sm:text-base">{error}</div>
       )}
-
       {contactSuccess && (
         <div className="text-green-600 text-center py-2 bg-green-50 rounded-lg mb-4 text-sm sm:text-base flex items-center justify-center">
           <Check className="w-4 h-4 sm:w-5 sm:h-5 mr-2" /> {contactSuccess}
         </div>
       )}
-
       {streetStats.length === 0 && !error && (
         <p className="text-gray-600 text-center py-2 text-sm sm:text-base">No streets found for {suburb}</p>
       )}
-
       {streetStats.length > 0 && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-            <div className="flex-1">
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center flex-wrap">
+            <div className="flex-1 min-w-[200px]">
               <label className="block text-gray-800 font-semibold mb-1 text-sm sm:text-base">Filter Sold</label>
               <select
                 value={localFilter}
@@ -1029,7 +1051,7 @@ export function StreetSuggestions({
               </select>
             </div>
             <motion.button
-              onClick={handleAddAllStreets}
+              onClick={handleAddAllDoorKnocks}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm sm:text-base"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -1037,7 +1059,29 @@ export function StreetSuggestions({
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 4v16m8-8H4" />
               </svg>
-              Add All Streets
+              Add All to Door Knocks
+            </motion.button>
+            <motion.button
+              onClick={handleAddAllPhoneCalls}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm sm:text-base"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 4v16m8-8H4" />
+              </svg>
+              Add All to Phone Calls
+            </motion.button>
+            <motion.button
+              onClick={handleAddAllToBoth}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm sm:text-base"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 4v16m8-8H4" />
+              </svg>
+              Add All to Both
             </motion.button>
             <motion.button
               onClick={() => setIsGlobalImportOpen(true)}
@@ -1050,266 +1094,270 @@ export function StreetSuggestions({
             </motion.button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 max-h-96 overflow-y-auto">
-            {streetStats.map((street, index) => (
-              <motion.div
-                key={street.street_name}
-                className="bg-gray-50 p-2 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 min-w-0"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.05 }}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <h3
-                    className="text-sm sm:text-base font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 transition-colors truncate"
-                    onClick={() => toggleExpandStreet(street.street_name)}
-                  >
-                    {street.street_name}
-                  </h3>
-                  <motion.button
-                    onClick={() => toggleExpandStreet(street.street_name)}
-                    className="text-gray-600 hover:text-indigo-600 flex-shrink-0"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    {expandedStreet === street.street_name ? (
-                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
-                    )}
-                  </motion.button>
-                </div>
-                <div className="grid grid-cols-2 gap-1 mb-2">
-                  <div className="flex items-center">
-                    <span className="text-indigo-600 mr-1 text-sm sm:text-base">🏠</span>
-                    <div>
-                      <p className="text-xs sm:text-sm text-gray-600">Total</p>
-                      <p className="text-xs sm:text-sm font-semibold text-gray-900">{street.total_properties}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-indigo-600 mr-1 text-sm sm:text-base">📋</span>
-                    <div>
-                      <p className="text-xs sm:text-sm text-gray-600">List/Sold</p>
-                      <p className="text-xs sm:text-sm font-semibold text-gray-900">
-                        {street.listed_count}/{street.sold_count}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center col-span-2">
-                    <span className="text-indigo-600 mr-1 text-sm sm:text-base">💰</span>
-                    <div>
-                      <p className="text-xs sm:text-sm text-gray-600">ASP</p>
-                      <p className="text-xs sm:text-sm font-semibold text-gray-900">
-                        {street.average_sold_price ? formatCurrency(street.average_sold_price) : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-1">
-                  <motion.button
-                    onClick={() => handleSelectStreet(street, 'door_knock')}
-                    className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
-                      addedStreets[street.street_name]?.door_knock > 0
-                        ? 'bg-green-300 hover:bg-green-400'
-                        : 'bg-blue-300 hover:bg-blue-400'
-                    } transition-all text-xs sm:text-sm`}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path d="M13 3H7a2 2 0 00-2 2v14a2 2 0 002 2h6m4-14v10m-4-10v2a2 2 0 002 2h2m-4 4v2a2 2 0 002 2h2" />
-                      <circle cx="10" cy="12" r="1" />
-                    </svg>
-                    {addedStreets[street.street_name]?.door_knock > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
-                        {addedStreets[street.street_name].door_knock}
-                      </span>
-                    )}
-                  </motion.button>
-                  <motion.button
-                    onClick={() => handleSelectStreet(street, 'phone_call')}
-                    className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
-                      addedStreets[street.street_name]?.phone_call > 0
-                        ? 'bg-green-300 hover:bg-green-400'
-                        : 'bg-blue-300 hover:bg-blue-400'
-                    } transition-all text-xs sm:text-sm`}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
-                    </svg>
-                    {addedStreets[street.street_name]?.phone_call > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
-                        {addedStreets[street.street_name].phone_call}
-                      </span>
-                    )}
-                  </motion.button>
-                  <motion.button
-                    onClick={() => openContactModal(street.street_name, 'add')}
-                    className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
-                      addedStreets[street.street_name]?.contacts > 0
-                        ? 'bg-purple-300 hover:bg-purple-400'
-                        : 'bg-purple-200 hover:bg-purple-300'
-                    } transition-all text-xs sm:text-sm`}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    {addedStreets[street.street_name]?.contacts > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
-                        {addedStreets[street.street_name].contacts}
-                      </span>
-                    )}
-                  </motion.button>
-                  <motion.button
-                    onClick={() => openContactModal(street.street_name, 'list')}
-                    className="flex-1 p-1 rounded-md text-white flex items-center justify-center relative bg-green-200 hover:bg-green-300 transition-all text-xs sm:text-sm"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m1 4h1m-6 0h1m1-4h1" />
-                    </svg>
-                  </motion.button>
-                </div>
-                <AnimatePresence>
-                  {expandedStreet === street.street_name && (
-                    <motion.div
-                      className="mt-2 border-t border-gray-200 pt-2"
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.3 }}
+            {streetStats.map((street, index) => {
+              const doorKnockCount = addedStreets[street.street_name]?.door_knock || 0;
+              const phoneCallCount = addedStreets[street.street_name]?.phone_call || 0;
+              return (
+                <motion.div
+                  key={street.street_name}
+                  className="bg-gray-50 p-2 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 min-w-0"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.05 }}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <h3
+                      className="text-sm sm:text-base font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 transition-colors truncate"
+                      onClick={() => toggleExpandStreet(street.street_name)}
                     >
-                      <h4 className="text-xs font-semibold text-gray-800 mb-1">Properties on {street.street_name}</h4>
-                      {street.properties.length === 0 ? (
-                        <p className="text-gray-600 text-xs">No properties found for {street.street_name}.</p>
+                      {street.street_name}
+                    </h3>
+                    <motion.button
+                      onClick={() => toggleExpandStreet(street.street_name)}
+                      className="text-gray-600 hover:text-indigo-600 flex-shrink-0"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                    >
+                      {expandedStreet === street.street_name ? (
+                        <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" />
                       ) : (
-                        <div className="overflow-x-auto mb-4">
-                          <table className="w-full border-collapse text-xs">
-                            <thead>
-                              <tr className="bg-indigo-600 text-white text-xs">
-                                <th className="p-1 text-left">Street Number</th>
-                                <th className="p-1 text-left">Street Name</th>
-                                <th className="p-1 text-left">Suburb</th>
-                                <th className="p-1 text-left">Property Type</th>
-                                <th className="p-1 text-left">Bed</th>
-                                <th className="p-1 text-left">Bath</th>
-                                <th className="p-1 text-left">Car</th>
-                                <th className="p-1 text-left">SQM</th>
-                                <th className="p-1 text-left">Land</th>
-                                <th className="p-1 text-left">List Price</th>
-                                <th className="p-1 text-left">Sold Price</th>
-                                <th className="p-1 text-left">Sold Date</th>
-                                <th className="p-1 text-left">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {street.properties.map((property) => (
-                                <motion.tr
-                                  key={property.id}
-                                  className="border-b border-gray-200 hover:bg-gray-100"
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1 }}
-                                  transition={{ duration: 0.3 }}
-                                >
-                                  <td className="p-1">{property.street_number || 'N/A'}</td>
-                                  <td className="p-1">{property.street_name || 'N/A'}</td>
-                                  <td className="p-1">{normalizeSuburb(property.suburb)}</td>
-                                  <td className="p-1">{property.property_type || 'N/A'}</td>
-                                  <td className="p-1">{property.bedrooms ?? 'N/A'}</td>
-                                  <td className="p-1">{property.bathrooms ?? 'N/A'}</td>
-                                  <td className="p-1">{property.car_garage ?? 'N/A'}</td>
-                                  <td className="p-1">{property.sqm ?? 'N/A'}</td>
-                                  <td className="p-1">{property.landsize ?? 'N/A'}</td>
-                                  <td className="p-1">{property.price ? formatCurrency(property.price) : 'N/A'}</td>
-                                  <td className="p-1">
-                                    {property.sold_price ? formatCurrency(property.sold_price) : 'N/A'}
-                                  </td>
-                                  <td className="p-1">
-                                    {property.sold_date ? new Date(property.sold_date).toLocaleDateString() : 'N/A'}
-                                  </td>
-                                  <td className="p-1">{property.status}</td>
-                                </motion.tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
                       )}
-                      <h4 className="text-xs font-semibold text-gray-800 mb-1">Contacts on {street.street_name}</h4>
-                      {street.contacts.length === 0 ? (
-                        <p className="text-gray-600 text-xs">No contacts found for {street.street_name}.</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full border-collapse text-xs">
-                            <thead>
-                              <tr className="bg-purple-600 text-white text-xs">
-                                <th className="p-1 text-left">Owner 1</th>
-                                <th className="p-1 text-left">Owner 2</th>
-                                <th className="p-1 text-left">Owner 1 Email</th>
-                                <th className="p-1 text-left">Owner 2 Email</th>
-                                <th className="p-1 text-left">Phone Number</th>
-                                <th className="p-1 text-left">Owner 1 Mobile</th>
-                                <th className="p-1 text-left">Owner 2 Mobile</th>
-                                <th className="p-1 text-left">Outcome</th>
-                                <th className="p-1 text-left">Street Number</th>
-                                <th className="p-1 text-left">Status</th>
-                                <th className="p-1 text-left">Last Sold Date</th>
-                                <th className="p-1 text-left">Price</th>
-                                <th className="p-1 text-left">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {street.contacts.map((contact) => (
-                                <motion.tr
-                                  key={contact.id}
-                                  className="border-b border-gray-200 hover:bg-gray-100"
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1 }}
-                                  transition={{ duration: 0.3 }}
-                                >
-                                  <td className="p-1">{contact.owner_1}</td>
-                                  <td className="p-1">{contact.owner_2}</td>
-                                  <td className="p-1">{contact.owner_1_email}</td>
-                                  <td className="p-1">{contact.owner_2_email}</td>
-                                  <td className="p-1">{contact.phone_number}</td>
-                                  <td className="p-1">{contact.owner_1_mobile || 'N/A'}</td>
-                                  <td className="p-1">{contact.owner_2_mobile || 'N/A'}</td>
-                                  <td className="p-1">{contact.outcome || 'N/A'}</td>
-                                  <td className="p-1">{contact.street_number || 'N/A'}</td>
-                                  <td className="p-1">{contact.status || 'N/A'}</td>
-                                  <td className="p-1">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
-                                  <td className="p-1">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
-                                  <td className="p-1 flex gap-1">
-                                    <motion.button
-                                      onClick={() => handleEditContact(contact)}
-                                      className="text-blue-600 hover:text-blue-800"
-                                      whileHover={{ scale: 1.1 }}
-                                      whileTap={{ scale: 0.9 }}
-                                    >
-                                      <Edit2 className="w-4 h-4" />
-                                    </motion.button>
-                                    <motion.button
-                                      onClick={() => handleDeleteContact(contact.id!, street.street_name)}
-                                      className="text-red-600 hover:text-red-800"
-                                      whileHover={{ scale: 1.1 }}
-                                      whileTap={{ scale: 0.9 }}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </motion.button>
-                                  </td>
-                                </motion.tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                    </motion.button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 mb-2">
+                    <div className="flex items-center">
+                      <span className="text-indigo-600 mr-1 text-sm sm:text-base">🏠</span>
+                      <div>
+                        <p className="text-xs sm:text-sm text-gray-600">Total</p>
+                        <p className="text-xs sm:text-sm font-semibold text-gray-900">{street.total_properties}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-indigo-600 mr-1 text-sm sm:text-base">📋</span>
+                      <div>
+                        <p className="text-xs sm:text-sm text-gray-600">List/Sold</p>
+                        <p className="text-xs sm:text-sm font-semibold text-gray-900">
+                          {street.listed_count}/{street.sold_count}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center col-span-2">
+                      <span className="text-indigo-600 mr-1 text-sm sm:text-base">💰</span>
+                      <div>
+                        <p className="text-xs sm:text-sm text-gray-600">ASP</p>
+                        <p className="text-xs sm:text-sm font-semibold text-gray-900">
+                          {street.average_sold_price ? formatCurrency(street.average_sold_price) : 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <motion.button
+                      onClick={() => handleToggleStreet(street, 'door_knock')}
+                      className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
+                        doorKnockCount > 0
+                          ? 'bg-green-500 hover:bg-green-600'
+                          : 'bg-blue-300 hover:bg-blue-400'
+                      } transition-all text-xs sm:text-sm`}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M13 3H7a2 2 0 00-2 2v14a2 2 0 002 2h6m4-14v10m-4-10v2a2 2 0 002 2h2m-4 4v2a2 2 0 002 2h2" />
+                        <circle cx="10" cy="12" r="1" />
+                      </svg>
+                      {doorKnockCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
+                          {doorKnockCount}
+                        </span>
                       )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            ))}
+                    </motion.button>
+                    <motion.button
+                      onClick={() => handleToggleStreet(street, 'phone_call')}
+                      className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
+                        phoneCallCount > 0
+                          ? 'bg-green-500 hover:bg-green-600'
+                          : 'bg-blue-300 hover:bg-blue-400'
+                      } transition-all text-xs sm:text-sm`}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
+                      </svg>
+                      {phoneCallCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
+                          {phoneCallCount}
+                        </span>
+                      )}
+                    </motion.button>
+                    <motion.button
+                      onClick={() => openContactModal(street.street_name, 'add')}
+                      className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
+                        addedStreets[street.street_name]?.contacts > 0
+                          ? 'bg-purple-300 hover:bg-purple-400'
+                          : 'bg-purple-200 hover:bg-purple-300'
+                      } transition-all text-xs sm:text-sm`}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      {addedStreets[street.street_name]?.contacts > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-3 w-3 flex items-center justify-center">
+                          {addedStreets[street.street_name].contacts}
+                        </span>
+                      )}
+                    </motion.button>
+                    <motion.button
+                      onClick={() => openContactModal(street.street_name, 'list')}
+                      className="flex-1 p-1 rounded-md text-white flex items-center justify-center relative bg-green-200 hover:bg-green-300 transition-all text-xs sm:text-sm"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m1 4h1m-6 0h1m1-4h1" />
+                      </svg>
+                    </motion.button>
+                  </div>
+                  <AnimatePresence>
+                    {expandedStreet === street.street_name && (
+                      <motion.div
+                        className="mt-2 border-t border-gray-200 pt-2"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <h4 className="text-xs font-semibold text-gray-800 mb-1">Properties on {street.street_name}</h4>
+                        {street.properties.length === 0 ? (
+                          <p className="text-gray-600 text-xs">No properties found for {street.street_name}.</p>
+                        ) : (
+                          <div className="overflow-x-auto mb-4">
+                            <table className="w-full border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-indigo-600 text-white text-xs">
+                                  <th className="p-1 text-left">Street Number</th>
+                                  <th className="p-1 text-left">Street Name</th>
+                                  <th className="p-1 text-left">Suburb</th>
+                                  <th className="p-1 text-left">Property Type</th>
+                                  <th className="p-1 text-left">Bed</th>
+                                  <th className="p-1 text-left">Bath</th>
+                                  <th className="p-1 text-left">Car</th>
+                                  <th className="p-1 text-left">SQM</th>
+                                  <th className="p-1 text-left">Land</th>
+                                  <th className="p-1 text-left">List Price</th>
+                                  <th className="p-1 text-left">Sold Price</th>
+                                  <th className="p-1 text-left">Sold Date</th>
+                                  <th className="p-1 text-left">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {street.properties.map((property) => (
+                                  <motion.tr
+                                    key={property.id}
+                                    className="border-b border-gray-200 hover:bg-gray-100"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    transition={{ duration: 0.3 }}
+                                  >
+                                    <td className="p-1">{property.street_number || 'N/A'}</td>
+                                    <td className="p-1">{property.street_name || 'N/A'}</td>
+                                    <td className="p-1">{normalizeSuburb(property.suburb)}</td>
+                                    <td className="p-1">{property.property_type || 'N/A'}</td>
+                                    <td className="p-1">{property.bedrooms ?? 'N/A'}</td>
+                                    <td className="p-1">{property.bathrooms ?? 'N/A'}</td>
+                                    <td className="p-1">{property.car_garage ?? 'N/A'}</td>
+                                    <td className="p-1">{property.sqm ?? 'N/A'}</td>
+                                    <td className="p-1">{property.landsize ?? 'N/A'}</td>
+                                    <td className="p-1">{property.price ? formatCurrency(property.price) : 'N/A'}</td>
+                                    <td className="p-1">
+                                      {property.sold_price ? formatCurrency(property.sold_price) : 'N/A'}
+                                    </td>
+                                    <td className="p-1">
+                                      {property.sold_date ? new Date(property.sold_date).toLocaleDateString() : 'N/A'}
+                                    </td>
+                                    <td className="p-1">{property.status}</td>
+                                  </motion.tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        <h4 className="text-xs font-semibold text-gray-800 mb-1">Contacts on {street.street_name}</h4>
+                        {street.contacts.length === 0 ? (
+                          <p className="text-gray-600 text-xs">No contacts found for {street.street_name}.</p>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-purple-600 text-white text-xs">
+                                  <th className="p-1 text-left">Owner 1</th>
+                                  <th className="p-1 text-left">Owner 2</th>
+                                  <th className="p-1 text-left">Owner 1 Email</th>
+                                  <th className="p-1 text-left">Owner 2 Email</th>
+                                  <th className="p-1 text-left">Phone Number</th>
+                                  <th className="p-1 text-left">Owner 1 Mobile</th>
+                                  <th className="p-1 text-left">Owner 2 Mobile</th>
+                                  <th className="p-1 text-left">Outcome</th>
+                                  <th className="p-1 text-left">Street Number</th>
+                                  <th className="p-1 text-left">Status</th>
+                                  <th className="p-1 text-left">Last Sold Date</th>
+                                  <th className="p-1 text-left">Price</th>
+                                  <th className="p-1 text-left">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {street.contacts.map((contact) => (
+                                  <motion.tr
+                                    key={contact.id}
+                                    className="border-b border-gray-200 hover:bg-gray-100"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    transition={{ duration: 0.3 }}
+                                  >
+                                    <td className="p-1">{contact.owner_1}</td>
+                                    <td className="p-1">{contact.owner_2}</td>
+                                    <td className="p-1">{contact.owner_1_email}</td>
+                                    <td className="p-1">{contact.owner_2_email}</td>
+                                    <td className="p-1">{contact.phone_number}</td>
+                                    <td className="p-1">{contact.owner_1_mobile || 'N/A'}</td>
+                                    <td className="p-1">{contact.owner_2_mobile || 'N/A'}</td>
+                                    <td className="p-1">{contact.outcome || 'N/A'}</td>
+                                    <td className="p-1">{contact.street_number || 'N/A'}</td>
+                                    <td className="p-1">{contact.status || 'N/A'}</td>
+                                    <td className="p-1">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
+                                    <td className="p-1">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
+                                    <td className="p-1 flex gap-1">
+                                      <motion.button
+                                        onClick={() => handleEditContact(contact)}
+                                        className="text-blue-600 hover:text-blue-800"
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </motion.button>
+                                      <motion.button
+                                        onClick={() => handleDeleteContact(contact.id!, street.street_name)}
+                                        className="text-red-600 hover:text-red-800"
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </motion.button>
+                                    </td>
+                                  </motion.tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1412,10 +1460,10 @@ export function StreetSuggestions({
               )}
               {modalView === 'list' ? (
                 <div>
-                  <div className="flex justify-between mb-4 gap-2">
+                  <div className="flex justify-between mb-4 gap-2 flex-wrap">
                     <button
                       onClick={() => setModalView('add')}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
                     >
                       Add New Contact
                     </button>
@@ -1434,13 +1482,13 @@ export function StreetSuggestions({
                     <button
                       onClick={() => setShowConfirmDeleteSelected(true)}
                       disabled={selectedContactIds.length === 0}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 text-sm"
                     >
                       Delete Selected ({selectedContactIds.length})
                     </button>
                     <button
                       onClick={() => setShowConfirmDeleteAll(true)}
-                      className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800"
+                      className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 text-sm"
                     >
                       Delete All Contacts
                     </button>
@@ -1483,7 +1531,7 @@ export function StreetSuggestions({
                       </div>
                     </div>
                   )}
-                  {streetStats.find(s => s.street_name === selectedStreet)?.contacts.length === 0 ? (
+                  {streetStats.find((s) => s.street_name === selectedStreet)?.contacts.length === 0 ? (
                     <p className="text-gray-600 text-base">No contacts found for {selectedStreet}.</p>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1493,8 +1541,15 @@ export function StreetSuggestions({
                             <th className="p-2 text-left">
                               <input
                                 type="checkbox"
-                                checked={selectedContactIds.length === streetStats.find(s => s.street_name === selectedStreet)?.contacts.length}
-                                onChange={() => toggleSelectAllContacts(streetStats.find(s => s.street_name === selectedStreet)?.contacts || [])}
+                                checked={
+                                  selectedContactIds.length ===
+                                  streetStats.find((s) => s.street_name === selectedStreet)?.contacts.length
+                                }
+                                onChange={() =>
+                                  toggleSelectAllContacts(
+                                    streetStats.find((s) => s.street_name === selectedStreet)?.contacts || []
+                                  )
+                                }
                               />
                             </th>
                             <th className="p-2 text-left">Owner 1</th>
@@ -1513,43 +1568,49 @@ export function StreetSuggestions({
                           </tr>
                         </thead>
                         <tbody>
-                          {streetStats.find(s => s.street_name === selectedStreet)?.contacts.map((contact) => (
-                            <tr key={contact.id} className="border-b border-gray-200 hover:bg-gray-100">
-                              <td className="p-2">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedContactIds.includes(contact.id!)}
-                                  onChange={() => toggleSelectContact(contact.id!)}
-                                />
-                              </td>
-                              <td className="p-2">{contact.owner_1}</td>
-                              <td className="p-2">{contact.owner_2}</td>
-                              <td className="p-2">{contact.owner_1_email}</td>
-                              <td className="p-2">{contact.owner_2_email}</td>
-                              <td className="p-2">{contact.phone_number}</td>
-                              <td className="p-2">{contact.owner_1_mobile || 'N/A'}</td>
-                              <td className="p-2">{contact.owner_2_mobile || 'N/A'}</td>
-                              <td className="p-2">{contact.outcome || 'N/A'}</td>
-                              <td className="p-2">{contact.street_number || 'N/A'}</td>
-                              <td className="p-2">{contact.status || 'N/A'}</td>
-                              <td className="p-2">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
-                              <td className="p-2">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
-                              <td className="p-2 flex gap-1">
-                                <button
-                                  onClick={() => handleEditContact(contact)}
-                                  className="text-blue-600 hover:text-blue-800"
-                                >
-                                  <Edit2 className="w-5 h-5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteContact(contact.id!, selectedStreet!)}
-                                  className="text-red-600 hover:text-red-800"
-                                >
-                                  <Trash2 className="w-5 h-5" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                          {streetStats
+                            .find((s) => s.street_name === selectedStreet)
+                            ?.contacts.map((contact) => (
+                              <tr key={contact.id} className="border-b border-gray-200 hover:bg-gray-100">
+                                <td className="p-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedContactIds.includes(contact.id!)}
+                                    onChange={() => toggleSelectContact(contact.id!)}
+                                  />
+                                </td>
+                                <td className="p-2">{contact.owner_1}</td>
+                                <td className="p-2">{contact.owner_2}</td>
+                                <td className="p-2">{contact.owner_1_email}</td>
+                                <td className="p-2">{contact.owner_2_email}</td>
+                                <td className="p-2">{contact.phone_number}</td>
+                                <td className="p-2">{contact.owner_1_mobile || 'N/A'}</td>
+                                <td className="p-2">{contact.owner_2_mobile || 'N/A'}</td>
+                                <td className="p-2">{contact.outcome || 'N/A'}</td>
+                                <td className="p-2">{contact.street_number || 'N/A'}</td>
+                                <td className="p-2">{contact.status || 'N/A'}</td>
+                                <td className="p-2">
+                                  {contact.last_sold_date
+                                    ? new Date(contact.last_sold_date).toLocaleDateString()
+                                    : 'N/A'}
+                                </td>
+                                <td className="p-2">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
+                                <td className="p-2 flex gap-1">
+                                  <button
+                                    onClick={() => handleEditContact(contact)}
+                                    className="text-blue-600 hover:text-blue-800"
+                                  >
+                                    <Edit2 className="w-5 h-5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteContact(contact.id!, selectedStreet!)}
+                                    className="text-red-600 hover:text-red-800"
+                                  >
+                                    <Trash2 className="w-5 h-5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
                     </div>

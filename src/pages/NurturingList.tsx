@@ -7,7 +7,6 @@ import { toast } from 'react-toastify';
 import jsPDF from 'jspdf';
 // import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-
 interface NurturingContact {
   id: string;
   first_name: string;
@@ -28,12 +27,10 @@ interface NurturingContact {
   priority: 'hot' | 'warm' | 'cold' | null;
   agent_id: string;
 }
-
 interface Agent {
   id: string;
   name: string;
 }
-
 export function NurturingList() {
   const [contacts, setContacts] = useState<NurturingContact[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -78,7 +75,8 @@ export function NurturingList() {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [selectedNotes, setSelectedNotes] = useState('');
   const [showCompletedTasks, setShowCompletedTasks] = useState(false);
-
+  const [suggestions, setSuggestions] = useState<NurturingContact[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const houseTypeOptions = [
     { value: '', label: 'Select House Type' },
     { value: 'house', label: 'House' },
@@ -92,7 +90,6 @@ export function NurturingList() {
     { value: 'warm', label: 'Warm ☀️', emoji: '☀️' },
     { value: 'cold', label: 'Cold ❄️', emoji: '❄️' },
   ];
-
   useEffect(() => {
     if (!user || !profile) {
       setError('User not authenticated');
@@ -133,7 +130,19 @@ export function NurturingList() {
     }, 1000 * 60 * 60);
     return () => clearInterval(reminderInterval);
   }, [profile, user, selectedAgent]);
-
+  useEffect(() => {
+    if (!isEditMode && !isViewMode && newContact.first_name.length >= 1) {
+      const filtered = contacts.filter(c =>
+        c.first_name.toLowerCase().startsWith(newContact.first_name.toLowerCase()) &&
+        c.status !== 'Closed'
+      );
+      setSuggestions(filtered.slice(0, 5));
+      setShowSuggestions(true);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [newContact.first_name, contacts, isEditMode, isViewMode]);
   const getReminder = (contact: NurturingContact) => {
     if (contact.status === 'Closed') return 'Completed';
     if (!contact.call_back_date) return '';
@@ -146,7 +155,6 @@ export function NurturingList() {
     if (diff > 0) return `${diff} days to go`;
     return `Overdue by ${-diff} days`;
   };
-
   const handleAddContact = async () => {
     if (!user) {
       setContactError('User not authenticated');
@@ -182,7 +190,6 @@ export function NurturingList() {
       setLoading(false);
     }
   };
-
   const handleEditContact = async () => {
     if (!selectedContact || !newContact.first_name || !newContact.last_name || !newContact.email) {
       setContactError('First Name, Last Name, and Email are required');
@@ -222,7 +229,6 @@ export function NurturingList() {
       setSelectedContact(null);
     }
   };
-
   const handleDeleteContact = async (id: string) => {
     if (!confirm('Are you sure you want to delete this contact?')) return;
     setLoading(true);
@@ -242,7 +248,6 @@ export function NurturingList() {
       setLoading(false);
     }
   };
-
   const handleBulkDelete = async () => {
     if (selectedContactIds.length === 0) {
       toast.info('No contacts selected for deletion');
@@ -267,7 +272,6 @@ export function NurturingList() {
       setLoading(false);
     }
   };
-
   const handleDeleteAll = async () => {
     if (contacts.length === 0) {
       toast.info('No contacts to delete');
@@ -291,13 +295,11 @@ export function NurturingList() {
       setLoading(false);
     }
   };
-
   const handleViewContact = (contact: NurturingContact) => {
     setSelectedContact(contact);
     setIsViewMode(true);
     setHasPhoneNumber(contact.phone_number ? 'Yes' : 'No');
   };
-
   const getStatusBadgeColor = (status: string | null) => {
     switch (status) {
       case 'Inprogress':
@@ -320,7 +322,6 @@ export function NurturingList() {
         return [243, 244, 246, 0.8]; // Gray for default
     }
   };
-
   const getPriorityBadgeClass = (priority: string | null) => {
     switch (priority) {
       case 'hot':
@@ -333,7 +334,6 @@ export function NurturingList() {
         return 'bg-gray-100 text-gray-800 border-gray-300';
     }
   };
-
   const getPriorityEmoji = (priority: string | null) => {
     switch (priority) {
       case 'hot':
@@ -346,7 +346,6 @@ export function NurturingList() {
         return '⚪';
     }
   };
-
   const handleDownloadPDF = (contact: NurturingContact) => {
     try {
       const doc = new jsPDF();
@@ -454,7 +453,6 @@ export function NurturingList() {
       toast.error('Failed to generate PDF for this task. Please try again.');
     }
   };
-
   const handleDownloadAllTasks = () => {
     try {
       if (contacts.length === 0) {
@@ -549,7 +547,6 @@ export function NurturingList() {
       toast.error('Failed to generate PDF for all tasks. Please try again or contact support.');
     }
   };
-
   const handleExcelImport = async () => {
     if (!user) {
       toast.error('User not authenticated');
@@ -766,7 +763,6 @@ export function NurturingList() {
       setLoading(false);
     }
   };
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
@@ -782,7 +778,6 @@ export function NurturingList() {
       }));
     }
   };
-
   const resetForm = () => {
     setNewContact({
       first_name: '',
@@ -808,14 +803,14 @@ export function NurturingList() {
     setIsEditMode(false);
     setIsViewMode(false);
     setSelectedContact(null);
+    setSuggestions([]);
+    setShowSuggestions(false);
   };
-
   const handleSelectContact = (id: string) => {
     setSelectedContactIds(prev =>
       prev.includes(id) ? prev.filter(contactId => contactId !== id) : [...prev, id]
     );
   };
-
   const handleSelectAll = () => {
     if (selectAll) {
       setSelectedContactIds([]);
@@ -825,7 +820,6 @@ export function NurturingList() {
       setSelectAll(true);
     }
   };
-
   const getStatusBadgeClass = (status: string | null) => {
     switch (status) {
       case 'Inprogress':
@@ -848,21 +842,18 @@ export function NurturingList() {
         return 'bg-gray-100 text-gray-800';
     }
   };
-
   const handleViewSavedTasks = () => {
     setShowTasks(true);
     setTaskSearchQuery('');
     setTaskFilter('all');
     setShowCompletedTasks(false);
   };
-
   let filteredContacts = contacts.filter(c =>
     (`${c.first_name} ${c.last_name}`.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
      c.email.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
      c.notes?.toLowerCase().includes(taskSearchQuery.toLowerCase()) ||
      c.requirements?.toLowerCase().includes(taskSearchQuery.toLowerCase()))
   );
-
   if (taskFilter !== 'all') {
     if (taskFilter === 'completed') {
       filteredContacts = filteredContacts.filter(c => c.status === 'Closed');
@@ -872,11 +863,9 @@ export function NurturingList() {
       filteredContacts = filteredContacts.filter(c => c.status === 'Inprogress');
     }
   }
-
   if (showCompletedTasks) {
     filteredContacts = filteredContacts.filter(c => c.status === 'Closed');
   }
-
   let sortedContacts = [...filteredContacts];
   if (sortBy === 'newToOld') {
     sortedContacts.sort((a, b) => b.id.localeCompare(a.id));
@@ -889,7 +878,6 @@ export function NurturingList() {
       return dateA - dateB;
     });
   }
-
   const generateTasksReport = () => {
     if (sortedContacts.length === 0) {
       return <p className="text-gray-500 text-center py-8">No tasks found matching your criteria.</p>;
@@ -1051,7 +1039,6 @@ export function NurturingList() {
       </div>
     );
   };
-
   if (loading) {
     return (
       <motion.div
@@ -1072,7 +1059,6 @@ export function NurturingList() {
       </motion.div>
     );
   }
-
   return (
     <motion.div
       className="bg-gray-50 min-h-screen p-6"
@@ -1195,16 +1181,54 @@ export function NurturingList() {
                     ))}
                   </select>
                 )}
-                <input
-                  type="text"
-                  name="first_name"
-                  value={newContact.first_name}
-                  onChange={handleInputChange}
-                  placeholder="First Name"
-                  className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  aria-label="First Name"
-                  disabled={isViewMode}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    name="first_name"
+                    value={newContact.first_name}
+                    onChange={handleInputChange}
+                    placeholder="First Name"
+                    className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-full"
+                    aria-label="First Name"
+                    disabled={isViewMode}
+                  />
+                  {showSuggestions && suggestions.length > 0 && (
+                    <ul className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                      {suggestions.map((suggestion) => (
+                        <li
+                          key={suggestion.id}
+                          className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => {
+                            setNewContact({
+                              first_name: suggestion.first_name,
+                              last_name: suggestion.last_name,
+                              email: suggestion.email,
+                              phone_number: suggestion.phone_number || '',
+                              mobile: suggestion.mobile || '',
+                              street_number: suggestion.street_number || '',
+                              street_name: suggestion.street_name || '',
+                              suburb: suggestion.suburb || '',
+                              postcode: suggestion.postcode || '',
+                              house_type: suggestion.house_type || '',
+                              requirements: suggestion.requirements || '',
+                              notes: suggestion.notes || '',
+                              call_back_date: suggestion.call_back_date || '',
+                              needs_monthly_appraisals: suggestion.needs_monthly_appraisals,
+                              status: suggestion.status || 'Inprogress',
+                              priority: suggestion.priority || 'warm',
+                            });
+                            setHasPhoneNumber(suggestion.phone_number ? 'Yes' : 'No');
+                            setShowSuggestions(false);
+                          }}
+                        >
+                          <div className="font-semibold text-sm">{suggestion.first_name} {suggestion.last_name}</div>
+                          <div className="text-xs text-gray-600">{suggestion.email}</div>
+                          <div className="text-xs text-gray-500">{suggestion.phone_number || suggestion.mobile || 'No phone'}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
                 <input
                   type="text"
                   name="last_name"
@@ -1447,8 +1471,8 @@ export function NurturingList() {
                       <motion.button
                         onClick={() => setReportFormat('table')}
                         className={`px-3 py-2 rounded-lg text-sm ${
-                          reportFormat === 'table' 
-                            ? 'bg-blue-600 text-white' 
+                          reportFormat === 'table'
+                            ? 'bg-blue-600 text-white'
                             : 'bg-gray-200 text-gray-700'
                         }`}
                         whileHover={{ scale: 1.05 }}
@@ -1459,8 +1483,8 @@ export function NurturingList() {
                       <motion.button
                         onClick={() => setReportFormat('cards')}
                         className={`px-3 py-2 rounded-lg text-sm ${
-                          reportFormat === 'cards' 
-                            ? 'bg-blue-600 text-white' 
+                          reportFormat === 'cards'
+                            ? 'bg-blue-600 text-white'
                             : 'bg-gray-200 text-gray-700'
                         }`}
                         whileHover={{ scale: 1.05 }}
@@ -1479,7 +1503,6 @@ export function NurturingList() {
                     </motion.button>
                   </div>
                 </div>
-
                 <div className="mb-6 flex flex-wrap gap-4">
                   <div className="relative flex-1 min-w-[200px]">
                     <input
@@ -1491,7 +1514,7 @@ export function NurturingList() {
                     />
                     <Search className="absolute left-3 top-3 w-4 h-4 text-gray-500" />
                   </div>
-                  
+                 
                   <select
                     value={taskFilter}
                     onChange={(e) => setTaskFilter(e.target.value as typeof taskFilter)}
@@ -1502,7 +1525,7 @@ export function NurturingList() {
                     <option value="ongoing">Ongoing</option>
                     <option value="completed">Completed</option>
                   </select>
-                  
+                 
                   <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
@@ -1512,7 +1535,7 @@ export function NurturingList() {
                     <option value="oldToNew">Old to New</option>
                     <option value="dueSoon">Due Soon</option>
                   </select>
-                  
+                 
                   {profile?.role === 'admin' && (
                     <select
                       value={selectedAgent}
@@ -1526,7 +1549,6 @@ export function NurturingList() {
                     </select>
                   )}
                 </div>
-
                 <div className="mb-4 flex justify-between items-center">
                   <p className="text-sm text-gray-600">
                     Showing {sortedContacts.length} of {contacts.length} tasks
@@ -1541,7 +1563,6 @@ export function NurturingList() {
                     Download Report
                   </motion.button>
                 </div>
-
                 {generateTasksReport()}
               </motion.div>
             </motion.div>

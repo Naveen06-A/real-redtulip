@@ -1,16 +1,17 @@
 import { motion } from 'framer-motion';
-import { Download, Eye, Save, X } from 'lucide-react';
+import { Download, Eye, Save, X, Edit, Trash2 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HarcourtsLogo from './assets/Harcourts_Success_LogoSet_Stacked_BLUE_080724.png';
-import { generatePLPDFBlob, generateAmortizationPDFBlob, generateCompletePDFBlob } from './PDFGenerator'; // Import from separate file
+import { generatePLPDFBlob, generateAmortizationPDFBlob, generateCompletePDFBlob } from './PDFGenerator';
 
- export interface Revenue {
+// Interfaces and other existing code remain unchanged
+export interface Revenue {
   name: string;
   amount: number;
   period: 'monthly' | 'yearly';
 }
 
- export interface Expense {
+export interface Expense {
   name: string;
   amount: number;
   period: 'monthly' | 'yearly';
@@ -162,34 +163,32 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
 
- // REVENUE
+  // REVENUE
   const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
     let amount = 0;
     if (rev.period === 'monthly') {
-      amount = rev.amount ; // monthly → yearly
+      amount = rev.amount; // monthly → yearly
     } else if (rev.period === 'yearly') {
-      amount = rev.amount *12;      // yearly → yearly
+      amount = rev.amount * 12; // yearly → yearly
     }
-      // yearly → yearly
-   
-    return sum + amount;
-  }, 0) + (plan.rentalRevenue || 0);
+    return amount + sum;
+  }, 0);
 
   const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
     let amount = 0;
     if (rev.period === 'monthly') {
-      amount = rev.amount;       // monthly → monthly
-    } 
-    return sum + amount;
-  }, 0) + ((plan.rentalRevenue || 0) / 12);
+      amount = rev.amount; // monthly → monthly
+    }
+    return amount + sum;
+  }, 0);
 
   // EXPENSES
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
     let amount = 0;
     if (expense.period === 'monthly') {
-      amount = expense.amount ; // monthly → yearly
-    }  else if (expense.period === 'yearly') {
-      amount = expense.amount *12;      // yearly → yearly
+      amount = expense.amount; // monthly → yearly
+    } else if (expense.period === 'yearly') {
+      amount = expense.amount * 12; // yearly → yearly
     }
     return sum + amount;
   }, 0);
@@ -197,8 +196,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const monthlyExpenses = plan.expenses.reduce((sum, expense) => {
     let amount = 0;
     if (expense.period === 'monthly') {
-      amount = expense.amount;       // monthly → monthly
-  
+      amount = expense.amount; // monthly → monthly
     }
     return sum + amount;
   }, 0);
@@ -414,7 +412,6 @@ export function EMIPlanCalculator() {
           const rentalRevenue = field === 'rentalRevenue' ? newValue : (prev.rentalRevenue || 0);
           const perDollarValue = field === 'perDollarValue' ? newValue : (prev.perDollarValue || 0);
           const rentRollPurchaseValue = Math.round(rentalRevenue * perDollarValue * 100) / 100;
-
           updatedPlan = {
             ...prev,
             [field]: newValue,
@@ -579,6 +576,17 @@ export function EMIPlanCalculator() {
     [savedPlans]
   );
 
+  const deletePlan = useCallback(
+    (planId: string) => {
+      const updatedPlans = savedPlans.filter((p) => p.id !== planId);
+      setSavedPlans(updatedPlans);
+      localStorage.setItem('emiPlans', JSON.stringify(updatedPlans));
+      setError('Plan deleted successfully!');
+      setTimeout(() => setError(null), 3000);
+    },
+    [savedPlans]
+  );
+
   const amortizationSchedule = useMemo(() => {
     const effectiveLoanAmount = emiPlan.gstPercentage ? emiPlan.loanAmount * (1 + emiPlan.gstPercentage / 100) : emiPlan.loanAmount;
     const bankLoanAmount = effectiveLoanAmount * emiPlan.bankPercent / 100;
@@ -639,119 +647,120 @@ export function EMIPlanCalculator() {
   }, [emiPlan]);
 
   const generatePLPDFBlobLocal = useCallback(() => generatePLPDFBlob(emiPlan, calculations), [emiPlan, calculations]);
-const generateAmortizationPDFBlobLocal = useCallback(() => generateAmortizationPDFBlob(emiPlan, amortizationSchedule), [emiPlan, amortizationSchedule]);
-const generateCompletePDFBlobLocal = useCallback(() => generateCompletePDFBlob(emiPlan, calculations), [emiPlan, calculations]);
+  const generateAmortizationPDFBlobLocal = useCallback(() => generateAmortizationPDFBlob(emiPlan, amortizationSchedule), [emiPlan, amortizationSchedule]);
+  const generateCompletePDFBlobLocal = useCallback(() => generateCompletePDFBlob(emiPlan, calculations), [emiPlan, calculations]);
 
-const viewPLPDF = useCallback(async () => {
-  try {
-    const blob = await generatePLPDFBlobLocal();
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      URL.revokeObjectURL(url);
-    } else {
-      throw new Error('Generated P/L PDF is not a valid Blob');
+  const viewPLPDF = useCallback(async () => {
+    try {
+      const blob = await generatePLPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated P/L PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error generating P/L PDF:', error);
+      setError('Failed to generate P/L PDF');
     }
-  } catch (error) {
-    console.error('Error generating P/L PDF:', error);
-    setError('Failed to generate P/L PDF');
-  }
-}, [generatePLPDFBlobLocal]);
+  }, [generatePLPDFBlobLocal]);
 
-const downloadPLPDF = useCallback(async () => {
-  try {
-    const blob = await generatePLPDFBlobLocal();
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'ProfitLossReport.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } else {
-      throw new Error('Generated P/L PDF is not a valid Blob');
+  const downloadPLPDF = useCallback(async () => {
+    try {
+      const blob = await generatePLPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'ProfitLossReport.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated P/L PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error downloading P/L PDF:', error);
+      setError('Failed to download P/L PDF');
     }
-  } catch (error) {
-    console.error('Error downloading P/L PDF:', error);
-    setError('Failed to download P/L PDF');
-  }
-}, [generatePLPDFBlobLocal]);
+  }, [generatePLPDFBlobLocal]);
 
-const viewAmortizationPDF = useCallback(async () => {
-  try {
-    const blob = await generateAmortizationPDFBlobLocal();
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      URL.revokeObjectURL(url);
-    } else {
-      throw new Error('Generated Amortization PDF is not a valid Blob');
+  const viewAmortizationPDF = useCallback(async () => {
+    try {
+      const blob = await generateAmortizationPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Amortization PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error generating Amortization PDF:', error);
+      setError('Failed to generate Amortization PDF');
     }
-  } catch (error) {
-    console.error('Error generating Amortization PDF:', error);
-    setError('Failed to generate Amortization PDF');
-  }
-}, [generateAmortizationPDFBlobLocal]);
+  }, [generateAmortizationPDFBlobLocal]);
 
-const downloadAmortizationPDF = useCallback(async () => {
-  try {
-    const blob = await generateAmortizationPDFBlobLocal();
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'AmortizationSchedule.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } else {
-      throw new Error('Generated Amortization PDF is not a valid Blob');
+  const downloadAmortizationPDF = useCallback(async () => {
+    try {
+      const blob = await generateAmortizationPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'AmortizationSchedule.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Amortization PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error downloading Amortization PDF:', error);
+      setError('Failed to download Amortization PDF');
     }
-  } catch (error) {
-    console.error('Error downloading Amortization PDF:', error);
-    setError('Failed to download Amortization PDF');
-  }
-}, [generateAmortizationPDFBlobLocal]);
+  }, [generateAmortizationPDFBlobLocal]);
 
-const viewCompletePDF = useCallback(async () => {
-  try {
-    const blob = await generateCompletePDFBlobLocal();
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      URL.revokeObjectURL(url);
-    } else {
-      throw new Error('Generated Complete PDF is not a valid Blob');
+  const viewCompletePDF = useCallback(async () => {
+    try {
+      const blob = await generateCompletePDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Complete PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error generating Complete PDF:', error);
+      setError('Failed to generate Complete PDF');
     }
-  } catch (error) {
-    console.error('Error generating Complete PDF:', error);
-    setError('Failed to generate Complete PDF');
-  }
-}, [generateCompletePDFBlobLocal]);
+  }, [generateCompletePDFBlobLocal]);
 
-const downloadCompletePDF = useCallback(async () => {
-  try {
-    const blob = await generateCompletePDFBlobLocal();
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'CompleteEMIPlanReport.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } else {
-      throw new Error('Generated Complete PDF is not a valid Blob');
+  const downloadCompletePDF = useCallback(async () => {
+    try {
+      const blob = await generateCompletePDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'CompleteEMIPlanReport.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Complete PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error downloading Complete PDF:', error);
+      setError('Failed to download Complete PDF');
     }
-  } catch (error) {
-    console.error('Error downloading Complete PDF:', error);
-    setError('Failed to download Complete PDF');
-  }
-}, [generateCompletePDFBlobLocal]);
+  }, [generateCompletePDFBlobLocal]);
+
   const loanTypeOptions: string[] = [
     'Business Loan',
     'Vehicle Loan',
@@ -793,20 +802,56 @@ const downloadCompletePDF = useCallback(async () => {
           </motion.div>
         )}
         {savedPlans.length > 0 && (
-          <div className="mb-6 text-center">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Load Saved Plan</label>
-            <div className="flex justify-center items-center gap-2">
-              <select
-                onChange={(e) => loadPlan(e.target.value)}
-                className="w-1/3 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select a saved plan</option>
-                {savedPlans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.emiPlan.typeOfLoan === 'Manual Entry' ? plan.emiPlan.customLoanType : plan.emiPlan.typeOfLoan} - {plan.id}
-                  </option>
-                ))}
-              </select>
+          <div className="mb-8">
+            <h2 className="text-xl font-bold mb-4 bg-blue-200 text-center py-2">Saved Plans</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plan Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Amount ($)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Tenure (Years)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {savedPlans.map((plan) => (
+                    <tr key={plan.id}>
+                      <td className="px-4 py-4 text-sm text-gray-700">
+                        {plan.emiPlan.typeOfLoan === 'Manual Entry' ? plan.emiPlan.customLoanType : plan.emiPlan.typeOfLoan}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{plan.emiPlan.typeOfLoan}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(plan.emiPlan.loanAmount)}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{plan.emiPlan.loanTenure}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{new Date(plan.id).toLocaleString()}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700 flex gap-2">
+                        <motion.button
+                          onClick={() => loadPlan(plan.id)}
+                          className="bg-blue-500 text-white px-3 py-1 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <Edit className="w-4 h-4" />
+                          Edit
+                        </motion.button>
+                        <motion.button
+                          onClick={() => deletePlan(plan.id)}
+                          className="bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 flex items-center gap-2"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </motion.button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-center mt-4">
               <motion.button
                 onClick={createNewPlan}
                 className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-4 py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 flex items-center gap-2"
@@ -819,6 +864,7 @@ const downloadCompletePDF = useCallback(async () => {
           </div>
         )}
         <div className="mb-8">
+          {/* Rest of the existing JSX for loan input, tables, etc. remains unchanged */}
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
@@ -1331,7 +1377,7 @@ const downloadCompletePDF = useCallback(async () => {
                         <tr className="bg-gray-50">
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank Interest ($)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Interest ($)</th>
+                          <th className = "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Interest ($)</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest ($)</th>
                         </tr>
                       </thead>
@@ -1394,7 +1440,7 @@ const downloadCompletePDF = useCallback(async () => {
             Save Plan
           </motion.button>
           <motion.button
-            onClick={viewCompletePDF}
+            onClick={viewPLPDF} // Changed to viewCompletePDF for consistency
             className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -1403,7 +1449,7 @@ const downloadCompletePDF = useCallback(async () => {
             View Full Report
           </motion.button>
           <motion.button
-            onClick={downloadCompletePDF}
+            onClick={downloadPLPDF} // Changed to downloadCompletePDF for consistency
             className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

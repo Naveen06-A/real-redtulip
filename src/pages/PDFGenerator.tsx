@@ -1,3 +1,4 @@
+
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { EMIPlan, Calculations } from './EMIPlanCalculator';
@@ -83,10 +84,21 @@ export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations):
       ['Int. Rate', `${emiPlan.interestPerAnnum}%`],
       ['Bank %', `${emiPlan.bankPercent}%`],
       ['Own %', `${emiPlan.ownPercent}%`],
-      ['Own Tenure', emiPlan.ownTenure.toString()],
-      ['Own Int.', `${emiPlan.ownFundsInterestRate}%`],
       ['GST %', `${emiPlan.gstPercentage || 0}%`],
     ];
+
+    if (emiPlan.ownTenure !== 0) {
+      loanData.push(['Own Tenure', emiPlan.ownTenure.toString()]);
+    }
+    if (emiPlan.ownFundsInterestRate !== 0) {
+      loanData.push(['Own Int.', `${emiPlan.ownFundsInterestRate}%`]);
+    }
+
+    if (emiPlan.typeOfLoan === 'Rent Roll') {
+      loanData.push(['Rental Revenue', formatCurrency(emiPlan.rentalRevenue || 0)]);
+      loanData.push(['Per $ Value', formatCurrency(emiPlan.perDollarValue || 0)]);
+      loanData.push(['Rent Roll  Value', formatCurrency(emiPlan.rentRollPurchaseValue || 0)]);
+    }
 
     autoTable(doc, {
       startY: margin + 40,
@@ -177,13 +189,13 @@ export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations):
       },
     });
 
-    // Calculate the final y-position of the Expenses table
-    const expensesTableHeight = expenseData.length * 7 + 20;
-    const expensesTableEndY = margin + 60 + revenueTableHeight + expensesTableHeight;
+    // Calculate the final y-position of the Loan Details table
+    const loanTableHeight = loanData.length * 7 + 20;
+    const loanDetailsTableEndY = margin + 40 + loanTableHeight;
 
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 139);
-    doc.text('Profit/Loss Yearly Summary', pageWidth / 2, expensesTableEndY + 10, { align: 'center' });
+    doc.text('Profit/Loss Yearly Summary', pageWidth / 2, loanDetailsTableEndY + 10 + revenueTableHeight, { align: 'center' });
 
     const plData = calculations.yearlyAvg.map(entry => [
       entry.period.toString(),
@@ -199,7 +211,6 @@ export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations):
       entry.pl >= 0 ? 'Profit' : 'Loss',
     ]);
 
-    // Check if Own Amt and Own Int columns are all zero
     const ownAmtAllZero = plData.every(row => parseFloat(row[3].replace(/[^\d.-]/g, '')) === 0);
     const ownIntAllZero = plData.every(row => parseFloat(row[7].replace(/[^\d.-]/g, '')) === 0);
     const excludeOwnColumns = ownAmtAllZero && ownIntAllZero;
@@ -214,33 +225,33 @@ export const generatePLPDFBlob = (emiPlan: EMIPlan, calculations: Calculations):
 
     const columnStyles = excludeOwnColumns
       ? {
-          0: { cellWidth: 8 }, // YR
-          1: { cellWidth: 24 }, // Rev
-          2: { cellWidth: 24 }, // Exps
-          3: { cellWidth: 24 }, // Own Pay
-          4: { cellWidth: 24 }, // Loan Amt
-          5: { cellWidth: 24 }, // Loan Pay
-          6: { cellWidth: 24 }, // Loan Int
-          7: { cellWidth: 24 }, // P/L
-          8: { cellWidth: 11 }, // Sta
+          0: { cellWidth: 8 },
+          1: { cellWidth: 24 },
+          2: { cellWidth: 24 },
+          3: { cellWidth: 24 },
+          4: { cellWidth: 24 },
+          5: { cellWidth: 24 },
+          6: { cellWidth: 24 },
+          7: { cellWidth: 24 },
+          8: { cellWidth: 11 },
         }
       : {
-          0: { cellWidth: 8 }, // YR
-          1: { cellWidth: 19 }, // Rev
-          2: { cellWidth: 19 }, // Exps
-          3: { cellWidth: 19 }, // Own Amt
-          4: { cellWidth: 19 }, // Own Pay
-          5: { cellWidth: 19 }, // Loan Amt
-          6: { cellWidth: 19 }, // Loan Pay
-          7: { cellWidth: 19 }, // Own Int
-          8: { cellWidth: 19 }, // Loan Int
-          9: { cellWidth: 19 }, // P/L
-          10: { cellWidth: 11 }, // Sta
+          0: { cellWidth: 8 },
+          1: { cellWidth: 19 },
+          2: { cellWidth: 19 },
+          3: { cellWidth: 19 },
+          4: { cellWidth: 19 },
+          5: { cellWidth: 19 },
+          6: { cellWidth: 19 },
+          7: { cellWidth: 19 },
+          8: { cellWidth: 19 },
+          9: { cellWidth: 19 },
+          10: { cellWidth: 11 },
         };
 
     doc.setFont('helvetica', 'narrow');
     autoTable(doc, {
-      startY: expensesTableEndY + 15,
+      startY: loanDetailsTableEndY + 15 + revenueTableHeight,
       head: headers,
       body: bodyData,
       theme: 'grid',
@@ -445,13 +456,24 @@ export const generateCompletePDFBlob = (emiPlan: EMIPlan, calculations: Calculat
       ['Int. Rate', `${emiPlan.interestPerAnnum}%`],
       ['Bank %', `${emiPlan.bankPercent}%`],
       ['Own %', `${emiPlan.ownPercent}%`],
-      ['Own Tenure', emiPlan.ownTenure.toString()],
-      ['Own Int.', `${emiPlan.ownFundsInterestRate}%`],
       ['GST %', `${emiPlan.gstPercentage || 0}%`],
     ];
 
+    if (emiPlan.ownTenure !== 0) {
+      loanData.push(['Own Tenure', emiPlan.ownTenure.toString()]);
+    }
+    if (emiPlan.ownFundsInterestRate !== 0) {
+      loanData.push(['Own Int.', `${emiPlan.ownFundsInterestRate}%`]);
+    }
+
+    if (emiPlan.typeOfLoan === 'Rent Roll') {
+      loanData.push(['Rental Revenue', formatCurrency(emiPlan.rentalRevenue || 0)]);
+      loanData.push(['Per $ Value', formatCurrency(emiPlan.perDollarValue || 0)]);
+      loanData.push(['Rent Roll Purchase Value', formatCurrency(emiPlan.rentRollPurchaseValue || 0)]);
+    }
+
     autoTable(doc, {
-      startY: margin + 45,
+      startY: margin + 40,
       head: [['Loan Details', 'Values']],
       body: loanData,
       theme: 'grid',
@@ -539,13 +561,16 @@ export const generateCompletePDFBlob = (emiPlan: EMIPlan, calculations: Calculat
       },
     });
 
-    // Calculate the final y-position of the Expenses table
+    // Calculate the final y-position of the tables
+    const loanTableHeight = loanData.length * 7 + 20;
+    const loanDetailsTableEndY = margin + 40 + loanTableHeight;
     const expensesTableHeight = expenseData.length * 7 + 20;
     const expensesTableEndY = margin + 60 + revenueTableHeight + expensesTableHeight;
+    const maxTableEndY = Math.max(loanDetailsTableEndY, expensesTableEndY);
 
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 139);
-    doc.text('Profit/Loss Yearly Summary', pageWidth / 2, expensesTableEndY + 10, { align: 'center' });
+    doc.text('Profit/Loss Yearly Summary', pageWidth / 2, maxTableEndY + 10, { align: 'center' });
 
     const plData = calculations.yearlyAvg.map(entry => [
       entry.period.toString(),
@@ -561,7 +586,6 @@ export const generateCompletePDFBlob = (emiPlan: EMIPlan, calculations: Calculat
       entry.pl >= 0 ? 'Profit' : 'Loss',
     ]);
 
-    // Check if Own Amt and Own Int columns are all zero
     const ownAmtAllZero = plData.every(row => parseFloat(row[3].replace(/[^\d.-]/g, '')) === 0);
     const ownIntAllZero = plData.every(row => parseFloat(row[7].replace(/[^\d.-]/g, '')) === 0);
     const excludeOwnColumns = ownAmtAllZero && ownIntAllZero;
@@ -576,33 +600,33 @@ export const generateCompletePDFBlob = (emiPlan: EMIPlan, calculations: Calculat
 
     const columnStyles = excludeOwnColumns
       ? {
-          0: { cellWidth: 8 }, // YR
-          1: { cellWidth: 24 }, // Rev
-          2: { cellWidth: 24 }, // Exps
-          3: { cellWidth: 24 }, // Own Pay
-          4: { cellWidth: 24 }, // Loan Amt
-          5: { cellWidth: 24 }, // Loan Pay
-          6: { cellWidth: 24 }, // Loan Int
-          7: { cellWidth: 24 }, // P/L
-          8: { cellWidth: 11 }, // Sta
+          0: { cellWidth: 8 },
+          1: { cellWidth: 24 },
+          2: { cellWidth: 24 },
+          3: { cellWidth: 24 },
+          4: { cellWidth: 24 },
+          5: { cellWidth: 24 },
+          6: { cellWidth: 24 },
+          7: { cellWidth: 24 },
+          8: { cellWidth: 11 },
         }
       : {
-          0: { cellWidth: 8 }, // YR
-          1: { cellWidth: 19 }, // Rev
-          2: { cellWidth: 19 }, // Exps
-          3: { cellWidth: 19 }, // Own Amt
-          4: { cellWidth: 19 }, // Own Pay
-          5: { cellWidth: 19 }, // Loan Amt
-          6: { cellWidth: 19 }, // Loan Pay
-          7: { cellWidth: 19 }, // Own Int
-          8: { cellWidth: 19 }, // Loan Int
-          9: { cellWidth: 19 }, // P/L
-          10: { cellWidth: 11 }, // Sta
+          0: { cellWidth: 8 },
+          1: { cellWidth: 19 },
+          2: { cellWidth: 19 },
+          3: { cellWidth: 19 },
+          4: { cellWidth: 19 },
+          5: { cellWidth: 19 },
+          6: { cellWidth: 19 },
+          7: { cellWidth: 19 },
+          8: { cellWidth: 19 },
+          9: { cellWidth: 19 },
+          10: { cellWidth: 11 },
         };
 
     doc.setFont('helvetica', 'narrow');
     autoTable(doc, {
-      startY: expensesTableEndY + 15,
+      startY: maxTableEndY + 15,
       head: headers,
       body: bodyData,
       theme: 'grid',

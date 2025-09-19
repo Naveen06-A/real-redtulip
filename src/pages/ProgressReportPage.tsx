@@ -883,7 +883,7 @@ export function ProgressReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {activities.slice(0, 10).map((activity, i) => (
+                {activities.slice(0, 20).map((activity, i) => (
                   <tr key={i} className="border-b hover:bg-gray-50">
                     <td className="p-2">{formatDate(activity.activity_date)}</td>
                     <td className="p-2 capitalize">{activity.activity_type.replace('_', ' ')}</td>

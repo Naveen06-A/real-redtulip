@@ -162,23 +162,44 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
 
+ // REVENUE
   const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
-    const amount = rev.period === 'yearly' ? rev.amount : rev.amount * 12;
+    let amount = 0;
+    if (rev.period === 'monthly') {
+      amount = rev.amount ; // monthly → yearly
+    } else if (rev.period === 'yearly') {
+      amount = rev.amount *12;      // yearly → yearly
+    }
+      // yearly → yearly
+   
     return sum + amount;
   }, 0) + (plan.rentalRevenue || 0);
 
   const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
-    const amount = rev.period === 'monthly' ? rev.amount : rev.amount / 12;
+    let amount = 0;
+    if (rev.period === 'monthly') {
+      amount = rev.amount;       // monthly → monthly
+    } 
     return sum + amount;
   }, 0) + ((plan.rentalRevenue || 0) / 12);
 
+  // EXPENSES
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
-    const amount = expense.period === 'yearly' ? expense.amount : expense.amount * 12;
+    let amount = 0;
+    if (expense.period === 'monthly') {
+      amount = expense.amount ; // monthly → yearly
+    }  else if (expense.period === 'yearly') {
+      amount = expense.amount *12;      // yearly → yearly
+    }
     return sum + amount;
   }, 0);
 
   const monthlyExpenses = plan.expenses.reduce((sum, expense) => {
-    const amount = expense.period === 'monthly' ? expense.amount : expense.amount / 12;
+    let amount = 0;
+    if (expense.period === 'monthly') {
+      amount = expense.amount;       // monthly → monthly
+  
+    }
     return sum + amount;
   }, 0);
 

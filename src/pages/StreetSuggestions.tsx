@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, UserPlus, X, Check, Edit2, Trash2, Upload } from 'lucide-react';
-import { normalizeSuburb, formatCurrency } from '../reportsUtils';
+
+import { AnimatePresence, motion } from 'framer-motion';
+import { Check, ChevronDown, ChevronUp, Edit2, Trash2, Upload, UserPlus, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { supabase } from '../lib/supabase';
+import { formatCurrency, normalizeSuburb } from '../reportsUtils';
 
 interface Property {
   id: string;
@@ -107,7 +108,6 @@ export function StreetSuggestions({
     setLocalFilter(soldPropertiesFilter);
   }, [soldPropertiesFilter]);
 
-  // Convert Excel serial date to YYYY-MM-DD
   const excelSerialToDate = (serial: number | string | null | undefined): string | null => {
     if (!serial || serial === 'NA' || serial === '' || serial === null || serial === undefined) return null;
     if (typeof serial === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(serial)) {
@@ -203,18 +203,25 @@ export function StreetSuggestions({
       const newAdded: typeof prev = { ...prev };
       streetStats.forEach((street) => {
         const streetName = street.street_name;
-        const doorKnockCount = Array.isArray(existingDoorKnocks)
-          ? existingDoorKnocks.filter((s) => s.name === streetName).length
-          : 0;
-        const phoneCallCount = Array.isArray(existingPhoneCalls)
-          ? existingPhoneCalls.filter((s) => s.name === streetName).length
-          : 0;
-        const contactCount = street.contacts.length;
-        newAdded[streetName] = {
-          door_knock: doorKnockCount,
-          phone_call: phoneCallCount,
-          contacts: contactCount,
-        };
+        if (!newAdded[streetName]) {
+          const doorKnockCount = Array.isArray(existingDoorKnocks)
+            ? existingDoorKnocks.filter((s) => s.name === streetName).length
+            : 0;
+          const phoneCallCount = Array.isArray(existingPhoneCalls)
+            ? existingPhoneCalls.filter((s) => s.name === streetName).length
+            : 0;
+          const contactCount = street.contacts.length;
+          newAdded[streetName] = {
+            door_knock: doorKnockCount,
+            phone_call: phoneCallCount,
+            contacts: contactCount,
+          };
+        } else {
+          newAdded[streetName] = {
+            ...newAdded[streetName],
+            contacts: street.contacts.length,
+          };
+        }
       });
       Object.keys(newAdded).forEach((key) => {
         if (!streetStats.find((s) => s.street_name === key)) {
@@ -364,81 +371,107 @@ export function StreetSuggestions({
     fetchData();
   }, [suburb, localFilter]);
 
-  const handleAddStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
-    onSelectStreet({ name: street.street_name }, type);
-    setAddedStreets((prev) => ({
-      ...prev,
-      [street.street_name]: {
-        ...prev[street.street_name] || { door_knock: 0, phone_call: 0, contacts: street.contacts.length },
-        [type]: (prev[street.street_name]?.[type] || 0) + 1,
-      },
-    }));
-  };
+  const handleAddStreet = useCallback(
+    (street: StreetStats, type: 'door_knock' | 'phone_call') => {
+      onSelectStreet({ name: street.street_name }, type);
+      setAddedStreets((prev) => ({
+        ...prev,
+        [street.street_name]: {
+          ...prev[street.street_name] || { door_knock: 0, phone_call: 0, contacts: street.contacts.length },
+          [type]: (prev[street.street_name]?.[type] || 0) + 1,
+        },
+      }));
+    },
+    [onSelectStreet]
+  );
 
-  const handleRemoveStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
-    if (onRemoveStreet) {
-      onRemoveStreet({ name: street.street_name }, type);
-    }
-    setAddedStreets((prev) => {
-      const currentCount = prev[street.street_name]?.[type] || 0;
-      if (currentCount > 0) {
-        const newCount = currentCount - 1;
-        const updatedStreet = {
-          ...prev[street.street_name],
-          [type]: newCount,
-        };
-        if (updatedStreet.door_knock === 0 && updatedStreet.phone_call === 0 && updatedStreet.contacts === 0) {
-          const { [street.street_name]: _, ...rest } = prev;
-          return rest;
+  const handleRemoveStreet = useCallback(
+    (street: StreetStats, type: 'door_knock' | 'phone_call') => {
+      if (onRemoveStreet) {
+        onRemoveStreet({ name: street.street_name }, type);
+      }
+      setAddedStreets((prev) => {
+        const currentCount = prev[street.street_name]?.[type] || 0;
+        if (currentCount > 0) {
+          const newCount = currentCount - 1;
+          const updatedStreet = {
+            ...prev[street.street_name],
+            [type]: newCount,
+          };
+          if (updatedStreet.door_knock === 0 && updatedStreet.phone_call === 0 && updatedStreet.contacts === 0) {
+            const { [street.street_name]: _, ...rest } = prev;
+            return rest;
+          }
+          return {
+            ...prev,
+            [street.street_name]: updatedStreet,
+          };
         }
-        return {
-          ...prev,
-          [street.street_name]: updatedStreet,
-        };
-      }
-      return prev;
-    });
-  };
+        return prev;
+      });
+    },
+    [onRemoveStreet]
+  );
 
-  const handleToggleStreet = (street: StreetStats, type: 'door_knock' | 'phone_call') => {
-    const currentCount = addedStreets[street.street_name]?.[type] || 0;
-    if (currentCount > 0) {
-      handleRemoveStreet(street, type);
-    } else {
+  const handleAddStreetIndividual = useCallback(
+    (street: StreetStats, type: 'door_knock' | 'phone_call') => {
       handleAddStreet(street, type);
-    }
-  };
+    },
+    [handleAddStreet]
+  );
 
-  const handleAddAllDoorKnocks = () => {
-    streetStats.forEach((street) => {
-      const currentDoorKnockCount = addedStreets[street.street_name]?.door_knock || 0;
-      if (currentDoorKnockCount === 0) {
-        handleAddStreet(street, 'door_knock');
-      }
+  const handleAddAllToBoth = useCallback(() => {
+    setAddedStreets((prev) => {
+      const newState = { ...prev };
+      streetStats.forEach((street) => {
+        const streetName = street.street_name;
+        // Call onSelectStreet for both door_knock and phone_call
+        onSelectStreet({ name: streetName }, 'door_knock');
+        onSelectStreet({ name: streetName }, 'phone_call');
+        
+        // Update state with both counts incremented
+        newState[streetName] = {
+          ...prev[streetName] || { door_knock: 0, phone_call: 0, contacts: street.contacts.length },
+          door_knock: (prev[streetName]?.door_knock || 0) + 1,
+          phone_call: (prev[streetName]?.phone_call || 0) + 1,
+        };
+      });
+      return newState;
     });
-  };
+  }, [streetStats, onSelectStreet]);
 
-  const handleAddAllPhoneCalls = () => {
-    streetStats.forEach((street) => {
-      const currentPhoneCallCount = addedStreets[street.street_name]?.phone_call || 0;
-      if (currentPhoneCallCount === 0) {
-        handleAddStreet(street, 'phone_call');
-      }
+  const handleRemoveAllToBoth = useCallback(() => {
+    setAddedStreets((prev) => {
+      const newState = { ...prev };
+      streetStats.forEach((street) => {
+        const streetName = street.street_name;
+        if (newState[streetName]) {
+          const current = newState[streetName];
+          const doorKnockCount = current.door_knock;
+          const phoneCallCount = current.phone_call;
+          for (let i = 0; i < doorKnockCount; i++) {
+            if (onRemoveStreet) {
+              onRemoveStreet({ name: streetName }, 'door_knock');
+            }
+          }
+          for (let i = 0; i < phoneCallCount; i++) {
+            if (onRemoveStreet) {
+              onRemoveStreet({ name: streetName }, 'phone_call');
+            }
+          }
+          newState[streetName] = {
+            ...current,
+            door_knock: 0,
+            phone_call: 0,
+          };
+          if (newState[streetName].contacts === 0) {
+            delete newState[streetName];
+          }
+        }
+      });
+      return newState;
     });
-  };
-
-  const handleAddAllToBoth = () => {
-    streetStats.forEach((street) => {
-      const currentDoorKnockCount = addedStreets[street.street_name]?.door_knock || 0;
-      const currentPhoneCallCount = addedStreets[street.street_name]?.phone_call || 0;
-      if (currentDoorKnockCount === 0) {
-        handleAddStreet(street, 'door_knock');
-      }
-      if (currentPhoneCallCount === 0) {
-        handleAddStreet(street, 'phone_call');
-      }
-    });
-  };
+  }, [streetStats, onRemoveStreet]);
 
   const handleAddContact = async () => {
     if (!newContact.owner_1 && !newContact.owner_2) {
@@ -1051,28 +1084,6 @@ export function StreetSuggestions({
               </select>
             </div>
             <motion.button
-              onClick={handleAddAllDoorKnocks}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm sm:text-base"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 4v16m8-8H4" />
-              </svg>
-              Add All to Door Knocks
-            </motion.button>
-            <motion.button
-              onClick={handleAddAllPhoneCalls}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm sm:text-base"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 4v16m8-8H4" />
-              </svg>
-              Add All to Phone Calls
-            </motion.button>
-            <motion.button
               onClick={handleAddAllToBoth}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all text-sm sm:text-base"
               whileHover={{ scale: 1.05 }}
@@ -1084,6 +1095,20 @@ export function StreetSuggestions({
               Add All to Both
             </motion.button>
             <motion.button
+              onClick={handleRemoveAllToBoth}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all text-sm sm:text-base"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              disabled={Object.values(addedStreets).every(
+                (street) => street.door_knock === 0 && street.phone_call === 0
+              )}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Remove All from Both
+            </motion.button>
+            <motion.button
               onClick={() => setIsGlobalImportOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all text-sm sm:text-base"
               whileHover={{ scale: 1.05 }}
@@ -1093,6 +1118,14 @@ export function StreetSuggestions({
               Import Contacts (All Streets)
             </motion.button>
           </div>
+          {Object.values(addedStreets).length > 0 && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm">
+              <p className="text-blue-800">
+                Selected: {Object.values(addedStreets).reduce((sum, street) => sum + street.door_knock + street.phone_call, 0)} total actions across{' '}
+                {Object.keys(addedStreets).length} streets
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 max-h-96 overflow-y-auto">
             {streetStats.map((street, index) => {
               const doorKnockCount = addedStreets[street.street_name]?.door_knock || 0;
@@ -1154,7 +1187,7 @@ export function StreetSuggestions({
                   </div>
                   <div className="flex gap-1">
                     <motion.button
-                      onClick={() => handleToggleStreet(street, 'door_knock')}
+                      onClick={() => handleAddStreetIndividual(street, 'door_knock')}
                       className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
                         doorKnockCount > 0
                           ? 'bg-green-500 hover:bg-green-600'
@@ -1174,7 +1207,7 @@ export function StreetSuggestions({
                       )}
                     </motion.button>
                     <motion.button
-                      onClick={() => handleToggleStreet(street, 'phone_call')}
+                      onClick={() => handleAddStreetIndividual(street, 'phone_call')}
                       className={`flex-1 p-1 rounded-md text-white flex items-center justify-center relative ${
                         phoneCallCount > 0
                           ? 'bg-green-500 hover:bg-green-600'

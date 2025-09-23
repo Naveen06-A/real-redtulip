@@ -1,22 +1,26 @@
 import { motion } from 'framer-motion';
 import { Download, Eye, Save, X, Edit, Trash2 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import HarcourtsLogo from './assets/Harcourts_Success_LogoSet_Stacked_BLUE_080724.png';
-import { generatePLPDFBlob, generateAmortizationPDFBlob, generateCompletePDFBlob } from './PDFGenerator';
+import {
+  generatePLPDFBlob,
+  generateAmortizationPDFBlob,
+  generateYearlyBreakdownPDFBlob,
+  generateCompletePDFBlob,
+  generateLoanAmortizationPDFBlob,
+  generateOwnAmortizationPDFBlob,
+} from './PDFGenerator';
 
-// Interfaces and other existing code remain unchanged
+// Interfaces and utility functions remain unchanged
 export interface Revenue {
   name: string;
   amount: number;
   period: 'monthly' | 'yearly';
 }
-
 export interface Expense {
   name: string;
   amount: number;
   period: 'monthly' | 'yearly';
 }
-
 export interface EMIPlan {
   typeOfLoan: string;
   customLoanType: string;
@@ -34,7 +38,6 @@ export interface EMIPlan {
   rentRollPurchaseValue?: number;
   gstPercentage?: number;
 }
-
 export interface PeriodData {
   period: number;
   revenue: number;
@@ -47,7 +50,6 @@ export interface PeriodData {
   loanInterest: number;
   pl: number;
 }
-
 export interface Calculations {
   bankYear1Principal: number;
   bankYear1Interest: number;
@@ -60,7 +62,6 @@ export interface Calculations {
   totalBankInterest: number;
   totalOwnInterest: number;
 }
-
 interface SavedPlan {
   id: string;
   emiPlan: EMIPlan;
@@ -163,13 +164,12 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
 
-  // REVENUE
   const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
     let amount = 0;
     if (rev.period === 'monthly') {
-      amount = rev.amount; // monthly → yearly
+      amount = rev.amount;
     } else if (rev.period === 'yearly') {
-      amount = rev.amount * 12; // yearly → yearly
+      amount = rev.amount * 12;
     }
     return amount + sum;
   }, 0);
@@ -177,18 +177,17 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
     let amount = 0;
     if (rev.period === 'monthly') {
-      amount = rev.amount; // monthly → monthly
+      amount = rev.amount;
     }
     return amount + sum;
   }, 0);
 
-  // EXPENSES
   const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
     let amount = 0;
     if (expense.period === 'monthly') {
-      amount = expense.amount; // monthly → yearly
+      amount = expense.amount;
     } else if (expense.period === 'yearly') {
-      amount = expense.amount * 12; // yearly → yearly
+      amount = expense.amount * 12;
     }
     return sum + amount;
   }, 0);
@@ -196,7 +195,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
   const monthlyExpenses = plan.expenses.reduce((sum, expense) => {
     let amount = 0;
     if (expense.period === 'monthly') {
-      amount = expense.amount; // monthly → monthly
+      amount = expense.amount;
     }
     return sum + amount;
   }, 0);
@@ -244,7 +243,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     yearPrincipalBank += principalBank;
     yearInterestOwn += interestOwn;
     yearPrincipalOwn += principalOwn;
-    yearTotalRepayment += (interestBank + principalBank) + (interestOwn + principalOwn);
+    yearTotalRepayment += (interestBank + principalBank) + (interestOwn + interestOwn);
 
     const monthlyRepayment = (principalBank + interestBank) + (principalOwn + interestOwn);
     monthlyAvg.push({
@@ -383,11 +382,14 @@ export function EMIPlanCalculator() {
     setError(null);
   }, []);
 
+  const [showYearlyBreakdownTable, setShowYearlyBreakdownTable] = useState(false);
+  const [showCompleteTable, setShowCompleteTable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlans, setSavedPlans] = useState<SavedPlan[]>(() => {
     const saved = localStorage.getItem('emiPlans');
     return saved ? JSON.parse(saved) : [];
   });
+  const [amortizationView, setAmortizationView] = useState<'combined' | 'loan' | 'own'>('combined');
   const [showAmortizationTable, setShowAmortizationTable] = useState<boolean>(false);
   const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
 
@@ -398,7 +400,12 @@ export function EMIPlanCalculator() {
       setEmiPlan((prev) => {
         let updatedPlan = { ...prev };
         if (field === 'typeOfLoan') {
-          updatedPlan = { ...prev, typeOfLoan: value as string };
+          updatedPlan = {
+            ...prev,
+            typeOfLoan: value as string,
+            bankPercent: value === 'Rent Roll' ? 70 : prev.bankPercent,
+            ownPercent: value === 'Rent Roll' ? 30 : prev.ownPercent,
+          };
           if (value !== 'Manual Entry') {
             updatedPlan.customLoanType = '';
           }
@@ -406,6 +413,9 @@ export function EMIPlanCalculator() {
             updatedPlan.rentalRevenue = 0;
             updatedPlan.perDollarValue = 0;
             updatedPlan.rentRollPurchaseValue = 0;
+            updatedPlan.loanAmount = 0;
+          } else {
+            updatedPlan.loanAmount = prev.rentRollPurchaseValue || 0;
           }
         } else if (field === 'rentalRevenue' || field === 'perDollarValue') {
           const newValue = typeof value === 'number' ? value : parseNumberInput(value as string);
@@ -416,6 +426,7 @@ export function EMIPlanCalculator() {
             ...prev,
             [field]: newValue,
             rentRollPurchaseValue,
+            loanAmount: prev.typeOfLoan === 'Rent Roll' ? rentRollPurchaseValue : prev.loanAmount,
           };
         } else if (field === 'gstPercentage') {
           const newGstPercentage = typeof value === 'number' ? value : parseFloat(value as string) || 0;
@@ -596,7 +607,7 @@ export function EMIPlanCalculator() {
     const ownMonthlyPrincipal = ownAmount / (emiPlan.ownTenure * 12);
     let ownRemainingPrincipal = ownAmount;
     const maxMonths = Math.max(emiPlan.loanTenure * 12, emiPlan.ownTenure * 12);
-    const schedule: Array<{
+    const combinedSchedule: Array<{
       month: number;
       bankBeginningPrincipal: number;
       bankMonthlyPrincipal: number;
@@ -609,10 +620,27 @@ export function EMIPlanCalculator() {
       ownTotalEMI: number;
       ownEndingPrincipal: number;
     }> = [];
+    const loanSchedule: Array<{
+      month: number;
+      beginningPrincipal: number;
+      monthlyPrincipal: number;
+      monthlyInterest: number;
+      totalEMI: number;
+      endingPrincipal: number;
+    }> = [];
+    const ownSchedule: Array<{
+      month: number;
+      beginningPrincipal: number;
+      monthlyPrincipal: number;
+      monthlyInterest: number;
+      totalEMI: number;
+      endingPrincipal: number;
+    }> = [];
 
     for (let month = 1; month <= maxMonths; month++) {
       let bankMonthlyInterest = 0;
       let bankTotalEMI = 0;
+      let bankBeginningPrincipal = bankRemainingPrincipal + bankMonthlyPrincipal;
       if (month <= emiPlan.loanTenure * 12) {
         bankMonthlyInterest = bankRemainingPrincipal * (emiPlan.interestPerAnnum / 100 / 12);
         bankTotalEMI = bankMonthlyPrincipal + bankMonthlyInterest;
@@ -622,6 +650,7 @@ export function EMIPlanCalculator() {
 
       let ownMonthlyInterest = 0;
       let ownTotalEMI = 0;
+      let ownBeginningPrincipal = ownRemainingPrincipal + ownMonthlyPrincipal;
       if (month <= emiPlan.ownTenure * 12) {
         ownMonthlyInterest = ownRemainingPrincipal * (emiPlan.ownFundsInterestRate / 100 / 12);
         ownTotalEMI = ownMonthlyPrincipal + ownMonthlyInterest;
@@ -629,26 +658,61 @@ export function EMIPlanCalculator() {
         if (ownRemainingPrincipal < 0) ownRemainingPrincipal = 0;
       }
 
-      schedule.push({
+      combinedSchedule.push({
         month,
-        bankBeginningPrincipal: bankRemainingPrincipal + bankMonthlyPrincipal,
+        bankBeginningPrincipal,
         bankMonthlyPrincipal,
         bankMonthlyInterest,
         bankTotalEMI,
         bankEndingPrincipal: bankRemainingPrincipal,
-        ownBeginningPrincipal: ownRemainingPrincipal + ownMonthlyPrincipal,
+        ownBeginningPrincipal,
         ownMonthlyPrincipal,
         ownMonthlyInterest,
         ownTotalEMI,
         ownEndingPrincipal: ownRemainingPrincipal,
       });
+
+      if (month <= emiPlan.loanTenure * 12) {
+        loanSchedule.push({
+          month,
+          beginningPrincipal: bankBeginningPrincipal,
+          monthlyPrincipal: bankMonthlyPrincipal,
+          monthlyInterest: bankMonthlyInterest,
+          totalEMI: bankTotalEMI,
+          endingPrincipal: bankRemainingPrincipal,
+        });
+      }
+
+      if (month <= emiPlan.ownTenure * 12) {
+        ownSchedule.push({
+          month,
+          beginningPrincipal: ownBeginningPrincipal,
+          monthlyPrincipal: ownMonthlyPrincipal,
+          monthlyInterest: ownMonthlyInterest,
+          totalEMI: ownTotalEMI,
+          endingPrincipal: ownRemainingPrincipal,
+        });
+      }
     }
-    return schedule;
+
+    return { combinedSchedule, loanSchedule, ownSchedule };
   }, [emiPlan]);
 
   const generatePLPDFBlobLocal = useCallback(() => generatePLPDFBlob(emiPlan, calculations), [emiPlan, calculations]);
-  const generateAmortizationPDFBlobLocal = useCallback(() => generateAmortizationPDFBlob(emiPlan, amortizationSchedule), [emiPlan, amortizationSchedule]);
+  const generateAmortizationPDFBlobLocal = useCallback(
+    () => generateAmortizationPDFBlob(emiPlan, amortizationSchedule.combinedSchedule),
+    [emiPlan, amortizationSchedule.combinedSchedule]
+  );
+  const generateLoanAmortizationPDFBlobLocal = useCallback(
+    () => generateLoanAmortizationPDFBlob(emiPlan, amortizationSchedule.loanSchedule),
+    [emiPlan, amortizationSchedule.loanSchedule]
+  );
+  const generateOwnAmortizationPDFBlobLocal = useCallback(
+    () => generateOwnAmortizationPDFBlob(emiPlan, amortizationSchedule.ownSchedule),
+    [emiPlan, amortizationSchedule.ownSchedule]
+  );
   const generateCompletePDFBlobLocal = useCallback(() => generateCompletePDFBlob(emiPlan, calculations), [emiPlan, calculations]);
+  const generateYearlyBreakdownPDFBlobLocal = useCallback(() => generateYearlyBreakdownPDFBlob(emiPlan, calculations), [emiPlan, calculations]);
 
   const viewPLPDF = useCallback(async () => {
     try {
@@ -723,6 +787,117 @@ export function EMIPlanCalculator() {
       setError('Failed to download Amortization PDF');
     }
   }, [generateAmortizationPDFBlobLocal]);
+
+  const viewLoanAmortizationPDF = useCallback(async () => {
+    try {
+      const blob = await generateLoanAmortizationPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Loan Amortization PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error generating Loan Amortization PDF:', error);
+      setError('Failed to generate Loan Amortization PDF');
+    }
+  }, [generateLoanAmortizationPDFBlobLocal]);
+
+  const downloadLoanAmortizationPDF = useCallback(async () => {
+    try {
+      const blob = await generateLoanAmortizationPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'LoanAmortizationSchedule.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Loan Amortization PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error downloading Loan Amortization PDF:', error);
+      setError('Failed to download Loan Amortization PDF');
+    }
+  }, [generateLoanAmortizationPDFBlobLocal]);
+
+  const viewOwnAmortizationPDF = useCallback(async () => {
+    try {
+      const blob = await generateOwnAmortizationPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Own Amortization PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error generating Own Amortization PDF:', error);
+      setError('Failed to generate Own Amortization PDF');
+    }
+  }, [generateOwnAmortizationPDFBlobLocal]);
+
+  const downloadOwnAmortizationPDF = useCallback(async () => {
+    try {
+      const blob = await generateOwnAmortizationPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'OwnAmortizationSchedule.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Own Amortization PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error downloading Own Amortization PDF:', error);
+      setError('Failed to download Own Amortization PDF');
+    }
+  }, [generateOwnAmortizationPDFBlobLocal]);
+
+  const viewYearlyBreakdownPDF = useCallback(async () => {
+    try {
+      const blob = await generateYearlyBreakdownPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Yearly Breakdown PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error generating Yearly Breakdown PDF:', error);
+      setError('Failed to generate Yearly Breakdown PDF');
+    }
+  }, [generateYearlyBreakdownPDFBlobLocal]);
+
+  const downloadYearlyBreakdownPDF = useCallback(async () => {
+    try {
+      const blob = await generateYearlyBreakdownPDFBlobLocal();
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'YearlyBreakdownReport.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error('Generated Yearly Breakdown PDF is not a valid Blob');
+      }
+    } catch (error) {
+      console.error('Error downloading Yearly Breakdown PDF:', error);
+      setError('Failed to download Yearly Breakdown PDF');
+    }
+  }, [generateYearlyBreakdownPDFBlobLocal]);
 
   const viewCompletePDF = useCallback(async () => {
     try {
@@ -864,7 +1039,6 @@ export function EMIPlanCalculator() {
           </div>
         )}
         <div className="mb-8">
-          {/* Rest of the existing JSX for loan input, tables, etc. remains unchanged */}
           <table className="min-w-full bg-white border border-gray-200 rounded-lg table-fixed mt-4">
             <thead>
               <tr className="bg-gray-50">
@@ -966,6 +1140,7 @@ export function EMIPlanCalculator() {
                     min="0"
                     step="1000"
                     placeholder="300,000"
+                    disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
@@ -989,6 +1164,7 @@ export function EMIPlanCalculator() {
                     max="100"
                     step="1"
                     placeholder="70"
+                    disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
@@ -1001,6 +1177,7 @@ export function EMIPlanCalculator() {
                     max="100"
                     step="1"
                     placeholder="30"
+                    disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.bankPercent / 100)}</td>
@@ -1243,18 +1420,43 @@ export function EMIPlanCalculator() {
                 </tbody>
               </table>
             </div>
-          </div>
-          <div className="mt-8">
-            <div className="mb-4">
-              <button
+            <div className="mt-6 flex flex-wrap gap-4">
+              <motion.button
                 onClick={() => setShowAmortizationTable(!showAmortizationTable)}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+                className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-indigo-700 hover:to-indigo-800"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 {showAmortizationTable ? 'Hide Amortization Table' : 'Show Amortization Table'}
-              </button>
+              </motion.button>
+              {showAmortizationTable && (
+                <div className="flex items-center">
+                  <label htmlFor="amortizationView" className="mr-2 text-sm font-medium text-gray-700">
+                    View:
+                  </label>
+                  <select
+                    id="amortizationView"
+                    value={amortizationView}
+                    onChange={(e) => setAmortizationView(e.target.value as 'combined' | 'loan' | 'own')}
+                    className="block pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                  >
+                    <option value="combined">Combined</option>
+                    <option value="loan">Loan Only</option>
+                    <option value="own">Own Funds Only</option>
+                  </select>
+                </div>
+              )}
+              <motion.button
+                onClick={() => setShowYearlyBreakdownTable(!showYearlyBreakdownTable)}
+                className="bg-gradient-to-r from-teal-600 to-teal-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-teal-700 hover:to-teal-800"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                {showYearlyBreakdownTable ? 'Hide Yearly Breakdown' : 'Show Yearly Breakdown'}
+              </motion.button>
             </div>
-            {showAmortizationTable && (
-              <div className="overflow-x-auto mb-6">
+            {showAmortizationTable && amortizationView === 'combined' && (
+              <div className="overflow-x-auto mt-6">
                 <div className="flex justify-end gap-4 mb-4">
                   <motion.button
                     onClick={viewAmortizationPDF}
@@ -1275,189 +1477,346 @@ export function EMIPlanCalculator() {
                     Download Amortization
                   </motion.button>
                 </div>
-                <table className="min-w-full bg-white border border-gray-200 rounded-lg mb-8">
+                <table className="min-w-full bg-white border border-gray-300 rounded-lg shadow-sm">
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th rowSpan={2} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Month</th>
-                      <th colSpan={6} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Loan Details</th>
-                      <th colSpan={6} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">Own Funds Details</th>
+                    <tr className="bg-gray-100 border-b border-gray-300">
+                      <th
+                        rowSpan={2}
+                        className="px-4 py-3 text-left text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300"
+                        style={{ width: '80px' }}
+                      >
+                        Month
+                      </th>
+                      <th
+                        colSpan={5}
+                        className="px-4 py-3 text-center text-sm font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-300"
+                      >
+                        Loan Details
+                      </th>
+                      <th
+                        colSpan={5}
+                        className="px-4 py-3 text-center text-sm font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-300"
+                      >
+                        Own Funds Details
+                      </th>
                     </tr>
-                    <tr className="bg-gray-50">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning Principal ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total EMI ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Principal ($)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                    <tr className="bg-gray-100">
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '120px' }}>
+                        Beg Principal ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '100px' }}>
+                        Principal ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '100px' }}>
+                        Interest ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '100px' }}>
+                        Total EMI ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '120px' }}>
+                        End Principal ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '120px' }}>
+                        Beg Principal ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '100px' }}>
+                        Principal ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '100px' }}>
+                        Interest ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 text-right" style={{ width: '100px' }}>
+                        Total EMI ($)
+                      </th>
+                      <th className="px-4 py-3 text-sm font-semibold text-gray-700 uppercase tracking-wider text-right" style={{ width: '120px' }}>
+                        End Principal ($)
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {amortizationSchedule.map((entry, index) => {
-                      const totalLoan = emiPlan.loanAmount * emiPlan.bankPercent / 100;
-                      const loanProgress = totalLoan ? ((totalLoan - entry.bankEndingPrincipal) / totalLoan) * 100 : 0;
-                      const totalOwn = emiPlan.loanAmount * emiPlan.ownPercent / 100;
-                      const ownProgress = totalOwn ? ((totalOwn - entry.ownEndingPrincipal) / totalOwn) * 100 : 0;
-                      return (
-                        <tr key={index}>
-                          <td className="px-4 py-4 text-sm text-gray-700">{entry.month}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankBeginningPrincipal)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankMonthlyPrincipal)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankMonthlyInterest)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankTotalEMI)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.bankEndingPrincipal)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">
-                            <div className="w-full bg-gray-200 rounded-full h-2.5">
-                              <div
-                                className="bg-blue-600 h-2.5 rounded-full"
-                                style={{ width: `${loanProgress}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-xs">{loanProgress.toFixed(1)}%</span>
-                          </td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownBeginningPrincipal)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownMonthlyPrincipal)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownMonthlyInterest)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownTotalEMI)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(entry.ownEndingPrincipal)}</td>
-                          <td className="px-4 py-4 text-sm text-gray-700">
-                            <div className="w-full bg-gray-200 rounded-full h-2.5">
-                              <div
-                                className="bg-green-600 h-2.5 rounded-full"
-                                style={{ width: `${ownProgress}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-xs">{ownProgress.toFixed(1)}%</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="mb-8">
-              <h2 className="text-xl font-bold mb-4 bg-blue-200">Yearly Average Repayment Breakdown</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-4 rounded-lg shadow">
-                  <h3 className="text-lg font-semibold mb-3 bg-blue-200">Yearly Average Repayment</h3>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank ($)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own ($)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total ($)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {calculations.yearlyAvg.map((year, index) => (
-                          <tr key={index}>
-                            <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanRepayment)}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.ownRepayment)}</td>
-                            <td className="px-4 py-2 text-sm font-medium text-gray-700">{formatCurrency(year.ownRepayment + year.loanRepayment)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div className="bg-white p-4 rounded-lg shadow">
-                  <h3 className="text-lg font-semibold mb-3 bg-blue-200">Yearly Interest Breakdown</h3>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bank Interest ($)</th>
-                          <th className = "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Own Interest ($)</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest ($)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {calculations.yearlyAvg.map((year, index) => (
-                          <tr key={index}>
-                            <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanInterest)}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.ownInterest)}</td>
-                            <td className="px-4 py-2 text-sm font-medium text-gray-700">{formatCurrency(year.loanInterest + year.ownInterest)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="mb-8 bg-white p-4 rounded-lg shadow">
-              <h3 className="text-lg font-semibold mb-3 bg-blue-200">Profit/Loss Summary</h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue ($)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses ($)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Payments ($)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Interest ($)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P/L ($)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {calculations.yearlyAvg.map((year, index) => (
-                      <tr key={index}>
-                        <td className="px-4 py-2 text-sm text-gray-700">{year.period}</td>
-                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.revenue)}</td>
-                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.expenses)}</td>
-                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.loanRepayment + year.ownRepayment)}</td>
-                        <td className="px-4 py-2 text-sm text-gray-700">{formatCurrency(year.ownInterest + year.loanInterest)}</td>
-                        <td className={`px-4 py-2 text-sm font-medium ${year.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(year.pl)}
+                    {amortizationSchedule.combinedSchedule.map((entry, index) => (
+                      <tr key={index} className="hover:bg gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200" style={{ width: '80px' }}>
+                          {entry.month}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '120px' }}>
+                          {formatCurrency(entry.bankBeginningPrincipal)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                          {formatCurrency(entry.bankMonthlyPrincipal)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                          {formatCurrency(entry.bankMonthlyInterest)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                          {formatCurrency(entry.bankTotalEMI)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '120px' }}>
+                          {formatCurrency(entry.bankEndingPrincipal)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '120px' }}>
+                          {formatCurrency(entry.ownBeginningPrincipal)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                          {formatCurrency(entry.ownMonthlyPrincipal)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                          {formatCurrency(entry.ownMonthlyInterest)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                          {formatCurrency(entry.ownTotalEMI)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 text-right" style={{ width: '120px' }}>
+                          {formatCurrency(entry.ownEndingPrincipal)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            )}
+            {showAmortizationTable && amortizationView === 'loan' && (
+              <div className="overflow-x-auto mt-6">
+                <div className="flex justify-end gap-4 mb-4">
+                  <motion.button
+                    onClick={viewLoanAmortizationPDF}
+                    className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Eye className="w-5 h-5" />
+                    View Loan Amortization
+                  </motion.button>
+                  <motion.button
+                    onClick={downloadLoanAmortizationPDF}
+                    className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                     <Download className="w-5 h-5" />
+                      Download Loan Amortization
+                    </motion.button>
+                  </div>
+                  <table className="min-w-full bg-white border border-gray-300 rounded-lg shadow-sm">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '80px' }}>
+                          Month
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '120px' }}>
+                          Beginning Principal ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '100px' }}>
+                          Monthly Principal ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '100px' }}>
+                          Monthly Interest ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '100px' }}>
+                          Total EMI ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider" style={{ width: '120px' }}>
+                          Ending Principal ($)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {amortizationSchedule.loanSchedule.map((entry, index) => (
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200" style={{ width: '80px' }}>
+                            {entry.month}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '120px' }}>
+                            {formatCurrency(entry.beginningPrincipal)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                            {formatCurrency(entry.monthlyPrincipal)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                            {formatCurrency(entry.monthlyInterest)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                            {formatCurrency(entry.totalEMI)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 text-right" style={{ width: '120px' }}>
+                            {formatCurrency(entry.endingPrincipal)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {showAmortizationTable && amortizationView === 'own' && (
+                <div className="overflow-x-auto mt-6">
+                  <div className="flex justify-end gap-4 mb-4">
+                    <motion.button
+                      onClick={viewOwnAmortizationPDF}
+                      className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Eye className="w-5 h-5" />
+                      View Own Amortization
+                    </motion.button>
+                    <motion.button
+                      onClick={downloadOwnAmortizationPDF}
+                      className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Download className="w-5 h-5" />
+                      Download Own Amortization
+                    </motion.button>
+                  </div>
+                  <table className="min-w-full bg-white border border-gray-300 rounded-lg shadow-sm">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '80px' }}>
+                          Month
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '120px' }}>
+                          Beginning Principal ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '100px' }}>
+                          Monthly Principal ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '100px' }}>
+                          Monthly Interest ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300" style={{ width: '100px' }}>
+                          Total EMI ($)
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider" style={{ width: '120px' }}>
+                          Ending Principal ($)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {amortizationSchedule.ownSchedule.map((entry, index) => (
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200" style={{ width: '80px' }}>
+                            {entry.month}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '120px' }}>
+                            {formatCurrency(entry.beginningPrincipal)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                            {formatCurrency(entry.monthlyPrincipal)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                            {formatCurrency(entry.monthlyInterest)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right" style={{ width: '100px' }}>
+                            {formatCurrency(entry.totalEMI)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 text-right" style={{ width: '120px' }}>
+                            {formatCurrency(entry.endingPrincipal)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {showYearlyBreakdownTable && (
+                <div className="mt-6">
+                  <div className="flex justify-end gap-4 mb-4">
+                    <motion.button
+                      onClick={viewYearlyBreakdownPDF}
+                      className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Eye className="w-5 h-5" />
+                      View Yearly Breakdown
+                    </motion.button>
+                    <motion.button
+                      onClick={downloadYearlyBreakdownPDF}
+                      className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Download className="w-5 h-5" />
+                      Download Yearly Breakdown
+                    </motion.button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full bg-white border border-gray-300 rounded-lg shadow-sm">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Year</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Revenue ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Expenses ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Amount ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Repayment ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Loan Amount ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Loan Repayment ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Interest ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Loan Interest ($)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider">P/L ($)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {calculations.yearlyAvg.map((entry, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200">{entry.period}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.revenue)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.expenses)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownAmount)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownRepayment)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.loanAmount)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.loanRepayment)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownInterest)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.loanInterest)}</td>
+                            <td className={`px-4 py-3 text-sm text-right ${entry.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(entry.pl)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-8 flex flex-wrap gap-4 justify-center">
+              <motion.button
+                onClick={savePlan}
+                className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Save className="w-5 h-5" />
+                Save Plan
+              </motion.button>
+              <motion.button
+                onClick={viewCompletePDF}
+                className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Eye className="w-5 h-5" />
+                View Complete Report
+              </motion.button>
+              <motion.button
+                onClick={downloadCompletePDF}
+                className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Download className="w-5 h-5" />
+                Download Complete Report
+              </motion.button>
+              <motion.button
+                onClick={createNewPlan}
+                className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 flex items-center gap-2"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                New Plan
+              </motion.button>
             </div>
           </div>
-        </div>
-        <div className="flex justify-end gap-4 mb-8">
-          <motion.button
-            onClick={savePlan}
-            className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 flex items-center gap-2"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Save className="w-5 h-5" />
-            Save Plan
-          </motion.button>
-          <motion.button
-            onClick={viewPLPDF} // Changed to viewCompletePDF for consistency
-            className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 flex items-center gap-2"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Eye className="w-5 h-5" />
-            View Full Report
-          </motion.button>
-          <motion.button
-            onClick={downloadPLPDF} // Changed to downloadCompletePDF for consistency
-            className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 flex items-center gap-2"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Download className="w-5 h-5" />
-            Download Full Report
-          </motion.button>
-        </div>
+        
       </motion.div>
     </div>
   );

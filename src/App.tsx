@@ -39,6 +39,7 @@ import {EMIPlanCalculator}  from './pages/EMIPlanCalculator';
 import Enquiryjob from './pages/Enquiryjob'; // Fixed to default import
 import EnquiryForm from './pages/EnquiryForm'; // Fixed import name
 import { NurturingList } from './pages/NurturingList';
+import { AgentsLeaderboardPage } from './pages/AgentsLeaderboardPage';
 // Error Boundary to catch import or runtime errors
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   state = { hasError: false, error: null };
@@ -142,6 +143,7 @@ const routes = [
   {path: '/emi-calculator', element: <EMIPlanCalculator />},
   {path: '/nurturing-list', element: <NurturingList />},
   { path: '/vault-to-do-list', element: <VaultToDoList /> },
+  { path:'/agents-leaderboard', element:<AgentsLeaderboardPage />} ,
   // { path: '/enquiry-form', element: <EnquiryForm />},
   { path: '/enquiry-form', element: <EnquiryForm /> }, // Uncommented and fixed
   {

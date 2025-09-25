@@ -1,11 +1,9 @@
-
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, ChevronUp, Edit2, Trash2, Upload, UserPlus, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Download, Edit2, Trash2, Upload, UserPlus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { formatCurrency, normalizeSuburb } from '../reportsUtils';
-
 interface Property {
   id: string;
   street_name: string | null;
@@ -22,7 +20,6 @@ interface Property {
   landsize: number | null;
   status: 'Listed' | 'Sold';
 }
-
 interface Contact {
   id?: string;
   owner_1: string;
@@ -39,8 +36,9 @@ interface Contact {
   status: string;
   last_sold_date: string | null;
   price: number | null;
+  marketing_plan: string;
+  activity_log: string;
 }
-
 interface StreetStats {
   street_name: string;
   listed_count: number;
@@ -50,7 +48,6 @@ interface StreetStats {
   properties: Property[];
   contacts: Contact[];
 }
-
 interface StreetSuggestionsProps {
   suburb: string | null;
   soldPropertiesFilter: string;
@@ -59,7 +56,6 @@ interface StreetSuggestionsProps {
   existingDoorKnocks?: { name: string }[];
   existingPhoneCalls?: { name: string }[];
 }
-
 export function StreetSuggestions({
   suburb,
   soldPropertiesFilter,
@@ -95,6 +91,8 @@ export function StreetSuggestions({
     status: '',
     last_sold_date: null,
     price: null,
+    marketing_plan: '',
+    activity_log: '',
   });
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactSuccess, setContactSuccess] = useState<string | null>(null);
@@ -103,11 +101,9 @@ export function StreetSuggestions({
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [showConfirmDeleteAll, setShowConfirmDeleteAll] = useState(false);
   const [showConfirmDeleteSelected, setShowConfirmDeleteSelected] = useState(false);
-
   useEffect(() => {
     setLocalFilter(soldPropertiesFilter);
   }, [soldPropertiesFilter]);
-
   const excelSerialToDate = (serial: number | string | null | undefined): string | null => {
     if (!serial || serial === 'NA' || serial === '' || serial === null || serial === undefined) return null;
     if (typeof serial === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(serial)) {
@@ -138,11 +134,9 @@ export function StreetSuggestions({
     const date = new Date(excelEpoch.getTime() + (days - 2) * 24 * 60 * 60 * 1000);
     return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
   };
-
   const normalizeKey = (key: string): string => {
     return key.trim().toLowerCase().replace(/\s+/g, '_');
   };
-
   const normalizeRow = (row: any, headerMap: { [key: string]: string }): any => {
     const normalized: any = {};
     const standardKeys = [
@@ -160,6 +154,8 @@ export function StreetSuggestions({
       'status',
       'last_sold_date',
       'price',
+      'marketing_plan',
+      'activity_log',
     ];
     standardKeys.forEach((stdKey) => {
       let excelKey;
@@ -196,7 +192,6 @@ export function StreetSuggestions({
     }
     return normalized;
   };
-
   const syncAddedStreetsFromProps = useCallback(() => {
     if (streetStats.length === 0) return;
     setAddedStreets((prev) => {
@@ -231,11 +226,9 @@ export function StreetSuggestions({
       return newAdded;
     });
   }, [streetStats, existingDoorKnocks, existingPhoneCalls]);
-
   useEffect(() => {
     syncAddedStreetsFromProps();
   }, [syncAddedStreetsFromProps]);
-
   const fetchData = async () => {
     if (!suburb) {
       setStreetStats([]);
@@ -264,7 +257,7 @@ export function StreetSuggestions({
       const { data: contactsData, error: contactError } = await supabase
         .from('contacts')
         .select(
-          'id, owner_1, owner_2, owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, street_name, street_number, suburb, status, last_sold_date, price'
+          'id, owner_1, owner_2, owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, street_name, street_number, suburb, status, last_sold_date, price, marketing_plan, activity_log'
         )
         .ilike('suburb', queryString);
       if (contactError) throw new Error(`Failed to fetch contacts: ${contactError.message}`);
@@ -339,6 +332,8 @@ export function StreetSuggestions({
         stats.contacts.push({
           ...contact,
           last_sold_date: contact.last_sold_date ? excelSerialToDate(contact.last_sold_date) : null,
+          marketing_plan: contact.marketing_plan || '',
+          activity_log: contact.activity_log || '',
         });
         streetMap.set(streetName, stats);
       });
@@ -366,11 +361,9 @@ export function StreetSuggestions({
       setLoading(false);
     }
   };
-
   useEffect(() => {
     fetchData();
   }, [suburb, localFilter]);
-
   const handleAddStreet = useCallback(
     (street: StreetStats, type: 'door_knock' | 'phone_call') => {
       onSelectStreet({ name: street.street_name }, type);
@@ -384,7 +377,6 @@ export function StreetSuggestions({
     },
     [onSelectStreet]
   );
-
   const handleRemoveStreet = useCallback(
     (street: StreetStats, type: 'door_knock' | 'phone_call') => {
       if (onRemoveStreet) {
@@ -412,14 +404,12 @@ export function StreetSuggestions({
     },
     [onRemoveStreet]
   );
-
   const handleAddStreetIndividual = useCallback(
     (street: StreetStats, type: 'door_knock' | 'phone_call') => {
       handleAddStreet(street, type);
     },
     [handleAddStreet]
   );
-
   const handleAddAllToBoth = useCallback(() => {
     setAddedStreets((prev) => {
       const newState = { ...prev };
@@ -428,7 +418,7 @@ export function StreetSuggestions({
         // Call onSelectStreet for both door_knock and phone_call
         onSelectStreet({ name: streetName }, 'door_knock');
         onSelectStreet({ name: streetName }, 'phone_call');
-        
+       
         // Update state with both counts incremented
         newState[streetName] = {
           ...prev[streetName] || { door_knock: 0, phone_call: 0, contacts: street.contacts.length },
@@ -439,7 +429,6 @@ export function StreetSuggestions({
       return newState;
     });
   }, [streetStats, onSelectStreet]);
-
   const handleRemoveAllToBoth = useCallback(() => {
     setAddedStreets((prev) => {
       const newState = { ...prev };
@@ -472,7 +461,20 @@ export function StreetSuggestions({
       return newState;
     });
   }, [streetStats, onRemoveStreet]);
-
+  const handleExportContacts = () => {
+    const allContacts = streetStats.flatMap(street => street.contacts.map(contact => ({
+      ...contact,
+      suburb: suburb,
+    })));
+    if (allContacts.length === 0) {
+      setContactError('No contacts to export.');
+      return;
+    }
+    const worksheet = XLSX.utils.json_to_sheet(allContacts);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Contacts');
+    XLSX.writeFile(workbook, `${suburb}_contacts.xlsx`);
+  };
   const handleAddContact = async () => {
     if (!newContact.owner_1 && !newContact.owner_2) {
       setContactError('At least one of Owner 1 or Owner 2 is required');
@@ -495,6 +497,8 @@ export function StreetSuggestions({
         status: newContact.status || '',
         last_sold_date: newContact.last_sold_date ? excelSerialToDate(newContact.last_sold_date) : null,
         price: newContact.price ? parseFloat(newContact.price.toString()) : null,
+        marketing_plan: newContact.marketing_plan || '',
+        activity_log: newContact.activity_log || '',
       };
       if (isEditMode && newContact.id) {
         const { error } = await supabase
@@ -555,6 +559,8 @@ export function StreetSuggestions({
         status: '',
         last_sold_date: null,
         price: null,
+        marketing_plan: '',
+        activity_log: '',
       });
       setContactError(null);
       setTimeout(() => setContactSuccess(null), 3000);
@@ -565,7 +571,6 @@ export function StreetSuggestions({
       setModalView('list');
     }
   };
-
   const handleEditContact = (contact: Contact) => {
     setNewContact({
       ...contact,
@@ -574,7 +579,6 @@ export function StreetSuggestions({
     setIsEditMode(true);
     setModalView('add');
   };
-
   const handleDeleteContact = async (contactId: string, streetName: string) => {
     setLoading(true);
     try {
@@ -602,7 +606,6 @@ export function StreetSuggestions({
       setLoading(false);
     }
   };
-
   const handleDeleteAllContacts = async (streetName: string) => {
     setLoading(true);
     try {
@@ -631,7 +634,6 @@ export function StreetSuggestions({
       setShowConfirmDeleteAll(false);
     }
   };
-
   const handleDeleteSelectedContacts = async (streetName: string) => {
     if (selectedContactIds.length === 0) return;
     setLoading(true);
@@ -662,13 +664,11 @@ export function StreetSuggestions({
       setShowConfirmDeleteSelected(false);
     }
   };
-
   const toggleSelectContact = (contactId: string) => {
     setSelectedContactIds((prev) =>
       prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [...prev, contactId]
     );
   };
-
   const toggleSelectAllContacts = (contacts: Contact[]) => {
     if (selectedContactIds.length === contacts.length) {
       setSelectedContactIds([]);
@@ -676,7 +676,6 @@ export function StreetSuggestions({
       setSelectedContactIds(contacts.map((c) => c.id!));
     }
   };
-
   const handleSingleStreetExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || !selectedStreet || !suburb) return;
     setLoading(true);
@@ -757,6 +756,8 @@ export function StreetSuggestions({
             status: row.status || '',
             last_sold_date: row.last_sold_date,
             price: row.price,
+            marketing_plan: row.marketing_plan || '',
+            activity_log: row.activity_log || '',
           });
         });
         if (validContacts.length === 0) {
@@ -800,7 +801,6 @@ export function StreetSuggestions({
       setLoading(false);
     }
   };
-
   const handleGlobalExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || !suburb) return;
     setLoading(true);
@@ -907,6 +907,8 @@ export function StreetSuggestions({
             status: row.status || '',
             last_sold_date: row.last_sold_date,
             price: row.price,
+            marketing_plan: row.marketing_plan || '',
+            activity_log: row.activity_log || '',
           });
         });
         if (validContacts.length === 0) {
@@ -946,12 +948,10 @@ export function StreetSuggestions({
       setLoading(false);
     }
   };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setNewContact((prev) => ({ ...prev, [name]: value }));
   };
-
   const openContactModal = (streetName: string, view: 'add' | 'list' = 'add') => {
     setSelectedStreet(streetName);
     setModalView(view);
@@ -971,12 +971,13 @@ export function StreetSuggestions({
       status: '',
       last_sold_date: null,
       price: null,
+      marketing_plan: '',
+      activity_log: '',
     });
     setIsEditMode(false);
     setSelectedContactIds([]);
     setIsContactModalOpen(true);
   };
-
   const closeContactModal = () => {
     setIsContactModalOpen(false);
     setIsEditMode(false);
@@ -997,6 +998,8 @@ export function StreetSuggestions({
       status: '',
       last_sold_date: null,
       price: null,
+      marketing_plan: '',
+      activity_log: '',
     });
     setContactError(null);
     setContactSuccess(null);
@@ -1004,11 +1007,9 @@ export function StreetSuggestions({
     setShowConfirmDeleteAll(false);
     setShowConfirmDeleteSelected(false);
   };
-
   const toggleExpandStreet = (streetName: string) => {
     setExpandedStreet(expandedStreet === streetName ? null : streetName);
   };
-
   if (!suburb) {
     return (
       <motion.div
@@ -1021,7 +1022,6 @@ export function StreetSuggestions({
       </motion.div>
     );
   }
-
   if (loading) {
     return (
       <motion.div
@@ -1042,7 +1042,6 @@ export function StreetSuggestions({
       </motion.div>
     );
   }
-
   return (
     <motion.div
       className="bg-white p-4 rounded-xl shadow-lg border border-gray-200 mt-4 w-full max-w-full"
@@ -1117,12 +1116,21 @@ export function StreetSuggestions({
               <Upload className="w-4 h-4 sm:w-5 sm:h-5" />
               Import Contacts (All Streets)
             </motion.button>
+            <motion.button
+              onClick={handleExportContacts}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all text-sm sm:text-base"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+              Download Contacts
+            </motion.button>
           </div>
           {Object.values(addedStreets).length > 0 && (
             <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm">
               <p className="text-blue-800">
                 Selected: {Object.values(addedStreets).reduce((sum, street) => sum + street.door_knock + street.phone_call, 0)} total actions across{' '}
-                {Object.keys(addedStreets).length} streets
+                {Object.keys(addedStreets).length} streets (Today's tasks: Door knocks and phone calls are logged as daily marketing activities; progress tracked in report page via activity logs)
               </p>
             </div>
           )}
@@ -1337,6 +1345,8 @@ export function StreetSuggestions({
                                   <th className="p-1 text-left">Status</th>
                                   <th className="p-1 text-left">Last Sold Date</th>
                                   <th className="p-1 text-left">Price</th>
+                                  <th className="p-1 text-left">Marketing Plan</th>
+                                  <th className="p-1 text-left">Activity Log</th>
                                   <th className="p-1 text-left">Actions</th>
                                 </tr>
                               </thead>
@@ -1361,6 +1371,8 @@ export function StreetSuggestions({
                                     <td className="p-1">{contact.status || 'N/A'}</td>
                                     <td className="p-1">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
                                     <td className="p-1">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
+                                    <td className="p-1">{contact.marketing_plan || 'N/A'}</td>
+                                    <td className="p-1">{contact.activity_log || 'N/A'}</td>
                                     <td className="p-1 flex gap-1">
                                       <motion.button
                                         onClick={() => handleEditContact(contact)}
@@ -1597,6 +1609,8 @@ export function StreetSuggestions({
                             <th className="p-2 text-left">Status</th>
                             <th className="p-2 text-left">Last Sold Date</th>
                             <th className="p-2 text-left">Price</th>
+                            <th className="p-2 text-left">Marketing Plan</th>
+                            <th className="p-2 text-left">Activity Log</th>
                             <th className="p-2 text-left">Actions</th>
                           </tr>
                         </thead>
@@ -1628,6 +1642,8 @@ export function StreetSuggestions({
                                     : 'N/A'}
                                 </td>
                                 <td className="p-2">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
+                                <td className="p-2">{contact.marketing_plan || 'N/A'}</td>
+                                <td className="p-2">{contact.activity_log || 'N/A'}</td>
                                 <td className="p-2 flex gap-1">
                                   <button
                                     onClick={() => handleEditContact(contact)}
@@ -1785,6 +1801,26 @@ export function StreetSuggestions({
                       className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
                       aria-label="Price"
                     />
+                    <div className="col-span-1 md:col-span-2">
+                      <textarea
+                        name="marketing_plan"
+                        value={newContact.marketing_plan}
+                        onChange={handleInputChange}
+                        placeholder="Marketing Plan"
+                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base h-24"
+                        aria-label="Marketing Plan"
+                      />
+                    </div>
+                    <div className="col-span-1 md:col-span-2">
+                      <textarea
+                        name="activity_log"
+                        value={newContact.activity_log}
+                        onChange={handleInputChange}
+                        placeholder="Activity Log"
+                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base h-32"
+                        aria-label="Activity Log"
+                      />
+                    </div>
                   </div>
                   <motion.button
                     onClick={handleAddContact}

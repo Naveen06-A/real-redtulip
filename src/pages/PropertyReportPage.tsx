@@ -12,30 +12,28 @@ import {
   Tooltip,
 } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
-import { motion, AnimatePresence } from 'framer-motion';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ChevronDown,
-  Download,
-  Filter,
-  Loader2,
-  RefreshCcw,
-  Trash2,
-  X,
-  Edit,
-  MapPin,
-  Home,
-  DollarSign,
-  Percent,
+  BarChart2,
   Briefcase,
   Calendar,
-  Shield,
   CheckSquare,
-  List,
-  BarChart2,
-  TrendingUp,
+  ChevronDown,
+  DollarSign,
+  Download,
+  Edit,
   FileText,
+  Filter,
+  Home,
+  List,
+  Loader2,
+  MapPin,
+  Percent,
+  RefreshCcw,
+  Shield,
+  Trash2,
+  TrendingUp,
+  X,
 } from 'lucide-react';
 import moment from 'moment';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -55,8 +53,8 @@ import {
   normalizeSuburb,
   selectStyles,
 } from '../reportsUtils';
-import { generatePdf } from '../utils/pdfUtils1';
 import { Filters, PropertyDetails } from '../types/types';
+import { generatePdf } from '../utils/pdfUtils1';
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -106,7 +104,7 @@ const ALLOWED_SUBURBS = [
   'Anstead QLD 4070',
   'Chapel Hill QLD 4069',
   'Kenmore QLD 4069',
-  'Kenmore Hills QLD 4069',
+  'Kenmore Hills  ',
   'Fig Tree Pocket QLD 4069',
   'Pinjarra Hills QLD 4069',
   'Springfield QLD 4300',

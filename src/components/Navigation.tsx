@@ -111,6 +111,10 @@ export function Navigation() {
                   <LogIn className="w-5 h-5" />
                   <span>Wanna Be Sales Agent</span>
                 </Link>
+                <Link to="/form-6" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
+                  <LogIn className="w-5 h-5" />
+                  <span>form 6</span>
+                </Link>
                 <Link to="/agent-login" className="text-gray-600 hover:text-blue-600 flex items-center space-x-1">
                   <LogIn className="w-5 h-5" />
                     <span>Agent Login</span>
@@ -119,6 +123,7 @@ export function Navigation() {
                   <LogIn className="w-5 h-5" />
                   <span>Admin Login</span>
                 </Link>
+
                 <Link
                   to="/agent-register"
                   className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center space-x-1"

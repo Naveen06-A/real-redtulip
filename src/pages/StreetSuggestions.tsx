@@ -38,6 +38,7 @@ interface Contact {
   price: number | null;
   marketing_plan: string;
   activity_log: string;
+  call_back_date: string | null;
 }
 interface StreetStats {
   street_name: string;
@@ -93,6 +94,7 @@ export function StreetSuggestions({
     price: null,
     marketing_plan: '',
     activity_log: '',
+    call_back_date: null,
   });
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactSuccess, setContactSuccess] = useState<string | null>(null);
@@ -156,6 +158,7 @@ export function StreetSuggestions({
       'price',
       'marketing_plan',
       'activity_log',
+      'call_back_date',
     ];
     standardKeys.forEach((stdKey) => {
       let excelKey;
@@ -257,7 +260,7 @@ export function StreetSuggestions({
       const { data: contactsData, error: contactError } = await supabase
         .from('contacts')
         .select(
-          'id, owner_1, owner_2, owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, street_name, street_number, suburb, status, last_sold_date, price, marketing_plan, activity_log'
+          'id, owner_1, owner_2, owner_1_email, owner_2_email, phone_number, owner_1_mobile, owner_2_mobile, outcome, street_name, street_number, suburb, status, last_sold_date, price, marketing_plan, activity_log, call_back_date' 
         )
         .ilike('suburb', queryString);
       if (contactError) throw new Error(`Failed to fetch contacts: ${contactError.message}`);
@@ -499,6 +502,7 @@ export function StreetSuggestions({
         price: newContact.price ? parseFloat(newContact.price.toString()) : null,
         marketing_plan: newContact.marketing_plan || '',
         activity_log: newContact.activity_log || '',
+        call_back_date: newContact.call_back_date ? excelSerialToDate(newContact.call_back_date) : null,
       };
       if (isEditMode && newContact.id) {
         const { error } = await supabase
@@ -561,6 +565,7 @@ export function StreetSuggestions({
         price: null,
         marketing_plan: '',
         activity_log: '',
+        call_back_date: null,
       });
       setContactError(null);
       setTimeout(() => setContactSuccess(null), 3000);
@@ -575,6 +580,7 @@ export function StreetSuggestions({
     setNewContact({
       ...contact,
       last_sold_date: contact.last_sold_date || '',
+      call_back_date: contact.call_back_date || '',
     });
     setIsEditMode(true);
     setModalView('add');
@@ -758,6 +764,7 @@ export function StreetSuggestions({
             price: row.price,
             marketing_plan: row.marketing_plan || '',
             activity_log: row.activity_log || '',
+            call_back_date: row.call_back_date || null,
           });
         });
         if (validContacts.length === 0) {
@@ -909,6 +916,7 @@ export function StreetSuggestions({
             price: row.price,
             marketing_plan: row.marketing_plan || '',
             activity_log: row.activity_log || '',
+            call_back_date: row.call_back_date || null,
           });
         });
         if (validContacts.length === 0) {
@@ -973,6 +981,7 @@ export function StreetSuggestions({
       price: null,
       marketing_plan: '',
       activity_log: '',
+      call_back_date: null,
     });
     setIsEditMode(false);
     setSelectedContactIds([]);
@@ -1000,6 +1009,7 @@ export function StreetSuggestions({
       price: null,
       marketing_plan: '',
       activity_log: '',
+      call_back_date: null,
     });
     setContactError(null);
     setContactSuccess(null);
@@ -1344,9 +1354,12 @@ export function StreetSuggestions({
                                   <th className="p-1 text-left">Street Number</th>
                                   <th className="p-1 text-left">Status</th>
                                   <th className="p-1 text-left">Last Sold Date</th>
+                                  <th className="p-2 text-left">Call Back Date</th>
                                   <th className="p-1 text-left">Price</th>
                                   <th className="p-1 text-left">Marketing Plan</th>
+
                                   <th className="p-1 text-left">Activity Log</th>
+                                  
                                   <th className="p-1 text-left">Actions</th>
                                 </tr>
                               </thead>
@@ -1370,6 +1383,11 @@ export function StreetSuggestions({
                                     <td className="p-1">{contact.street_number || 'N/A'}</td>
                                     <td className="p-1">{contact.status || 'N/A'}</td>
                                     <td className="p-1">{contact.last_sold_date ? new Date(contact.last_sold_date).toLocaleDateString() : 'N/A'}</td>
+                                    <td className="p-2">
+                                      {contact.call_back_date
+                                        ? new Date(contact.call_back_date).toLocaleDateString()
+                                        : 'N/A'} {/* Added Call Back Date */}
+                                    </td>
                                     <td className="p-1">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
                                     <td className="p-1">{contact.marketing_plan || 'N/A'}</td>
                                     <td className="p-1">{contact.activity_log || 'N/A'}</td>
@@ -1609,6 +1627,7 @@ export function StreetSuggestions({
                             <th className="p-2 text-left">Status</th>
                             <th className="p-2 text-left">Last Sold Date</th>
                             <th className="p-2 text-left">Price</th>
+                            <th className="p-1 text-left">Call Back Date</th>
                             <th className="p-2 text-left">Marketing Plan</th>
                             <th className="p-2 text-left">Activity Log</th>
                             <th className="p-2 text-left">Actions</th>
@@ -1640,6 +1659,11 @@ export function StreetSuggestions({
                                   {contact.last_sold_date
                                     ? new Date(contact.last_sold_date).toLocaleDateString()
                                     : 'N/A'}
+                                </td>
+                                <td className="p-2">
+                                  {contact.call_back_date
+                                    ? new Date(contact.call_back_date).toLocaleDateString()
+                                    : 'N/A'} {/* Added Call Back Date */}
                                 </td>
                                 <td className="p-2">{contact.price ? formatCurrency(contact.price) : 'N/A'}</td>
                                 <td className="p-2">{contact.marketing_plan || 'N/A'}</td>
@@ -1800,6 +1824,15 @@ export function StreetSuggestions({
                       placeholder="Price"
                       className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
                       aria-label="Price"
+                    />
+                    <input
+                      type="date"
+                      name="call_back_date"
+                      value={newContact.call_back_date || ''}
+                      onChange={handleInputChange}
+                      placeholder="Call Back Date"
+                      className="p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-base"
+                      aria-label="Call Back Date"
                     />
                     <div className="col-span-1 md:col-span-2">
                       <textarea

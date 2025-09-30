@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
-import { useAuthStore } from '../store/authStore'; // Assuming this is your auth store
-import { supabase } from '../lib/supabase'; // Your Supabase client
+import { useAuthStore } from '../store/authStore';
+import { supabase } from '../lib/supabase';
 import { toast } from 'react-toastify';
 
 interface Owner {
@@ -14,8 +13,19 @@ interface Owner {
   postcode: string;
 }
 
+interface ContactDetails {
+  name: string;
+  streetNumber: string;
+  streetName: string;
+  suburb: string;
+  email: string;
+  state: string;
+  postcode: string;
+  mobile: string;
+}
+
 const PropertyManagementForm: React.FC = () => {
-  const { user } = useAuthStore(); // Get authenticated user (optional)
+  const { user } = useAuthStore();
   const [numOwners, setNumOwners] = useState<number>(1);
   const [owners, setOwners] = useState<Owner[]>(Array.from({ length: 1 }, () => ({
     fullName: '',
@@ -26,6 +36,31 @@ const PropertyManagementForm: React.FC = () => {
     suburbName: '',
     postcode: '',
   })));
+  const [propertyType, setPropertyType] = useState<string>('house');
+  const [hasPool, setHasPool] = useState<string>('no');
+  const [hasBodyCorporate, setHasBodyCorporate] = useState<string>('no');
+  const [bodyCorporate, setBodyCorporate] = useState<string>('');
+  const [cts, setCts] = useState<string>('');
+  const [secretaryDetails, setSecretaryDetails] = useState<ContactDetails>({
+    name: '',
+    streetNumber: '',
+    streetName: '',
+    suburb: '',
+    email: '',
+    state: '',
+    postcode: '',
+    mobile: '',
+  });
+  const [managerDetails, setManagerDetails] = useState<ContactDetails>({
+    name: '',
+    streetNumber: '',
+    streetName: '',
+    suburb: '',
+    email: '',
+    state: '',
+    postcode: '',
+    mobile: '',
+  });
   const [agreementNames, setAgreementNames] = useState<string>('both');
   const [accountName, setAccountName] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState<string>('');
@@ -66,6 +101,14 @@ const PropertyManagementForm: React.FC = () => {
     });
   };
 
+  const handleSecretaryChange = (field: keyof ContactDetails, value: string) => {
+    setSecretaryDetails(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleManagerChange = (field: keyof ContactDetails, value: string) => {
+    setManagerDetails(prev => ({ ...prev, [field]: value }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -90,10 +133,39 @@ const PropertyManagementForm: React.FC = () => {
       toast.error('Please provide the rental date');
       return;
     }
+    if (hasBodyCorporate === 'yes' && (
+      !bodyCorporate ||
+      !secretaryDetails.name ||
+      !secretaryDetails.email ||
+      !secretaryDetails.mobile ||
+      !secretaryDetails.streetNumber ||
+      !secretaryDetails.streetName ||
+      !secretaryDetails.suburb ||
+      !secretaryDetails.state ||
+      !secretaryDetails.postcode ||
+      !managerDetails.name ||
+      !managerDetails.email ||
+      !managerDetails.mobile ||
+      !managerDetails.streetNumber ||
+      !managerDetails.streetName ||
+      !managerDetails.suburb ||
+      !managerDetails.state ||
+      !managerDetails.postcode
+    )) {
+      toast.error('Please fill out all body corporate details');
+      return;
+    }
 
     const formData = {
-      user_id: user?.id ?? null, // Set user_id to null if not logged in
+      user_id: user?.id ?? null,
       owners,
+      property_type: propertyType,
+      has_pool: hasPool,
+      has_body_corporate: hasBodyCorporate,
+      body_corporate: hasBodyCorporate === 'yes' ? bodyCorporate : null,
+      cts: hasBodyCorporate === 'yes' ? cts : null,
+      secretary_details: hasBodyCorporate === 'yes' ? secretaryDetails : null,
+      manager_details: hasBodyCorporate === 'yes' ? managerDetails : null,
       agreement_names: agreementNames,
       bank_details: { accountName, accountNumber, bsb },
       rented_last_year: rentedLastYear,
@@ -111,7 +183,6 @@ const PropertyManagementForm: React.FC = () => {
 
       console.log('Supabase insert response:', { data });
       toast.success('Form data saved successfully!');
-      // Reset form after successful submission
       setOwners([{
         fullName: '',
         email: '',
@@ -122,6 +193,31 @@ const PropertyManagementForm: React.FC = () => {
         postcode: '',
       }]);
       setNumOwners(1);
+      setPropertyType('house');
+      setHasPool('no');
+      setHasBodyCorporate('no');
+      setBodyCorporate('');
+      setCts('');
+      setSecretaryDetails({
+        name: '',
+        streetNumber: '',
+        streetName: '',
+        suburb: '',
+        email: '',
+        state: '',
+        postcode: '',
+        mobile: '',
+      });
+      setManagerDetails({
+        name: '',
+        streetNumber: '',
+        streetName: '',
+        suburb: '',
+        email: '',
+        state: '',
+        postcode: '',
+        mobile: '',
+      });
       setAgreementNames('both');
       setAccountName('');
       setAccountNumber('');
@@ -132,13 +228,43 @@ const PropertyManagementForm: React.FC = () => {
       setUtilityPreference('option1');
     } catch (error) {
       console.error('Error saving form data:', error);
-      toast.error('Failed to save form data. Please try again.');
+      toast.error('Unable to save form data. Please check your input and try again.');
     }
   };
 
   return (
     <div className="max-w-4xl mx-auto p-6 bg-gray-50 min-h-screen">
       <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Property Details Section */}
+        <div className="bg-white shadow-lg rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Property Details</h2>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Property Type</label>
+            <select
+              value={propertyType}
+              onChange={e => setPropertyType(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+            >
+              <option value="house">House</option>
+              <option value="acreage">Acreage</option>
+              <option value="townhouse">Townhouse</option>
+              <option value="land">Land</option>
+              <option value="manual">Manual Type</option>
+            </select>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Does the property have a pool?</label>
+            <select
+              value={hasPool}
+              onChange={e => setHasPool(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+        </div>
+
         {/* Owner Details Section */}
         <div className="bg-white shadow-lg rounded-lg p-6 border border-gray-200">
           <h2 className="text-2xl font-bold text-gray-800 mb-4">Owner Details</h2>
@@ -228,6 +354,204 @@ const PropertyManagementForm: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Body Corporate Section */}
+        <div className="bg-white shadow-lg rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Body Corporate Details</h2>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Does the property have a body corporate?
+            </label>
+            <select
+              value={hasBodyCorporate}
+              onChange={e => setHasBodyCorporate(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          {hasBodyCorporate === 'yes' && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Plan Name/Body Corporate</label>
+                <input
+                  type="text"
+                  value={bodyCorporate}
+                  onChange={e => setBodyCorporate(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">CTS</label>
+                <input
+                  type="text"
+                  value={cts}
+                  onChange={e => setCts(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                />
+              </div>
+              <div className="border-t border-gray-200 pt-4 mt-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Secretary Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={secretaryDetails.name}
+                      onChange={e => handleSecretaryChange('name', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={secretaryDetails.email}
+                      onChange={e => handleSecretaryChange('email', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+                    <input
+                      type="tel"
+                      value={secretaryDetails.mobile}
+                      onChange={e => handleSecretaryChange('mobile', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Street Number</label>
+                      <input
+                        type="text"
+                        value={secretaryDetails.streetNumber}
+                        onChange={e => handleSecretaryChange('streetNumber', e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Street Name</label>
+                      <input
+                        type="text"
+                        value={secretaryDetails.streetName}
+                        onChange={e => handleSecretaryChange('streetName', e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Suburb</label>
+                    <input
+                      type="text"
+                      value={secretaryDetails.suburb}
+                      onChange={e => handleSecretaryChange('suburb', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+                    <input
+                      type="text"
+                      value={secretaryDetails.state}
+                      onChange={e => handleSecretaryChange('state', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
+                    <input
+                      type="text"
+                      value={secretaryDetails.postcode}
+                      onChange={e => handleSecretaryChange('postcode', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="border-t border-gray-200 pt-4 mt-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Corporate Manager Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={managerDetails.name}
+                      onChange={e => handleManagerChange('name', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={managerDetails.email}
+                      onChange={e => handleManagerChange('email', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+                    <input
+                      type="tel"
+                      value={managerDetails.mobile}
+                      onChange={e => handleManagerChange('mobile', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Street Number</label>
+                      <input
+                        type="text"
+                        value={managerDetails.streetNumber}
+                        onChange={e => handleManagerChange('streetNumber', e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Street Name</label>
+                      <input
+                        type="text"
+                        value={managerDetails.streetName}
+                        onChange={e => handleManagerChange('streetName', e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Suburb</label>
+                    <input
+                      type="text"
+                      value={managerDetails.suburb}
+                      onChange={e => handleManagerChange('suburb', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+                    <input
+                      type="text"
+                      value={managerDetails.state}
+                      onChange={e => handleManagerChange('state', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
+                    <input
+                      type="text"
+                      value={managerDetails.postcode}
+                      onChange={e => handleManagerChange('postcode', e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Management Agreement Section */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-toastify';
@@ -41,16 +41,6 @@ const PropertyManagementForm: React.FC = () => {
   const [hasBodyCorporate, setHasBodyCorporate] = useState<string>('no');
   const [bodyCorporate, setBodyCorporate] = useState<string>('');
   const [cts, setCts] = useState<string>('');
-  const [secretaryDetails, setSecretaryDetails] = useState<ContactDetails>({
-    name: '',
-    streetNumber: '',
-    streetName: '',
-    suburb: '',
-    email: '',
-    state: '',
-    postcode: '',
-    mobile: '',
-  });
   const [managerDetails, setManagerDetails] = useState<ContactDetails>({
     name: '',
     streetNumber: '',
@@ -61,7 +51,8 @@ const PropertyManagementForm: React.FC = () => {
     postcode: '',
     mobile: '',
   });
-  const [agreementNames, setAgreementNames] = useState<string>('both');
+  const [agreementType, setAgreementType] = useState<'both' | 'single'>('single');
+  const [selectedOwnerIndex, setSelectedOwnerIndex] = useState<number | null>(0);
   const [accountName, setAccountName] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState<string>('');
   const [bsb, setBsb] = useState<string>('');
@@ -69,6 +60,18 @@ const PropertyManagementForm: React.FC = () => {
   const [rentalDate, setRentalDate] = useState<string>('');
   const [rentDisbursement, setRentDisbursement] = useState<string>('monthly');
   const [utilityPreference, setUtilityPreference] = useState<string>('option1');
+
+  useEffect(() => {
+    if (agreementType === 'single' && selectedOwnerIndex !== null && selectedOwnerIndex < owners.length) {
+      const owner = owners[selectedOwnerIndex];
+      setManagerDetails(prev => ({
+        ...prev,
+        name: owner.fullName,
+        email: owner.email,
+        mobile: owner.mobile,
+      }));
+    }
+  }, [agreementType, selectedOwnerIndex, owners]);
 
   const handleNumOwnersChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newNum = parseInt(e.target.value, 10);
@@ -91,6 +94,22 @@ const PropertyManagementForm: React.FC = () => {
       }
       return newOwners;
     });
+    if (newNum === 1) {
+      setAgreementType('single');
+      setSelectedOwnerIndex(0);
+    } else {
+      setSelectedOwnerIndex(prev => prev !== null ? Math.min(prev, newNum - 1) : null);
+    }
+  };
+
+  const handleAgreementTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value as 'both' | 'single';
+    setAgreementType(val);
+    if (val === 'both') {
+      setSelectedOwnerIndex(null);
+    } else if (selectedOwnerIndex === null) {
+      setSelectedOwnerIndex(0);
+    }
   };
 
   const handleOwnerChange = (index: number, field: keyof Owner, value: string) => {
@@ -99,10 +118,6 @@ const PropertyManagementForm: React.FC = () => {
       newOwners[index] = { ...newOwners[index], [field]: value };
       return newOwners;
     });
-  };
-
-  const handleSecretaryChange = (field: keyof ContactDetails, value: string) => {
-    setSecretaryDetails(prev => ({ ...prev, [field]: value }));
   };
 
   const handleManagerChange = (field: keyof ContactDetails, value: string) => {
@@ -133,16 +148,12 @@ const PropertyManagementForm: React.FC = () => {
       toast.error('Please provide the rental date');
       return;
     }
+    if (agreementType === 'single' && (selectedOwnerIndex === null || !owners[selectedOwnerIndex]?.fullName)) {
+      toast.error('Please select the owner for the single-name agreement');
+      return;
+    }
     if (hasBodyCorporate === 'yes' && (
       !bodyCorporate ||
-      !secretaryDetails.name ||
-      !secretaryDetails.email ||
-      !secretaryDetails.mobile ||
-      !secretaryDetails.streetNumber ||
-      !secretaryDetails.streetName ||
-      !secretaryDetails.suburb ||
-      !secretaryDetails.state ||
-      !secretaryDetails.postcode ||
       !managerDetails.name ||
       !managerDetails.email ||
       !managerDetails.mobile ||
@@ -164,9 +175,9 @@ const PropertyManagementForm: React.FC = () => {
       has_body_corporate: hasBodyCorporate,
       body_corporate: hasBodyCorporate === 'yes' ? bodyCorporate : null,
       cts: hasBodyCorporate === 'yes' ? cts : null,
-      secretary_details: hasBodyCorporate === 'yes' ? secretaryDetails : null,
       manager_details: hasBodyCorporate === 'yes' ? managerDetails : null,
-      agreement_names: agreementNames,
+      agreement_type: agreementType,
+      selected_owner_index: agreementType === 'single' ? selectedOwnerIndex : null,
       bank_details: { accountName, accountNumber, bsb },
       rented_last_year: rentedLastYear,
       rental_date: rentedLastYear === 'yes' ? rentalDate : null,
@@ -198,16 +209,6 @@ const PropertyManagementForm: React.FC = () => {
       setHasBodyCorporate('no');
       setBodyCorporate('');
       setCts('');
-      setSecretaryDetails({
-        name: '',
-        streetNumber: '',
-        streetName: '',
-        suburb: '',
-        email: '',
-        state: '',
-        postcode: '',
-        mobile: '',
-      });
       setManagerDetails({
         name: '',
         streetNumber: '',
@@ -218,7 +219,8 @@ const PropertyManagementForm: React.FC = () => {
         postcode: '',
         mobile: '',
       });
-      setAgreementNames('both');
+      setAgreementType('single');
+      setSelectedOwnerIndex(0);
       setAccountName('');
       setAccountNumber('');
       setBsb('');
@@ -393,85 +395,6 @@ const PropertyManagementForm: React.FC = () => {
                 />
               </div>
               <div className="border-t border-gray-200 pt-4 mt-4">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Secretary Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                    <input
-                      type="text"
-                      value={secretaryDetails.name}
-                      onChange={e => handleSecretaryChange('name', e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <input
-                      type="email"
-                      value={secretaryDetails.email}
-                      onChange={e => handleSecretaryChange('email', e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
-                    <input
-                      type="tel"
-                      value={secretaryDetails.mobile}
-                      onChange={e => handleSecretaryChange('mobile', e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Street Number</label>
-                      <input
-                        type="text"
-                        value={secretaryDetails.streetNumber}
-                        onChange={e => handleSecretaryChange('streetNumber', e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Street Name</label>
-                      <input
-                        type="text"
-                        value={secretaryDetails.streetName}
-                        onChange={e => handleSecretaryChange('streetName', e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Suburb</label>
-                    <input
-                      type="text"
-                      value={secretaryDetails.suburb}
-                      onChange={e => handleSecretaryChange('suburb', e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                    <input
-                      type="text"
-                      value={secretaryDetails.state}
-                      onChange={e => handleSecretaryChange('state', e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
-                    <input
-                      type="text"
-                      value={secretaryDetails.postcode}
-                      onChange={e => handleSecretaryChange('postcode', e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="border-t border-gray-200 pt-4 mt-4">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">Corporate Manager Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -557,22 +480,40 @@ const PropertyManagementForm: React.FC = () => {
         {/* Management Agreement Section */}
         <div className="bg-white shadow-lg rounded-lg p-6 border border-gray-200">
           <h2 className="text-2xl font-bold text-gray-800 mb-4">Management Agreement</h2>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Should the management agreement include both owners’ names, or only your name?
-          </label>
-          <select
-            value={agreementNames}
-            onChange={e => setAgreementNames(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-          >
-            <option value="both">Both owners’ names</option>
-            <option value="onlyMine">Only your name</option>
-          </select>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Should the management agreement include all owners’ names, or only one owner's name?
+            </label>
+            <select
+              value={agreementType}
+              onChange={handleAgreementTypeChange}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+            >
+              <option value="both" disabled={numOwners === 1}>All owners’ names</option>
+              <option value="single">Only one owner's name</option>
+            </select>
+          </div>
+          {agreementType === 'single' && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Which owner?</label>
+              <select
+                value={selectedOwnerIndex ?? ''}
+                onChange={e => setSelectedOwnerIndex(parseInt(e.target.value, 10))}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+              >
+                {owners.map((owner, index) => (
+                  <option key={index} value={index}>
+                    {owner.fullName || `Owner ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Bank Details Section */}
         <div className="bg-white shadow-lg rounded-lg p-6 border border-gray-200">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Bank Details</h2>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Bank Details for disbrusmnents of rent</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>

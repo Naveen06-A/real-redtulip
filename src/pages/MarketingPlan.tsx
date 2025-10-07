@@ -35,6 +35,7 @@ const PREDEFINED_SUBURBS = [
   'Pinjara Hills QLD 4069',
   'Spring Mountain QLD 4300',
   'Springfield QLD 4300',
+  'Greenbank QLD 4124',
 ];
 
 interface DoorKnockStreet {

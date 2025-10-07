@@ -109,6 +109,7 @@ const ALLOWED_SUBURBS = [
   'Pinjarra Hills QLD 4069',
   'Springfield QLD 4300',
   'Spring Mountain QLD 4300',
+  'Greenbank QLD 4124',
 ].map(suburb => normalizeSuburb(suburb));
 export function PropertyReportPage(props: PropertyReportPageProps) {
   const location = useLocation();

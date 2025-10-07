@@ -38,6 +38,9 @@ export const suburbMap: { [key: string]: string } = {
   'spring mountain': 'SPRING MOUNTAIN QLD 4300',
   'spring mountain qld': 'SPRING MOUNTAIN QLD 4300',
   'spring mountain qld (4300)': 'SPRING MOUNTAIN QLD 4300',
+  'Greenbank qld': 'GREENBANK QLD 4124',
+  'greenbank': 'GREENBANK QLD 4124',
+  'greenbank qld (4124)': 'GREENBANK QLD 4124',
 };
 
 export const baseCoords: Record<string, { lat: number; lng: number }> = {
@@ -53,6 +56,7 @@ export const baseCoords: Record<string, { lat: number; lng: number }> = {
   'PINJARRA HILLS QLD 4069': { lat: -27.537, lng: 152.906 },
   'SPRINGFIELD QLD 4300': { lat: -27.653, lng: 152.918 },
   'SPRING MOUNTAIN QLD 4300': { lat: -27.690, lng: 152.895 },
+  'GREENBANK QLD 4124': { lat: -27.705, lng: 153.010 },
 };
 
 export const normalizeSuburb = (suburb: string | undefined | null): string => {

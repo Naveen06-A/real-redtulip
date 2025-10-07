@@ -90,6 +90,7 @@ const ALLOWED_SUBURBS = [
   { name: 'Pinjara Hills', postcode: '4069' },
   { name:  'Spring Mountain',postcode:'4300'},
   { name:  'Springfield',postcode:'4300'},
+  { name:  'Greenbank',postcode:'4124'},
 ];
 
 export function PropertyForm() {

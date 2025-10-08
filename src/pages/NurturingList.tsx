@@ -571,14 +571,19 @@ export function NurturingList() {
           const errors: string[] = [];
           const allowedStatuses = ['Inprogress', 'Not interested', 'Undecided', 'Will list', 'Closed', 'will buy', 'will sell', 'wants to buy'];
           const allowedPriorities = ['hot', 'warm', 'cold'];
+          
           const cleanString = (value: any): string => {
-            if (typeof value !== 'string') return '';
-            return value.trim();
+            if (value === null || value === undefined || value === '') return '';
+            if (typeof value === 'string') return value.trim();
+            return String(value).trim();
           };
+
           const normalizePhone = (phone: string): string => {
             return phone.replace(/\D/g, '');
           };
+
           const parseDate = (dateStr: string): string | null => {
+            if (!dateStr) return null;
             const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
             if (match) {
               const [, day, month, year] = match;
@@ -597,6 +602,7 @@ export function NurturingList() {
             }
             return null;
           };
+
           const serialToDate = (serial: number): string | null => {
             const excelEpoch = new Date(1899, 11, 31);
             const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
@@ -609,27 +615,54 @@ export function NurturingList() {
             if (isNaN(checkDate.getTime()) || checkDate.getFullYear() !== year) return null;
             return isoDate;
           };
+
           const generateUniqueId = () => {
             return `no-email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           };
-          const safeNumericValue = (value: any): string => {
-            if (value === null || value === undefined || value === '') return '';
-            return value.toString().replace(/[^0-9.]/g, '');
+
+          const safeNumericValue = (value: any): string | null => {
+            if (value === null || value === undefined || value === '') return null;
+            const numericString = value.toString().replace(/[^0-9.]/g, '');
+            return numericString === '' ? null : numericString;
           };
+
+          const safeBooleanValue = (value: any): boolean => {
+            if (value === null || value === undefined || value === '') return false;
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value !== 0;
+            if (typeof value === 'string') {
+              const lowerVal = value.toLowerCase().trim();
+              return lowerVal === 'yes' || lowerVal === 'true' || lowerVal === '1' || lowerVal === 'y';
+            }
+            return false;
+          };
+
           jsonData.forEach((row: any, index: number) => {
+            // Check if row is completely empty (all values are null, undefined, or empty strings)
             const isRowEmpty = Object.values(row).every(val => {
               if (typeof val === 'string') return val.trim() === '';
               return val === null || val === undefined;
             });
+            
             if (isRowEmpty) return;
-            const firstName = cleanString(row.first_name);
-            const lastName = cleanString(row.last_name);
+
+            let firstName = cleanString(row.first_name);
+            let lastName = cleanString(row.last_name);
+            
+            // Allow rows with missing first and last name but generate placeholder
             if (!firstName && !lastName) {
-              errors.push(`Row ${index + 2}: Missing both first name and last name`);
-              return;
+              // Generate placeholder names instead of erroring out
+              firstName = "Unknown";
+              lastName = `Contact_${generateUniqueId()}`;
+            } else if (!firstName) {
+              firstName = "Unknown";
+            } else if (!lastName) {
+              lastName = "Unknown";
             }
+
             let email = cleanString(row.email);
             let finalEmail = email;
+            
             if (!email) {
               if (firstName || lastName) {
                 finalEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@placeholder.com`.replace(/\s+/g, '.');
@@ -637,17 +670,20 @@ export function NurturingList() {
                 finalEmail = `unknown.${generateUniqueId()}@placeholder.com`;
               }
             }
+
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(finalEmail)) {
               errors.push(`Row ${index + 2}: Invalid email format (${finalEmail})`);
               return;
             }
+
             if (existingEmails.has(finalEmail.toLowerCase())) {
               return;
             }
-            const phone = cleanString(row.phone_number);
-            const normalizedPhone = phone ? normalizePhone(phone) : '';
-            const mobile = cleanString(row.mobile);
-            const normalizedMobile = mobile ? normalizePhone(mobile) : '';
+
+            // Provide default values for required fields that cannot be null
+            const phone = cleanString(row.phone_number) || "Not Provided";
+            const mobile = cleanString(row.mobile) || "Not Provided";
+
             let status = cleanString(row.status);
             if (!status) {
               status = 'Inprogress';
@@ -659,6 +695,7 @@ export function NurturingList() {
               }
               status = normalizedStatus;
             }
+
             let priority = cleanString(row.priority).toLowerCase();
             if (!priority) {
               priority = 'warm';
@@ -670,48 +707,57 @@ export function NurturingList() {
               }
               priority = normalizedPriority;
             }
-            const needsMonthlyAppraisals =
-              cleanString(row.needs_monthly_appraisals).toLowerCase() === 'yes' ||
-              row.needs_monthly_appraisals === true ||
-              row.needs_monthly_appraisals === 1;
+
+            const needsMonthlyAppraisals = safeBooleanValue(row.needs_monthly_appraisals);
+
             let callBackDate: string | null = null;
             if (row.call_back_date) {
               if (typeof row.call_back_date === 'string') {
                 callBackDate = parseDate(row.call_back_date);
                 if (!callBackDate) {
-                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                  console.warn(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
                 }
               } else if (typeof row.call_back_date === 'number') {
                 callBackDate = serialToDate(row.call_back_date);
                 if (!callBackDate) {
-                  errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                  console.warn(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
                 }
               } else {
-                errors.push(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
+                console.warn(`Row ${index + 2}: Invalid date format for call_back_date (${row.call_back_date})`);
               }
             }
-            const streetNumber = safeNumericValue(row.street_number);
-            const postcode = safeNumericValue(row.postcode);
-            validContacts.push({
+
+            // Import all fields with default values for required fields
+            const contactData: Partial<NurturingContact> = {
               first_name: firstName,
               last_name: lastName,
               email: finalEmail,
-              phone_number: phone,
-              mobile: mobile,
-              street_number: streetNumber,
-              street_name: cleanString(row.street_name),
-              suburb: cleanString(row.suburb),
-              postcode: postcode,
-              house_type: cleanString(row.house_type),
-              requirements: cleanString(row.requirements),
-              notes: cleanString(row.notes),
+              phone_number: phone, // Default value for required field
+              mobile: mobile, // Default value for required field
+              street_number: safeNumericValue(row.street_number),
+              street_name: cleanString(row.street_name) || null,
+              suburb: cleanString(row.suburb) || null,
+              postcode: safeNumericValue(row.postcode),
+              house_type: cleanString(row.house_type) || null,
+              requirements: cleanString(row.requirements) || null,
+              notes: cleanString(row.notes) || null,
               call_back_date: callBackDate,
               needs_monthly_appraisals: needsMonthlyAppraisals,
               status: status,
               priority: priority as 'hot' | 'warm' | 'cold',
               agent_id: profile?.role === 'admin' && selectedAgent !== 'all' ? selectedAgent : user.id,
+            };
+
+            // Remove undefined values but keep null values for database
+            Object.keys(contactData).forEach(key => {
+              if (contactData[key as keyof NurturingContact] === undefined) {
+                delete contactData[key as keyof NurturingContact];
+              }
             });
+
+            validContacts.push(contactData);
           });
+
           if (errors.length > 0) {
             toast.error(
               <div>
@@ -728,23 +774,39 @@ export function NurturingList() {
               }
             );
           }
+
           if (validContacts.length === 0) {
             toast.info('No new valid contacts to import');
             setLoading(false);
             return;
           }
+
           const { data: importedData, error } = await supabase
             .from('nurturing_list')
             .insert(validContacts)
             .select<unknown, NurturingContact>();
-          if (error) throw new Error(`Failed to import Excel contacts: ${error.message}`);
+
+          if (error) {
+            console.error('Database error:', error);
+            throw new Error(`Failed to import Excel contacts: ${error.message}`);
+          }
+
           setContacts([...contacts, ...importedData]);
           setExcelFile(null);
           resetForm();
+          
           const placeholderCount = validContacts.filter(c => c.email?.includes('@placeholder.com')).length;
+          const missingNameCount = validContacts.filter(c => c.first_name === "Unknown" || c.last_name === "Unknown").length;
+          const defaultPhoneCount = validContacts.filter(c => c.phone_number === "Not Provided").length;
+          
           let successMessage = `${validContacts.length} new contacts imported successfully from Excel`;
-          if (placeholderCount > 0) {
-            successMessage += ` (${placeholderCount} with placeholder emails)`;
+          const warnings = [];
+          if (placeholderCount > 0) warnings.push(`${placeholderCount} with placeholder emails`);
+          if (missingNameCount > 0) warnings.push(`${missingNameCount} with auto-generated names`);
+          if (defaultPhoneCount > 0) warnings.push(`${defaultPhoneCount} with default phone numbers`);
+          
+          if (warnings.length > 0) {
+            successMessage += ` (${warnings.join(', ')})`;
           }
           toast.success(successMessage);
         } catch (err: any) {

@@ -362,8 +362,8 @@ export function EMIPlanCalculator() {
       loanTenure: 0,
       loanAmount: 0,
       interestPerAnnum: 0,
-      bankPercent: 70,
-      ownPercent: 30,
+      bankPercent: 0,
+      ownPercent: 0,
       ownFundsInterestRate: 0,
       ownTenure: 0,
       revenues: [
@@ -1164,7 +1164,7 @@ export function EMIPlanCalculator() {
                     max="100"
                     step="1"
                     placeholder="70"
-                    disabled={emiPlan.typeOfLoan === 'Rent Roll'}
+                    // disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
@@ -1177,7 +1177,7 @@ export function EMIPlanCalculator() {
                     max="100"
                     step="1"
                     placeholder="30"
-                    disabled={emiPlan.typeOfLoan === 'Rent Roll'}
+                    // disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.bankPercent / 100)}</td>

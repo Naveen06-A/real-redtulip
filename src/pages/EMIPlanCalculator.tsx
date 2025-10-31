@@ -131,6 +131,7 @@ const CurrencyInput: React.FC<{
     setDisplayValue(formatNumberInput(numericValue));
     onChange(numericValue);
   };
+  
 
   return (
     <input
@@ -157,123 +158,135 @@ const formatCurrency = (value: number): string => {
 };
 
 const calculateEMI = (plan: EMIPlan): Calculations => {
-  const effectiveLoanAmount = plan.gstPercentage ? plan.loanAmount * (1 + plan.gstPercentage / 100) : plan.loanAmount;
+  // --- 1. Base Loan Setup ---
+  const effectiveLoanAmount = plan.gstPercentage
+    ? plan.loanAmount * (1 + plan.gstPercentage / 100)
+    : plan.loanAmount;
+
   const bankLoanAmount = effectiveLoanAmount * plan.bankPercent / 100;
   const ownFunds = effectiveLoanAmount * plan.ownPercent / 100;
+
   const loanTenureMonths = plan.loanTenure * 12;
   const ownTenureMonths = plan.ownTenure * 12;
   const maxMonths = Math.max(loanTenureMonths, ownTenureMonths, 1);
 
-  const yearlyRevenue = plan.revenues.reduce((sum, rev) => {
-    let amount = 0;
-    if (rev.period === 'monthly') {
-      amount = rev.amount;
-    } else if (rev.period === 'yearly') {
-      amount = rev.amount * 12;
-    }
-    return amount + sum;
-  }, 0);
+  // --- 2. Revenue & Expense Aggregation (CORRECTED) ---
+  const revenueMonthlyEquivalent = plan.revenues.reduce((sum, rev) => 
+    sum + (rev.period === 'monthly' ? rev.amount : rev.amount / 12), 0
+  );
 
-  const monthlyRevenue = plan.revenues.reduce((sum, rev) => {
-    let amount = 0;
-    if (rev.period === 'monthly') {
-      amount = rev.amount;
-    }
-    return amount + sum;
-  }, 0);
+  const revenueYearlyEquivalent = plan.revenues.reduce((sum, rev) => 
+    sum + (rev.period === 'monthly' ? rev.amount * 12 : rev.amount), 0
+  );
 
-  const yearlyExpenses = plan.expenses.reduce((sum, expense) => {
-    let amount = 0;
-    if (expense.period === 'monthly') {
-      amount = expense.amount;
-    } else if (expense.period === 'yearly') {
-      amount = expense.amount * 12;
-    }
-    return sum + amount;
-  }, 0);
+  const expensesMonthlyEquivalent = plan.expenses.reduce((sum, exp) => 
+    sum + (exp.period === 'monthly' ? exp.amount : exp.amount / 12), 0
+  );
 
-  const monthlyExpenses = plan.expenses.reduce((sum, expense) => {
-    let amount = 0;
-    if (expense.period === 'monthly') {
-      amount = expense.amount;
-    }
-    return sum + amount;
-  }, 0);
+  const expensesYearlyEquivalent = plan.expenses.reduce((sum, exp) => 
+    sum + (exp.period === 'monthly' ? exp.amount * 12 : exp.amount), 0
+  );
 
+  // --- 3. Amortization Tracking ---
   let remainingBank = bankLoanAmount;
   let remainingOwn = ownFunds;
+
   let currentMonth = 1;
   let currentYear = 1;
+
+  // Year 1 Totals
   let bankYear1Principal = 0;
   let bankYear1Interest = 0;
   let ownYear1Principal = 0;
   let ownYear1Interest = 0;
+
+  // Yearly Accumulators
   let yearPrincipalBank = 0;
   let yearInterestBank = 0;
   let yearPrincipalOwn = 0;
   let yearInterestOwn = 0;
   let yearTotalRepayment = 0;
+
+  // Total Interest
   let totalBankInterest = 0;
   let totalOwnInterest = 0;
+
   const yearlyAvg: PeriodData[] = [];
   const monthlyAvg: PeriodData[] = [];
 
+  // --- 4. Monthly Loop ---
   while (currentMonth <= maxMonths) {
-    let interestBank = 0;
+    // --- Bank Loan ---
     let principalBank = 0;
+    let interestBank = 0;
+
     if (currentMonth <= loanTenureMonths) {
-      interestBank = remainingBank * (plan.interestPerAnnum / 100 / 12);
       principalBank = bankLoanAmount / loanTenureMonths;
-      remainingBank -= principalBank;
-      remainingBank = Math.max(remainingBank, 0);
+      interestBank = remainingBank * (plan.interestPerAnnum / 100 / 12);
+      remainingBank = Math.max(remainingBank - principalBank, 0);
       totalBankInterest += interestBank;
     }
 
-    let interestOwn = 0;
+    // --- Own Funds ---
     let principalOwn = 0;
+    let interestOwn = 0;
+
     if (currentMonth <= ownTenureMonths) {
-      interestOwn = remainingOwn * (plan.ownFundsInterestRate / 100 / 12);
       principalOwn = ownFunds / ownTenureMonths;
-      remainingOwn -= principalOwn;
-      remainingOwn = Math.max(remainingOwn, 0);
+      interestOwn = remainingOwn * (plan.ownFundsInterestRate / 100 / 12);
+      remainingOwn = Math.max(remainingOwn - principalOwn, 0);
       totalOwnInterest += interestOwn;
     }
 
-    yearInterestBank += interestBank;
+    // --- Accumulate for Year ---
     yearPrincipalBank += principalBank;
-    yearInterestOwn += interestOwn;
+    yearInterestBank += interestBank;
     yearPrincipalOwn += principalOwn;
-    yearTotalRepayment += (interestBank + principalBank) + (interestOwn + interestOwn);
+    yearInterestOwn += interestOwn;
+    yearTotalRepayment += (principalBank + interestBank) + (principalOwn + interestOwn);
 
-    const monthlyRepayment = (principalBank + interestBank) + (principalOwn + interestOwn);
+    // --- Monthly Repayments ---
+    const loanRepayment = principalBank + interestBank;
+    const ownRepayment = principalOwn + interestOwn;
+    const totalRepayment = loanRepayment + ownRepayment;
+
+    // --- Monthly P/L ---
+    const netOperatingIncome = revenueMonthlyEquivalent - expensesMonthlyEquivalent;
+    const pl = netOperatingIncome - totalRepayment;
+
+    // --- Push Monthly Data (Correct per-month values) ---
     monthlyAvg.push({
       period: currentMonth,
-      revenue: monthlyRevenue,
-      expenses: monthlyExpenses,
+      revenue: revenueMonthlyEquivalent,
+      expenses: expensesMonthlyEquivalent,
       ownAmount: ownFunds,
-      ownRepayment: principalOwn + interestOwn,
+      ownRepayment,
       loanAmount: bankLoanAmount,
-      loanRepayment: principalBank + interestBank,
+      loanRepayment,
       ownInterest: interestOwn,
       loanInterest: interestBank,
-      pl: monthlyRevenue - (monthlyExpenses + monthlyRepayment),
+      pl,
     });
 
+    // --- Yearly Aggregation ---
     if (currentMonth % 12 === 0 || currentMonth === maxMonths) {
-      const monthsInYear = currentMonth % 12 === 0 ? 12 : currentMonth % 12;
+      const yearlyNetOperatingIncome = revenueYearlyEquivalent - expensesYearlyEquivalent;
+      const yearlyPL = yearlyNetOperatingIncome - yearTotalRepayment;
+
       yearlyAvg.push({
         period: currentYear,
-        revenue: yearlyRevenue,
-        expenses: yearlyExpenses,
+        revenue: revenueYearlyEquivalent,
+        expenses: expensesYearlyEquivalent,
         ownAmount: ownFunds,
         ownRepayment: yearPrincipalOwn + yearInterestOwn,
         loanAmount: bankLoanAmount,
         loanRepayment: yearPrincipalBank + yearInterestBank,
         ownInterest: yearInterestOwn,
         loanInterest: yearInterestBank,
-        pl: yearlyRevenue - (yearTotalRepayment + yearlyExpenses),
+        pl: yearlyPL,
       });
 
+      // Capture Year 1
       if (currentYear === 1) {
         bankYear1Principal = yearPrincipalBank;
         bankYear1Interest = yearInterestBank;
@@ -281,6 +294,7 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
         ownYear1Interest = yearInterestOwn;
       }
 
+      // Reset yearly accumulators
       yearPrincipalBank = 0;
       yearInterestBank = 0;
       yearPrincipalOwn = 0;
@@ -288,9 +302,11 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
       yearTotalRepayment = 0;
       currentYear++;
     }
+
     currentMonth++;
   }
 
+  // --- 5. Return Calculations ---
   return {
     bankYear1Principal,
     bankYear1Interest,
@@ -304,7 +320,6 @@ const calculateEMI = (plan: EMIPlan): Calculations => {
     totalOwnInterest,
   };
 };
-
 const validateInputs = (plan: EMIPlan): string | null => {
   if (plan.typeOfLoan === '') return 'Type of Loan must be selected.';
   if (plan.typeOfLoan === 'Manual Entry' && plan.customLoanType.trim() === '') {
@@ -394,7 +409,7 @@ export function EMIPlanCalculator() {
   const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
 
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
-
+  const [showOwnFundsDetails, setShowOwnFundsDetails] = useState(true); // Default: show
   const handleInputChange = useCallback(
     (field: keyof EMIPlan, value: string | 'monthly' | 'yearly' | number) => {
       setEmiPlan((prev) => {
@@ -1340,7 +1355,7 @@ export function EMIPlanCalculator() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-center bg-blue-200 w-full py-2">Profit/Loss Overview</h2>
             </div>
-            <div className="mb-4 flex justify-center">
+            <div className="mb-4 flex justify-center items-center gap-4">
               <select
                 value={plPeriod}
                 onChange={(e) => setPlPeriod(e.target.value as 'monthly' | 'yearly')}
@@ -1349,6 +1364,16 @@ export function EMIPlanCalculator() {
                 <option value="yearly">Yearly</option>
                 <option value="monthly">Monthly</option>
               </select>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showOwnFundsDetails}
+                  onChange={(e) => setShowOwnFundsDetails(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium">Show Own Funds Details</span>
+              </label>
             </div>
             <div className="flex justify-end gap-4 mb-4">
               <motion.button
@@ -1370,18 +1395,28 @@ export function EMIPlanCalculator() {
                 Download P/L Report
               </motion.button>
             </div>
+            
             <div className="overflow-x-auto">
               <table className="w-full bg-white border border-gray-200 rounded-lg table-auto">
                 <thead>
                   <tr className="bg-gray-50">
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[5%]">{plPeriod === 'yearly' ? 'YR' : 'Month'}</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[5%]">
+                      {plPeriod === 'yearly' ? 'YR' : 'Month'}
+                    </th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Rev ($)</th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Exp ($)</th>
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Amt ($)</th>
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Pay ($)</th>
+
+                    {/* Conditionally Render Own Columns */}
+                    {showOwnFundsDetails && (
+                      <>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Amt ($)</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Pay ($)</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Int ($)</th>
+                      </>
+                    )}
+
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Loan Amt ($)</th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Loan Pay ($)</th>
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Own Int ($)</th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Loan Int ($)</th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">P/L ($)</th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">P/L Progress</th>
@@ -1389,18 +1424,28 @@ export function EMIPlanCalculator() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map((entry, index) => {
-                    const maxPL = Math.max(...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map(e => Math.abs(e.pl))) || 1;
+                    const maxPL = Math.max(
+                      ...(plPeriod === 'yearly' ? calculations.yearlyAvg : calculations.monthlyAvg).map(e => Math.abs(e.pl))
+                    ) || 1;
                     const progress = (Math.abs(entry.pl) / maxPL) * 100;
+
                     return (
                       <tr key={index}>
                         <td className="px-2 py-2 text-xs text-gray-700">{entry.period}</td>
                         <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.revenue)}</td>
                         <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.expenses)}</td>
-                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownAmount)}</td>
-                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownRepayment)}</td>
+
+                        {/* Conditionally Render Own Data */}
+                        {showOwnFundsDetails && (
+                          <>
+                            <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownAmount)}</td>
+                            <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownRepayment)}</td>
+                            <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownInterest)}</td>
+                          </>
+                        )}
+
                         <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.loanAmount)}</td>
                         <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.loanRepayment)}</td>
-                        <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.ownInterest)}</td>
                         <td className="px-2 py-2 text-xs text-gray-700">{formatCurrency(entry.loanInterest)}</td>
                         <td className={`px-2 py-2 text-xs font-medium ${entry.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {formatCurrency(entry.pl)}

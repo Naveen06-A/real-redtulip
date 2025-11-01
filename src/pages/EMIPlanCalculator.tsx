@@ -407,9 +407,10 @@ export function EMIPlanCalculator() {
   const [amortizationView, setAmortizationView] = useState<'combined' | 'loan' | 'own'>('combined');
   const [showAmortizationTable, setShowAmortizationTable] = useState<boolean>(false);
   const [plPeriod, setPlPeriod] = useState<'monthly' | 'yearly'>('yearly');
+  const [showOwnFundsDetails, setShowOwnFundsDetails] = useState(true); // Default: show
 
   const calculations = useMemo(() => calculateEMI(emiPlan), [emiPlan]);
-  const [showOwnFundsDetails, setShowOwnFundsDetails] = useState(true); // Default: show
+
   const handleInputChange = useCallback(
     (field: keyof EMIPlan, value: string | 'monthly' | 'yearly' | number) => {
       setEmiPlan((prev) => {
@@ -713,7 +714,7 @@ export function EMIPlanCalculator() {
     return { combinedSchedule, loanSchedule, ownSchedule };
   }, [emiPlan]);
 
-  const generatePLPDFBlobLocal = useCallback(() => generatePLPDFBlob(emiPlan, calculations), [emiPlan, calculations]);
+  const generatePLPDFBlobLocal = useCallback(() => generatePLPDFBlob(emiPlan, calculations, showOwnFundsDetails), [emiPlan, calculations, showOwnFundsDetails]);
   const generateAmortizationPDFBlobLocal = useCallback(
     () => generateAmortizationPDFBlob(emiPlan, amortizationSchedule.combinedSchedule),
     [emiPlan, amortizationSchedule.combinedSchedule]
@@ -726,8 +727,8 @@ export function EMIPlanCalculator() {
     () => generateOwnAmortizationPDFBlob(emiPlan, amortizationSchedule.ownSchedule),
     [emiPlan, amortizationSchedule.ownSchedule]
   );
-  const generateCompletePDFBlobLocal = useCallback(() => generateCompletePDFBlob(emiPlan, calculations), [emiPlan, calculations]);
-  const generateYearlyBreakdownPDFBlobLocal = useCallback(() => generateYearlyBreakdownPDFBlob(emiPlan, calculations), [emiPlan, calculations]);
+  const generateCompletePDFBlobLocal = useCallback(() => generateCompletePDFBlob(emiPlan, calculations, showOwnFundsDetails), [emiPlan, calculations, showOwnFundsDetails]);
+  const generateYearlyBreakdownPDFBlobLocal = useCallback(() => generateYearlyBreakdownPDFBlob(emiPlan, calculations, showOwnFundsDetails), [emiPlan, calculations, showOwnFundsDetails]);
 
   const viewPLPDF = useCallback(async () => {
     try {
@@ -1083,6 +1084,20 @@ export function EMIPlanCalculator() {
                       </option>
                     ))}
                   </select>
+                  
+                  {/* Own Amount Display Option */}
+                  <div className="mt-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={showOwnFundsDetails}
+                        onChange={(e) => setShowOwnFundsDetails(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium">Show Own Funds Details</span>
+                    </label>
+                  </div>
+
                   {emiPlan.typeOfLoan === 'Manual Entry' && (
                     <input
                       type="text"
@@ -1179,7 +1194,6 @@ export function EMIPlanCalculator() {
                     max="100"
                     step="1"
                     placeholder="70"
-                    // disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">
@@ -1192,7 +1206,6 @@ export function EMIPlanCalculator() {
                     max="100"
                     step="1"
                     placeholder="30"
-                    // disabled={emiPlan.typeOfLoan === 'Rent Roll'}
                   />
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-700">{formatCurrency(emiPlan.loanAmount * emiPlan.bankPercent / 100)}</td>
@@ -1364,16 +1377,6 @@ export function EMIPlanCalculator() {
                 <option value="yearly">Yearly</option>
                 <option value="monthly">Monthly</option>
               </select>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showOwnFundsDetails}
-                  onChange={(e) => setShowOwnFundsDetails(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm font-medium">Show Own Funds Details</span>
-              </label>
             </div>
             <div className="flex justify-end gap-4 mb-4">
               <motion.button
@@ -1793,11 +1796,17 @@ export function EMIPlanCalculator() {
                           <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Year</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Revenue ($)</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Expenses ($)</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Amount ($)</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Repayment ($)</th>
+                          {showOwnFundsDetails && (
+                            <>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Amount ($)</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Repayment ($)</th>
+                            </>
+                          )}
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Loan Amount ($)</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Loan Repayment ($)</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Interest ($)</th>
+                          {showOwnFundsDetails && (
+                            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Own Interest ($)</th>
+                          )}
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">Loan Interest ($)</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 uppercase tracking-wider">P/L ($)</th>
                         </tr>
@@ -1808,11 +1817,17 @@ export function EMIPlanCalculator() {
                             <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200">{entry.period}</td>
                             <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.revenue)}</td>
                             <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.expenses)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownAmount)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownRepayment)}</td>
+                            {showOwnFundsDetails && (
+                              <>
+                                <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownAmount)}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownRepayment)}</td>
+                              </>
+                            )}
                             <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.loanAmount)}</td>
                             <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.loanRepayment)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownInterest)}</td>
+                            {showOwnFundsDetails && (
+                              <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.ownInterest)}</td>
+                            )}
                             <td className="px-4 py-3 text-sm text-gray-600 border-r border-gray-200 text-right">{formatCurrency(entry.loanInterest)}</td>
                             <td className={`px-4 py-3 text-sm text-right ${entry.pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(entry.pl)}</td>
                           </tr>
